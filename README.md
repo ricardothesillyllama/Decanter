@@ -187,13 +187,32 @@ Two things worth knowing before you go deeper:
 - **Newer DXVK is not better here.** 2.x and 3.x need Vulkan 1.3 features
   MoltenVK does not fully implement. 1.10.3 is the one that works on macOS.
 
+## When a game names a missing Windows file
+
+Wine provides most of what games need, but some ask for a Visual C++ runtime or
+a codec by name. **Windows Components** on the game page installs those one at a
+time, or:
+
+```sh
+decanter install <game> vcrun      # the usual answer to a missing MSVC file
+decanter install <game> media      # video and audio codecs
+decanter recipes                   # everything available
+```
+
+This is the one part of Decanter that reaches the network: winetricks fetches
+the redistributables from their publishers. It is deliberately opt-in and
+per-component — installing everything up front is how a Windows environment goes
+wrong.
+
 ## Reporting a problem
 
 ```sh
 decanter report <game>     # lands on your clipboard
 ```
 
-Open an issue with the **A game does not work** template and paste it. The
+**Report a Problem** on the game page does both steps for you: it copies the
+report and opens a prefilled issue. Or run the command above and open the issue
+yourself with the **A game does not work** template. The
 report contains the machine, the runtime and backend *actually* in use (not
 merely the one configured), the DXVK build actually installed in the prefix,
 whether font names are mapped, detection evidence, an automatic diagnosis, and
@@ -314,17 +333,26 @@ ad-hoc otherwise.
     swift run selftest mods                # picking real failures out of a loader log
     swift run selftest reap                # stray Wine process parsing
     swift run selftest stop                # per-game stop must not kill other games
+    swift run selftest noise               # logs must not be mistaken for saves
+    swift run selftest explain             # mod failures in plain language
+    swift run selftest verbs               # winetricks verb validation
     swift run selftest launch              # real Windows executables, 32- and 64-bit
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **244 checks.**
+the no-dependency rule. **293 checks.**
 
 The launch suite is the interesting one: it clones the golden template into an
 isolated root and launches Wine's own real PE binaries (`winemine.exe`, 32-bit
 and 64-bit) through the full pipeline, then confirms via CoreGraphics that a
 window with real dimensions actually appeared. A rendered window is the proof
 the whole chain worked.
+
+### Releasing
+
+    ./install.sh              # build, sign, install locally
+    ./scripts/make-dmg.sh     # dist/Decanter-<version>.dmg for a release
+    ./scripts/make-demo.sh    # throwaway library of invented games, for screenshots
 
 ### Bugs these tests found
 
@@ -345,6 +373,10 @@ the whole chain worked.
   but a test that threw part-way skipped that — and Wine's services survive their
   parent, so the leak was permanent and invisible. Found only when a process that
   had been spinning at 100% CPU for six days turned up in a battery menu.
+- **A recipe verb reached `sh -c` unquoted.** Verbs were interpolated into a
+  shell string, so `decanter install X "vcrun; …"` ran whatever followed the
+  semicolon. winetricks is now invoked with an argv array, and verbs are
+  validated besides.
 - **`[ErrorHandler]` is a plugin name, not an error.** Matching mod-loader logs
   on the word "error" flagged plugin names and config keys, and a log full of
   false positives gets ignored.

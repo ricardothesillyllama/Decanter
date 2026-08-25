@@ -74,6 +74,14 @@ public struct RecipeRunner {
         public var logPath: URL?
     }
 
+    /// winetricks verb names are lowercase alphanumerics with dots, dashes and
+    /// underscores. Anything else is either a typo or an attempt at something.
+    public static func isValidVerb(_ verb: String) -> Bool {
+        !verb.isEmpty && verb.count <= 64 && verb.allSatisfy {
+            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-")
+        }
+    }
+
     /// Expands presets into concrete winetricks verbs.
     public static func expand(_ names: [String]) -> [String] {
         var out: [String] = []
@@ -114,10 +122,18 @@ public struct RecipeRunner {
         var transcript = ""
 
         for verb in verbs {
+            guard Self.isValidVerb(verb) else {
+                result.failed.append(verb)
+                progress("  refused \(verb): not a winetricks verb")
+                continue
+            }
             progress("installing \(verb) (this can take a while and may download)")
-            let r = try Shell.run(URL(filePath: "/bin/sh"),
-                                  ["-c", "\"\(winetricks.path)\" -q -f \(verb) 2>&1"],
-                                  env: env, timeout: 1800)
+            // Invoked directly, not through `sh -c`. The verb used to be
+            // interpolated into a shell string, so `decanter install X "vcrun; …"`
+            // ran whatever followed the semicolon. Passing an argv array cannot
+            // be reinterpreted as syntax, and the redirect it needed is
+            // unnecessary — Shell.run already captures stderr.
+            let r = try Shell.run(winetricks, ["-q", "-f", verb], env: env, timeout: 1800)
             transcript += "\n===== \(verb) (exit \(r.code)) =====\n\(r.out)\n\(r.err)\n"
             // winetricks is not reliable about exit codes; check its own words.
             let out = (r.out + r.err).lowercased()

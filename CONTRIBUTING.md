@@ -50,8 +50,12 @@ real failure:
 - **Do not widen a game's filesystem access.** No `z: -> /`, and no mapping
   Wine's user folders at the real home directory. `sandboxUserFolders` closes
   seventeen escape routes and preflight verifies them.
-- **Nothing is downloaded at runtime.** Users supply Wine, GPTK and DXVK.
-  Decanter takes its own copy and manages it.
+- **Nothing is downloaded at runtime**, with one stated exception: the Windows
+  Components feature runs winetricks, which fetches redistributables from their
+  publishers. Users supply Wine, GPTK and DXVK themselves; Decanter takes its
+  own copy and manages it.
+- **Never build a command as a string.** `Shell.run` takes an argv array for a
+  reason — a verb interpolated into `sh -c` was a command-injection bug.
 
 ## Adding a test
 
