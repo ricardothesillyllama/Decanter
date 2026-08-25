@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.2.0 — 2026-08-25
+
+First public release. The app was rebuilt around one idea: the page should read
+as a sentence and a button, and everything else should earn its place by being
+asked for.
+
+### The app
+
+- **Plain language on the main path.** Graphics modes are Apple, Standard and
+  Compatibility; D3DMetal, DXVK and WineD3D are a click away under Advanced,
+  because someone following a forum thread still needs to recognise them.
+- **Progressive disclosure.** Graphics, Mods, Saves & Maintenance, Windows
+  Components and Activity are collapsed until wanted, and open themselves when
+  something is wrong.
+- **Every action reports what it did**, and an Activity log keeps the last 50
+  with durations and full error text, so "what have I already tried?" is
+  answerable.
+- **Stop a running game.** A hung Windows game cannot be quit from its own
+  window and Force Quit does not list it, so there was no recovery short of
+  killing every Wine process on the machine.
+- **Windows Components** installs a Visual C++ runtime, codecs, a shader
+  compiler or .NET when a game names one. Opt-in per component: installing
+  everything up front is how a Windows environment goes wrong.
+- **Report a Problem** copies a full report and opens a prefilled issue.
+- **Mod failures in plain language**, with the exact log line kept underneath.
+- **Windows Environments** replaces the per-game Bottles list, which showed the
+  same settings twice.
+
+### Distribution
+
+- Ships as a **disk image**. Drag it into Applications.
+- Release binaries no longer embed the builder's home directory.
+
+### Fixed
+
+- **A command injection.** Recipe verbs were interpolated into a `sh -c`
+  string, so `decanter install X "vcrun; …"` ran what followed the semicolon.
+- Two URLs for the same folder compared unequal when one was directory-flagged,
+  so per-game stop matched nothing and the reaper's "spare these" guard
+  protected nothing.
+- The running indicator flicked back to Play a second after launch, because the
+  watcher read "Wine has not started yet" as "already exited".
+- The executable picker announced "only executable in this folder" before it had
+  looked, and got stuck when you switched games.
+- Logs were listed as save files, which made a safe rebuild look destructive.
+- Unmarked DXVK builds reported `DXVK ?` in every problem report.
+- Diagnose did nothing visible when the log was clean or absent.
+
+### Tests
+
+**328 checks.** The launch suite proves the font mapping end to end: it writes
+the mapping into a real prefix, has Wine read it back through its own parser,
+and confirms all of it survives a wineserver shutdown.
+
+### Known limitations
+
+- Unity 6 (6000.x) does not work on any available runtime or backend.
+- Releases are not notarised — no paid Apple Developer account — so the first
+  launch needs System Settings ▸ Privacy & Security.
+
 ## v0.1.1 — 2026-08-25
 
 Feedback and recovery. Actions used to be fire-and-forget: the pane went
