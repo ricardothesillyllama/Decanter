@@ -12,7 +12,10 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resourc
 APP=.build/Decanter.app
 
 echo "building Decanter $VERSION (release)"
-swift build -c release
+# -gnone keeps debug info out of the binary. Swift otherwise embeds the
+# absolute path of every source file, which puts the builder's home directory
+# — and so their username — inside anything published as a release artifact.
+swift build -c release -Xswiftc -gnone
 
 echo "assembling $APP"
 rm -rf "$APP"
@@ -20,6 +23,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist   "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp .build/release/DecanterApp "$APP/Contents/MacOS/Decanter"
+
+# Belt and braces: strip local and debug symbols regardless of how it was
+# built. Must happen before signing, since stripping invalidates a signature.
+strip -S "$APP/Contents/MacOS/Decanter" 2>/dev/null || true
 
 
 # The CLI goes to the first writable directory that is already on PATH, so this
@@ -29,6 +36,7 @@ for d in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
 done
 if [ -z "$CLI_DIR" ]; then CLI_DIR="$HOME/.local/bin"; mkdir -p "$CLI_DIR"; fi
 cp .build/release/decanter "$CLI_DIR/decanter"
+strip -S "$CLI_DIR/decanter" 2>/dev/null || true
 echo "CLI installed to $CLI_DIR/decanter"
 case ":$PATH:" in
   *":$CLI_DIR:"*) ;;
