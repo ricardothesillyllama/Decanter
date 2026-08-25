@@ -163,3 +163,28 @@ func runSaveNoiseTests(_ t: Harness) {
     t.expect(!SaveStore.isCachePath(["AppData", "LocalLow", "SomeStudio", "SomeGame"]),
              "an ordinary Unity save folder is not mistaken for a cache")
 }
+
+/// The raw loader line is accurate and useless: "Could not load [UIScale 0.9.0]
+/// : missing dependency" does not tell most people that a mod is broken, which
+/// one, or whether the game will still start.
+func runModExplainTests(_ t: Harness) {
+    t.suite("mod failures in plain language")
+
+    func e(_ s: String) -> String { ModInspector.explain(s) }
+
+    let dep = e("[Error  :   BepInEx] Could not load [UIScale 0.9.0] : missing dependency")
+    t.expect(dep.contains("UIScale 0.9.0"), "names the mod that failed")
+    t.expect(dep.lowercased().contains("not installed"), "says a required mod is missing")
+    t.expect(!dep.contains("[Error"), "drops the severity tag")
+
+    t.expect(e("[Error  :   BepInEx] Could not load [OldMod 1.0]").contains("failed to load"),
+             "a plain load failure is described as one")
+    t.expect(e("FATAL UNHANDLED EXCEPTION: System.NullReferenceException")
+                .lowercased().contains("loader itself crashed"),
+             "a fatal loader crash is distinguished from one broken mod")
+    t.expect(e("[Error :BepInEx] [CameraTools] threw NullReferenceException")
+                .contains("CameraTools"),
+             "a crash still names the mod")
+    t.expect(!e("[Error  :   BepInEx] something odd happened").isEmpty,
+             "an unrecognised failure still produces a sentence")
+}

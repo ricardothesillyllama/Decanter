@@ -127,18 +127,40 @@ final class AppModel: ObservableObject {
             // log back automatically if it dies early.
             Task.detached {
                 let started = Date()
+                // Wine takes a few seconds to get a process on the table. The
+                // watcher used to treat "not there yet" as "already exited", so
+                // Running flicked back to Play and the Stop button vanished
+                // about a second after launch, while the game was still coming
+                // up. Wait for it to appear before watching for it to leave.
+                var appeared = false
+                let appearBy = Date().addingTimeInterval(45)
                 while true {
                     try? await Task.sleep(nanoseconds: 700_000_000)
-                    let alive = Self.wineAlive(prefix: plan.bottle.prefixPath)
-                    if !alive {
+                    if Self.wineAlive(prefix: plan.bottle.prefixPath) {
+                        appeared = true
+                        continue
+                    }
+                    if !appeared {
+                        guard Date() > appearBy else { continue }
+                        // Never showed up at all: that is a failure to launch,
+                        // and the log is the only place that says why.
                         let rep = Diagnostics().analyse(logAt: plan.logFile)
-                        let quick = Date().timeIntervalSince(started) < 12
                         await MainActor.run {
                             self.running.remove(game.id)
-                            if quick && !rep.isEmpty { self.diagnosis[game.id] = rep }
+                            self.diagnosis[game.id] = rep
+                            if rep.isEmpty {
+                                self.lastError = "\(game.name) did not start, and its log says nothing. Try Troubleshoot Launch under Saves & Maintenance."
+                            }
                         }
                         return
                     }
+                    let rep = Diagnostics().analyse(logAt: plan.logFile)
+                    let quick = Date().timeIntervalSince(started) < 12
+                    await MainActor.run {
+                        self.running.remove(game.id)
+                        if quick && !rep.isEmpty { self.diagnosis[game.id] = rep }
+                    }
+                    return
                 }
             }
             reload()
@@ -460,10 +482,21 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Reads the last run's log and says what it found.
+    ///
+    /// This used to set `diagnosis` and return. When the log was clean — or
+    /// absent, because the game had never been run — nothing appeared, so the
+    /// button looked broken. Saying "nothing to report" is a result too.
     func diagnose(_ game: Game) {
-        guard let e = engine else { return }
-        let log = e.paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
-        diagnosis[game.id] = Diagnostics().analyse(logAt: log)
+        perform("Reading the last run's log…", key: "diagnose") { e in
+            let log = e.paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
+            let exists = FileManager.default.fileExists(atPath: log.path)
+            let rep = Diagnostics().analyse(logAt: log)
+            Task { @MainActor in self.diagnosis[game.id] = rep }
+            if !exists { return "No log yet — this game has not been run from Decanter." }
+            if rep.isEmpty { return "Nothing wrong found in the last run's log." }
+            return "Found \(rep.findings.count) thing(s) worth looking at."
+        }
     }
 
     func revealPluginsFolder(_ game: Game) {

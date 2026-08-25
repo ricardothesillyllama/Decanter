@@ -11,7 +11,10 @@ enum Selection: Hashable {
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     @State private var selection: Selection?
-    @State private var showInspector = true
+    // Off by default. It answers "why did Decanter choose this?", which only
+    // matters once something has gone wrong — showing detection weights to
+    // someone opening the app for the first time is noise.
+    @State private var showInspector = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -268,12 +271,29 @@ struct ModsCard: View {
 
             if !st.errors.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("The mod loader reported \(st.errors.count) failure\(st.errors.count == 1 ? "" : "s")")
+                    Text(st.errors.count == 1
+                         ? "One mod did not load"
+                         : "\(st.errors.count) mods did not load")
                         .font(.callout.weight(.medium))
                     ForEach(Array(st.errors.enumerated()), id: \.offset) { _, e in
-                        Text(e).font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(3)
+                        Text(ModInspector.explain(e))
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("The game usually still runs — the mods that failed just will not be active.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    // The exact wording is what you paste when asking for help.
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(st.errors.enumerated()), id: \.offset) { _, e in
+                                Text(e).font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.top, 5)
+                    } label: {
+                        Text("Exact message").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
                 .padding(10)
@@ -432,6 +452,46 @@ struct ActivityPanel: View {
     }
 }
 
+
+/// A collapsible section. Everything that is not "what is this and how do I
+/// play it" lives inside one of these.
+///
+/// The game page used to show graphics settings, six maintenance buttons, mod
+/// status and two paragraphs of prose all at once. For someone who has never
+/// heard of Wine that reads as a control panel with no obvious entry point, so
+/// the default is now closed and the primary path is one sentence and one
+/// button. Sections open themselves when there is something wrong.
+struct DetailSection<Content: View>: View {
+    let title: String
+    let systemImage: String
+    var subtitle: String? = nil
+    var startsOpen = false
+    @ViewBuilder var content: Content
+    @State private var expanded: Bool?
+
+    var body: some View {
+        let isOpen = Binding(get: { expanded ?? startsOpen },
+                             set: { expanded = $0 })
+        return DisclosureGroup(isExpanded: isOpen) {
+            content.padding(.top, 10)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage).imageScale(.medium).foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title).font(.headline)
+                if let subtitle, !isOpen.wrappedValue {
+                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.035)))
+    }
+}
+
 // MARK: - Game detail
 
 struct GameDetail: View {
@@ -447,15 +507,33 @@ struct GameDetail: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 14) {
                 header
+
+                // Problems surface themselves. Everything else waits to be asked.
                 if !model.leakedWine.isEmpty { StrayWineCard() }
                 if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
-                graphics
-                if model.mods[game.id]?.installed == true { ModsCard(game: game) }
-                maintenance
-                troubleshoot
-                if !model.activity.isEmpty { ActivityPanel() }
+                if !model.isOnRecommended(game) { recommendationBanner }
+
+                DetailSection(title: "Graphics", systemImage: "square.stack.3d.up",
+                              subtitle: bottle.map { Help.plainName($0.backend) }) {
+                    graphics
+                }
+                if model.mods[game.id]?.installed == true {
+                    DetailSection(title: "Mods", systemImage: "wrench.and.screwdriver",
+                                  subtitle: modsSubtitle,
+                                  startsOpen: !(model.mods[game.id]?.errors.isEmpty ?? true)) {
+                        ModsCard(game: game)
+                    }
+                }
+                DetailSection(title: "Saves & Maintenance", systemImage: "shippingbox",
+                              subtitle: "Import, rebuild, diagnose") {
+                    VStack(alignment: .leading, spacing: 18) { maintenance; troubleshoot }
+                }
+                if !model.activity.isEmpty {
+                    DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
+                                  subtitle: model.lastActivity?.detail) { ActivityPanel() }
+                }
             }
             .padding(26)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -477,31 +555,40 @@ struct GameDetail: View {
         }
     }
 
+    /// Collapsed summary for the Mods section: a failure is the only thing
+    /// worth pulling someone's attention to.
+    private var modsSubtitle: String? {
+        guard let st = model.mods[game.id], st.installed else { return nil }
+        if !st.errors.isEmpty { return "\(st.errors.count) failure(s)" }
+        return "\(st.plugins.count) plugin(s)"
+    }
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let problem = !(model.diagnosis[game.id]?.isEmpty ?? true)
+        let onRec = model.isOnRecommended(game)
+        return VStack(alignment: .leading, spacing: 12) {
             Text(game.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
-            HStack(spacing: 6) {
-                FactChip(text: game.detection.engine.label, icon: "cube.transparent")
-                    .help("The game engine Decanter identified from the files next to the executable.")
-                FactChip(text: game.detection.bitness.label)
-                    .help(Help.architecture)
-                if let b = bottle {
-                    FactChip(text: b.backend.label, tint: Palette.accent(scheme), icon: "square.stack.3d.up")
-                        .help(Help.backend(b.backend))
-                }
-                if game.detection.modded {
-                    FactChip(text: "modded", icon: "wrench.and.screwdriver")
-                        .help("A mod loader (BepInEx or Doorstop) sits next to this game. Its mods load through winhttp.dll.")
+
+            // One sentence saying where this game stands, before any control.
+            HStack(spacing: 7) {
+                StatusDot(color: isRunning ? Palette.running
+                            : problem ? Palette.danger
+                            : onRec ? Palette.running : Palette.caution,
+                          pulsing: isRunning)
+                Text(Help.status(running: isRunning, onRecommended: onRec, hasProblem: problem))
+                    .font(.title3)
+                if let d = game.lastPlayed, !isRunning {
+                    Text("· last played \(d.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             }
-            executablePicker
 
             HStack(spacing: 10) {
                 Button {
                     model.play(game)
                 } label: {
                     Label(isRunning ? "Running" : "Play", systemImage: isRunning ? "waveform" : "play.fill")
-                        .frame(minWidth: 88)
+                        .frame(minWidth: 96)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -518,68 +605,79 @@ struct GameDetail: View {
                     .disabled(model.busy != nil)
                     .help(Help.stop)
                 }
+            }
 
-                if let d = game.lastPlayed {
-                    Text("Last played \(d.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption).foregroundStyle(.secondary)
+            // What the game *is* — useful, but not the first thing anyone needs.
+            HStack(spacing: 6) {
+                FactChip(text: game.detection.engine.label, icon: "cube.transparent")
+                    .help("The game engine Decanter identified from the files next to the executable.")
+                FactChip(text: game.detection.bitness.label)
+                    .help(Help.architecture)
+                if game.detection.modded {
+                    FactChip(text: "modded", icon: "wrench.and.screwdriver")
+                        .help("A mod loader sits next to this game. Its mods load through winhttp.dll.")
                 }
             }
+            executablePicker
         }
     }
 
     private var graphics: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("Graphics").font(.headline)
-                InfoButton(text: Help.backendPicker, title: "Choosing a graphics backend")
-            }
-
-            recommendationBanner
-
+        VStack(alignment: .leading, spacing: 12) {
             if let b = bottle {
+                // Plain names in the control, real names underneath. Someone
+                // following a forum thread still needs to recognise "DXVK";
+                // someone who has never heard of Vulkan should not have to.
                 Picker("", selection: Binding(get: { b.backend },
                                               set: { model.setBackend(game, $0) })) {
                     ForEach(availableBackends, id: \.self) { bk in
-                        Text(bk == model.recommendation(for: game)?.backend ? "\(bk.label) ★" : bk.label)
+                        Text(Help.plainName(bk) + (bk == model.recommendation(for: game)?.backend ? " ★" : ""))
                             .tag(bk)
                     }
                 }
-                .labelsHidden().pickerStyle(.segmented).frame(width: 280)
-                .help(Help.backendPicker)
+                .labelsHidden().pickerStyle(.segmented).frame(width: 300)
                 .disabled(model.busy != nil)
 
-                // A live explanation of what is currently selected beats a
-                // tooltip you have to go hunting for.
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(Help.backend(b.backend))
+                HStack(spacing: 6) {
+                    Text(Help.oneLiner(b.backend))
                         .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(Help.whenToChoose(b.backend))
-                        .font(.caption).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    InfoButton(text: Help.backendPicker, title: "Graphics modes explained")
                 }
-                .frame(maxWidth: 520, alignment: .leading)
                 .animation(.easeInOut(duration: 0.15), value: b.backend)
 
-                HStack(spacing: 6) {
-                    Text("Runtime").font(.callout).foregroundStyle(.secondary)
-                    Picker("", selection: Binding(get: { b.runtimeID },
-                                                  set: { model.setRuntime(game, $0) })) {
-                        ForEach(model.pinnedRuntimes) { rt in
-                            Text(runtimeLabel(rt)).tag(rt.id)
-                        }
-                    }
-                    .labelsHidden().frame(width: 260)
-                    .help(Help.runtimePicker)
-                    .disabled(model.busy != nil)
-                    InfoButton(text: Help.runtimePicker, title: "Choosing a runtime")
-                }
-                .padding(.top, 2)
-
                 if b.backend == .dxvk && !dxvkReallyPresent {
-                    Label("This prefix has Wine's builtin Direct3D, not DXVK. Rebuild it to pick up DXVK.",
+                    Label("This game is set to Standard, but its Windows environment has Wine's built-in graphics instead. Rebuild it under Saves & Maintenance.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Everything below is for people who already know what it means.
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text("Windows version").font(.callout).foregroundStyle(.secondary)
+                            Picker("", selection: Binding(get: { b.runtimeID },
+                                                          set: { model.setRuntime(game, $0) })) {
+                                ForEach(model.pinnedRuntimes) { rt in
+                                    Text(runtimeLabel(rt)).tag(rt.id)
+                                }
+                            }
+                            .labelsHidden().frame(width: 260)
+                            .disabled(model.busy != nil)
+                            InfoButton(text: Help.runtimePicker, title: "Choosing a runtime")
+                        }
+                        LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
+                            .font(.caption).foregroundStyle(.tertiary)
+                        LabeledContent("Windows environment", value: b.prefixPath.lastPathComponent)
+                            .font(.caption).foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                        Button("Reveal in Finder") { model.revealPrefix(game) }
+                            .controlSize(.small)
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Text("Advanced").font(.callout).foregroundStyle(.secondary)
                 }
             }
         }
@@ -656,9 +754,12 @@ struct GameDetail: View {
                 HStack(spacing: 7) {
                     Image(systemName: onIt ? "checkmark.seal.fill" : "lightbulb.fill")
                         .foregroundStyle(onIt ? Palette.running : Palette.accent(scheme))
+                    // Same words as the Graphics control. Naming the same
+                    // thing "Standard" in one place and "DXVK" three inches
+                    // away makes them look like different settings.
                     Text(onIt
                          ? "You're on the recommended setup"
-                         : "Recommended: \(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(rec.backend.label)")
+                         : "Try \(Help.plainName(rec.backend)) graphics instead")
                         .font(.callout).bold()
                     FactChip(text: "\(rec.confidence) confidence")
                     Spacer()
@@ -674,9 +775,23 @@ struct GameDetail: View {
                             .help(Help.markWorking)
                     }
                 }
-                ForEach(Array(rec.reasons.prefix(3).enumerated()), id: \.offset) { _, r in
-                    Text("· \(r)").font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if !onIt {
+                    Text(Help.oneLiner(rec.backend))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                // The technical reasoning is the evidence, not the headline.
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(Help.backendTechnicalName(rec.backend))")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(Array(rec.reasons.prefix(3).enumerated()), id: \.offset) { _, r in
+                            Text("· \(r)").font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.top, 5)
+                } label: {
+                    Text("Why").font(.caption).foregroundStyle(.tertiary)
                 }
                 ForEach(Array(rec.caveats.prefix(2).enumerated()), id: \.offset) { _, c in
                     Label(c, systemImage: "exclamationmark.triangle")

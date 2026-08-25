@@ -8,6 +8,45 @@ enum Help {
 
     // MARK: Graphics backends
 
+    /// What to call a backend when the reader has never heard of Vulkan.
+    ///
+    /// The real names are kept as secondary text rather than dropped: someone
+    /// following a forum thread needs to recognise "DXVK", and hiding it would
+    /// make this app harder to get help with, not easier.
+    static func plainName(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "Apple"
+        case .dxvk:     "Standard"
+        case .wined3d:  "Compatibility"
+        }
+    }
+
+    /// One line. Anything longer belongs behind the info button.
+    static func oneLiner(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "Fastest. Best for modern 3D games."
+        case .dxvk:     "Works with the widest range of games."
+        case .wined3d:  "Slowest, but the most reliable. Try this if the others fail."
+        }
+    }
+
+    /// The name people will meet in forum threads and bug reports.
+    static func backendTechnicalName(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "D3DMetal (Direct3D to Metal)"
+        case .dxvk:     "DXVK (Direct3D to Vulkan)"
+        case .wined3d:  "WineD3D (Direct3D to OpenGL)"
+        }
+    }
+
+    /// A plain-language state for the top of the game page.
+    static func status(running: Bool, onRecommended: Bool, hasProblem: Bool) -> String {
+        if running { return "Running" }
+        if hasProblem { return "Last run had a problem" }
+        if onRecommended { return "Ready to play" }
+        return "Ready to play — a better setup is available"
+    }
+
     static func backend(_ b: GraphicsBackend) -> String {
         switch b {
         case .dxvk:

@@ -555,6 +555,60 @@ public struct ModInspector {
         return Array(out.suffix(8))
     }
 
+    /// Turns one loader log line into something a person can act on.
+    ///
+    /// The raw line is accurate and useless to most people: "Could not load
+    /// [UIScale 0.9.0] : missing dependency" does not say that a mod is broken,
+    /// which mod, or what to do. The original is kept and shown underneath —
+    /// it is what you paste when asking for help.
+    public static func explain(_ line: String) -> String {
+        func bracketed() -> String? {
+            guard let o = line.firstIndex(of: "["), let c = line[o...].firstIndex(of: "]"),
+                  line.index(after: o) < c else { return nil }
+            let inner = String(line[line.index(after: o)..<c])
+            // Skip BepInEx's own severity tag, which is also bracketed.
+            if inner.hasPrefix("Error") || inner.hasPrefix("Info")
+                || inner.hasPrefix("Message") || inner.hasPrefix("Warning")
+                || inner.hasPrefix("Fatal") || inner.hasPrefix("Debug") {
+                let rest = line[c...].dropFirst()
+                return Self.explainName(String(rest))
+            }
+            return inner
+        }
+        let low = line.lowercased()
+        let name = bracketed().map { "“\($0)”" } ?? "A mod"
+
+        if low.contains("missing dependency") || low.contains("missing dependencies") {
+            return "\(name) needs another mod that is not installed."
+        }
+        if low.contains("incompatible") {
+            return "\(name) does not work with this version of the game."
+        }
+        // Checked before the per-mod cases: a fatal crash usually *also*
+        // mentions an exception type, and "the loader died" is the more
+        // important fact — the game will not start at all.
+        if low.contains("fatal unhandled exception") {
+            return "The mod loader itself crashed, which stops the game from starting."
+        }
+        if low.contains("nullreferenceexception") {
+            return "\(name) crashed. Usually it does not match this version of the game."
+        }
+        if low.contains("could not load") || low.contains("failed to load") {
+            return "\(name) failed to load."
+        }
+        if low.contains("filenotfound") || low.contains("could not find file") {
+            return "\(name) is missing a file it needs."
+        }
+        return "\(name) reported a problem."
+    }
+
+    /// Pulls a plugin name out of the text after the severity tag.
+    static func explainName(_ rest: String) -> String? {
+        guard let o = rest.firstIndex(of: "["), let c = rest[o...].firstIndex(of: "]"),
+              rest.index(after: o) < c else { return nil }
+        return String(rest[rest.index(after: o)..<c])
+    }
+
     public func inspect(game: Game) -> Status {
         var st = Status()
         let dir = game.exePath.deletingLastPathComponent()
