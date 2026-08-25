@@ -4,8 +4,8 @@ import UniformTypeIdentifiers
 
 enum Selection: Hashable {
     case game(UUID)
-    case bottle(UUID)
     case saves
+    case storage
 }
 
 struct RootView: View {
@@ -28,10 +28,8 @@ struct RootView: View {
                     if let g = model.games.first(where: { $0.id == id }) {
                         GameDetail(game: g, showInspector: $showInspector)
                     } else { EmptyState() }
-                case .bottle(let id):
-                    if let b = model.bottles.first(where: { $0.id == id }) {
-                        BottleDetail(bottle: b)
-                    } else { EmptyState() }
+                case .storage:
+                    StorageView()
                 case .saves:
                     SavesView()
                 case nil:
@@ -118,14 +116,13 @@ struct Sidebar: View {
             }
 
             Section {
-                ForEach(model.bottles) { b in
-                    BottleRow(bottle: b).tag(Selection.bottle(b.id))
-                }
-            } header: {
-                HStack(spacing: 5) {
-                    Text("Bottles")
-                    InfoButton(text: Help.bottlesSection, title: "Bottles")
-                }
+                // One entry, not one per game. Each game's Windows environment
+                // is already on its own page under Graphics; listing every
+                // prefix again here was the same settings in two places, and
+                // "bottle" is a word nobody arrives knowing.
+                Label("Windows Environments", systemImage: "internaldrive")
+                    .tag(Selection.storage)
+                    .help(Help.bottlesSection)
             }
         }
         .listStyle(.sidebar)
@@ -653,31 +650,47 @@ struct GameDetail: View {
                 }
 
                 // Everything below is for people who already know what it means.
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Text("Windows version").font(.callout).foregroundStyle(.secondary)
-                            Picker("", selection: Binding(get: { b.runtimeID },
-                                                          set: { model.setRuntime(game, $0) })) {
-                                ForEach(model.pinnedRuntimes) { rt in
-                                    Text(runtimeLabel(rt)).tag(rt.id)
-                                }
+                // The engine is not an advanced setting: it is the other half
+                // of "why won't this game run", and burying it made Wine 11
+                // effectively unavailable to anyone who did not already know
+                // it existed.
+                if model.pinnedRuntimes.count > 1 {
+                    Divider().padding(.vertical, 2)
+                    HStack(spacing: 6) {
+                        Text("Engine").font(.callout).foregroundStyle(.secondary)
+                        Picker("", selection: Binding(get: { b.runtimeID },
+                                                      set: { model.setRuntime(game, $0) })) {
+                            ForEach(model.pinnedRuntimes) { rt in
+                                Text(runtimeLabel(rt)).tag(rt.id)
                             }
-                            .labelsHidden().frame(width: 260)
-                            .disabled(model.busy != nil)
-                            InfoButton(text: Help.runtimePicker, title: "Choosing a runtime")
                         }
+                        .labelsHidden().frame(width: 240)
+                        .disabled(model.busy != nil)
+                        InfoButton(text: Help.runtimeWhich, title: "Which engine?")
+                    }
+                    if let rt = model.pinnedRuntimes.first(where: { $0.id == b.runtimeID }) {
+                        Text(Help.runtimeOneLiner(rt.kind))
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                DisclosureGroup {
+                    // DisclosureGroup centres its content unless told not to.
+                    VStack(alignment: .leading, spacing: 6) {
                         LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
-                            .font(.caption).foregroundStyle(.tertiary)
+                        LabeledContent("Engine build", value: b.runtimeID)
                         LabeledContent("Windows environment", value: b.prefixPath.lastPathComponent)
-                            .font(.caption).foregroundStyle(.tertiary)
                             .textSelection(.enabled)
                         Button("Reveal in Finder") { model.revealPrefix(game) }
-                            .controlSize(.small)
+                            .controlSize(.small).padding(.top, 4)
                     }
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 8)
                 } label: {
-                    Text("Advanced").font(.callout).foregroundStyle(.secondary)
+                    Text("Technical details").font(.callout).foregroundStyle(.secondary)
                 }
             }
         }
@@ -789,6 +802,7 @@ struct GameDetail: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 5)
                 } label: {
                     Text("Why").font(.caption).foregroundStyle(.tertiary)
@@ -888,8 +902,8 @@ struct GameDetail: View {
 
     private func runtimeLabel(_ rt: RuntimeSpec) -> String {
         switch rt.kind {
-        case .wine: "Wine \(rt.version)"
-        case .gptk: "Game Porting Toolkit \(rt.version)"
+        case .wine: "Wine \(rt.version) — newest"
+        case .gptk: "Apple Game Porting Toolkit"
         }
     }
 
@@ -926,10 +940,106 @@ struct DiagnosisCard: View {
 
 // MARK: - Inspector
 
+
+/// Disk and housekeeping for every game's Windows environment.
+///
+/// This replaced a per-game "Bottles" list. Each game's environment is already
+/// configured on its own page, so listing them all again showed the same
+/// settings twice — and "bottle" is a word nobody arrives knowing.
+struct StorageView: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Windows Environments").font(.largeTitle).bold()
+                    Text("Every game runs inside its own private copy of Windows. They are cloned, so a second copy costs almost no disk — and no game can see another's files.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 640, alignment: .leading)
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.games) { g in
+                        if let b = model.bottle(for: g) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "internaldrive").foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(g.name).font(.callout.weight(.medium))
+                                    Text("\(Help.plainName(b.backend)) graphics · rebuilt \(b.generation) time\(b.generation == 1 ? "" : "s")")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Show Files") { model.revealPrefix(g) }
+                                    .controlSize(.small)
+                            }
+                            .padding(.vertical, 8)
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxWidth: 640, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Housekeeping").font(.headline)
+                    ActionButton(title: "Clean Up Leftovers", systemImage: "trash",
+                                 key: "gc",
+                                 blurb: "Delete Windows environments left behind by games you removed.") { model.gc() }
+                        .frame(maxWidth: 320)
+                }
+
+                if !model.activity.isEmpty { ActivityPanel().frame(maxWidth: 640) }
+            }
+            .padding(26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("Windows Environments")
+    }
+}
+
 struct EvidenceInspector: View {
+    @EnvironmentObject var model: AppModel
     let game: Game
     var body: some View {
         Form {
+            // Status first. The pane used to open with detection weights, which
+            // answer a question nobody has yet — "how is this game doing right
+            // now" is the one they do have.
+            Section {
+                LabeledContent("State") {
+                    Text(model.running.contains(game.id) ? "Running" : "Not running")
+                }
+                if let ov = model.saveOverview[game.id] {
+                    LabeledContent("Saves") {
+                        Text(ov.files == 0 ? "none yet" : "\(ov.files) file(s)")
+                    }
+                    LabeledContent("Protected") {
+                        Text(model.externalised.contains(game.id) ? "yes" : "not yet")
+                            .foregroundStyle(model.externalised.contains(game.id)
+                                             ? Palette.running : Palette.caution)
+                            .font(.callout)
+                    }
+                    if !model.externalised.contains(game.id) {
+                        Button("Protect Saves") { model.externaliseSaves(game) }
+                            .controlSize(.small).disabled(model.busy != nil)
+                    }
+                }
+                if let st = model.mods[game.id], st.installed {
+                    LabeledContent("Mods") {
+                        Text(st.errors.isEmpty ? "\(st.plugins.count) loaded"
+                             : "\(st.errors.count) failed")
+                            .foregroundStyle(st.errors.isEmpty ? Color.primary : Palette.caution)
+                    }
+                }
+                if let d = game.lastPlayed {
+                    LabeledContent("Last played") {
+                        Text(d.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+            } header: {
+                Text("Right now")
+            }
             Section {
                 Text(Help.inspectorPane)
                     .font(.caption).foregroundStyle(.secondary)

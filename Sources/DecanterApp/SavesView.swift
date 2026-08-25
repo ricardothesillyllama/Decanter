@@ -36,7 +36,11 @@ struct SavesView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Text("Saves").font(.system(size: 26, weight: .semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Saves").font(.system(size: 26, weight: .semibold))
+                    Text("Every game's save files in one place. Protect them so rebuilding a game cannot lose progress.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 InfoButton(text: Help.savesPane, title: "How saves are handled")
                 Spacer()
                 Button {
@@ -101,7 +105,12 @@ struct SavesView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "externaldrive.badge.checkmark")
                         .font(.system(size: 34, weight: .light)).foregroundStyle(.tertiary)
-                    Text("Select a game to see its saves").foregroundStyle(.secondary)
+                    VStack(spacing: 6) {
+                        Text("Select a game to see its saves").foregroundStyle(.secondary)
+                        Text("Saves are found by comparing the game's Windows environment against a clean one, so anything the game wrote shows up here.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center).frame(maxWidth: 380)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -118,17 +127,18 @@ struct SavesView: View {
                         .help(Help.snapshotNow)
                     if !model.externalised.contains(g.id) {
                         Button("Protect") { model.externaliseSaves(g) }
+                            .help("Moves this game's saves out of its Windows environment and links them back in, so rebuilding the environment cannot destroy them. The game does not notice.")
                             .help(Help.externaliseOne)
                     }
                 }
                 .disabled(model.busy != nil)
 
                 if model.externalised.contains(g.id) {
-                    Label("Saves live outside the prefix — rebuilding it will not lose them.",
+                    Label("Protected. These saves are stored outside the game's Windows environment, so rebuilding it cannot lose them.",
                           systemImage: "checkmark.shield")
                         .font(.caption).foregroundStyle(Palette.running)
                 } else {
-                    Label("Saves are still inside the prefix. Rebuilding it would erase them.",
+                    Label("Not protected yet. These saves sit inside the game's Windows environment — press Protect so rebuilding it cannot erase them.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
                 }
@@ -149,7 +159,7 @@ struct SavesView: View {
                             Text("… and \(files.count - 120) more").font(.caption).foregroundStyle(.tertiary)
                         }
                         if files.isEmpty {
-                            Text("Nothing found yet — play the game once and it will appear here.")
+                            Text("No saves yet. Play the game once, save inside it, and the files will appear here.")
                                 .font(.caption).foregroundStyle(.tertiary)
                         }
                     }
@@ -180,7 +190,7 @@ struct SavesView: View {
                             Divider()
                         }
                         if snaps.isEmpty {
-                            Text("No snapshots yet. One is taken automatically before anything destructive.")
+                            Text("No snapshots yet. Decanter takes one automatically before anything that could lose saves, and you can take one yourself at any time.")
                                 .font(.caption).foregroundStyle(.tertiary)
                         }
                     }

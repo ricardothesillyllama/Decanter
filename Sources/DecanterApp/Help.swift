@@ -30,6 +30,35 @@ enum Help {
         }
     }
 
+    /// What the runtime choice actually means, in one line each.
+    ///
+    /// It was labelled "Windows version", which is simply wrong — both run the
+    /// same Windows API level. The difference is how old the Wine underneath
+    /// is, and whether Apple's graphics translation is available at all.
+    static func runtimeOneLiner(_ kind: RuntimeKind) -> String {
+        switch kind {
+        case .gptk: "Apple's build. The only one with Apple graphics, and usually the fastest. Based on an older Wine, so a few newer games refuse it."
+        case .wine: "The current Wine. Better with recent games and with older 32-bit ones, but no Apple graphics — use Standard or Compatibility with it."
+        }
+    }
+
+    static let runtimeWhich = """
+    Two engines run the Windows side, and they are not versions of Windows — \
+    both provide the same Windows APIs.
+
+    **Apple's Game Porting Toolkit** is the only one that offers Apple \
+    graphics, which is normally the fastest option and the right default for \
+    modern 3D games. It is built on Wine 7.7 from 2022, so a game released \
+    since then may not run on it.
+
+    **Wine 11** is current. Reach for it when a game will not start on Apple's \
+    build, when the game is 32-bit, or when it is recent. It has no Apple \
+    graphics, so pair it with Standard or Compatibility.
+
+    Changing this rebuilds the game's Windows environment, which takes about \
+    half a second. Saves are kept.
+    """
+
     /// The name people will meet in forum threads and bug reports.
     static func backendTechnicalName(_ b: GraphicsBackend) -> String {
         switch b {
