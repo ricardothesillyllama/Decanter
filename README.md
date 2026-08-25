@@ -75,6 +75,58 @@ you, on purpose.
 > The screenshots above are Decanter running against a throwaway demo library.
 > `./scripts/make-demo.sh` builds it, if you want the same starting point.
 
+## How this compares
+
+There are several ways to run Windows games on a Mac, and Decanter is not the
+right answer to all of them. It is worth being plain about that.
+
+| | What it is | Status |
+|---|---|---|
+| **[CrossOver](https://www.codeweavers.com/crossover)** | Commercial, paid, with support staff and by far the broadest compatibility | Actively developed |
+| **[Sikarugir](https://github.com/Sikarugir-App/Sikarugir)** | Successor to Wineskin. Wraps a Windows program into a self-contained `.app`, with five renderers including DXMT and VKD3D | Actively developed, ~3.5k stars |
+| **[Whisky](https://github.com/Whisky-App/Whisky)** | The bottle manager most people used | **Archived 2025.** Its runtime repository was deleted, so installed copies could not finish setting up |
+| **[Bourbon](https://github.com/leonewt0n/Bourbon)** | A fork of Whisky | **Archived December 2025**, points users to Sikarugir |
+| **Decanter** | A library manager: add a game, it decides how to run it | New, and tested by one person so far |
+
+**If you want the most compatible option, buy CrossOver.** It is better funded
+than any of this and it is not close.
+
+**If you want to hand someone a single `.app` that runs a Windows program**,
+Sikarugir is built for exactly that and Decanter is not. It also supports DXMT
+and VKD3D, which Decanter does not, and runs on Intel Macs, which Decanter does
+not.
+
+### What Decanter does differently
+
+**It never downloads a runtime.** You supply Wine and the Game Porting Toolkit;
+Decanter takes its own copy into its own store. This is the whole reason the
+project exists — two of the four projects above are archived, and Whisky's
+installed copies broke because something upstream disappeared. Nothing upstream
+can reach into a Decanter install.
+
+**It decides for you, and says why.** Five runtime and renderer combinations
+exist and picking between them by hand is miserable. Decanter reads the game's
+engine, architecture and graphics API, combines that with what has already
+worked on your machine for games of the same shape, and applies the answer.
+Two of its rules were measured rather than guessed — a game that plays video
+cannot use D3DMetal, and 32-bit games belong on current Wine rather than the
+Game Porting Toolkit's 2022 base.
+
+**Games cannot see your files.** Whisky mapped your entire filesystem into every
+bottle, so any Windows binary could read `~/Documents`, `~/.ssh` and iCloud.
+Decanter grants a game its own folder and a shared games directory, closes the
+seventeen further routes Wine opens through its mapped user folders, and
+verifies it before every launch.
+
+**Saves survive a rebuild.** Broken environments are replaced rather than
+repaired, because repair heuristics rot. That is only safe because saves are
+moved out of the environment first and linked back in.
+
+**It is much younger than the alternatives**, has been used in anger by one
+person, and is not notarised. If you need something proven today, use one of
+the others — and if Decanter is ever archived, the design at least means your
+installed games keep working.
+
 ## Questions
 
 **Will my game work?**
@@ -95,11 +147,9 @@ finish setting itself up. Decanter never downloads a runtime, so nothing
 upstream can break your installed games. It is more work once, and then it
 cannot happen to you.
 
-**How is this different from CrossOver or Whisky?**
-CrossOver is paid, commercial, and supports far more software. Whisky is
-archived. Decanter is narrower than either: it manages Wine for games on Apple
-Silicon, and its one real idea is that it *tells you which settings to use*
-instead of leaving five combinations for you to try by hand.
+**How is this different from CrossOver, Sikarugir or Whisky?**
+See [How this compares](#how-this-compares) above — including where those are
+the better choice.
 
 **Can games see the rest of my Mac?**
 No. Each game gets its own private Windows environment containing its own
