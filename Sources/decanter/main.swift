@@ -151,6 +151,16 @@ case "doctor":
     out("  games: \(e.store.state.games.count)   bottles: \(e.store.state.bottles.count)")
     // A leaked Wine session keeps burning CPU under Decanter's name long after
     // the app quits, so the only place the user can see it is here.
+    // DXMT is the only route to Direct3D 11 straight to Metal, and whether a
+    // Wine build can host it is a property of the binary, not a guess.
+    for r in h.pinnedRuntimes {
+        let m = e.runtimes.metalHosting(of: r)
+        if m.driverPath == nil { continue }
+        let verdict = m.looksCapable ? "could host DXMT (untested)"
+            : m.hasCocoaViewAccess ? "partial — no WineMetalView"
+            : "cannot host DXMT (macOS driver symbols hidden)"
+        out("  \(r.id): \(verdict)")
+    }
     let strays = e.strayWineProcesses()
     let old = strays.filter { $0.age > 3600 }
     let hot = strays.filter { $0.cpu >= 50 }

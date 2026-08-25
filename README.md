@@ -330,8 +330,13 @@ Screen Recording permission.
 
 - **Unity 6 (6000.x) does not work** on any runtime or backend currently
   available. Decanter detects it and says so rather than letting you guess.
-- **DXMT** (Direct3D 11 straight to Metal) needs a Wine that exposes hidden
-  `winemac.drv` symbols. No FOSS build currently does.
+- **DXMT** (Direct3D 11 straight to Metal) is not wired up yet. It needs a Wine
+  whose `winemac.drv` symbols are exported rather than hidden; DXMT's own
+  documentation names a FOSS CrossOver Wine 24+ built from source as sufficient.
+  `decanter doctor` now measures this for each pinned runtime, so you can see
+  whether yours could host it. Measured here: Gcenx's Wine 11.0 exports none,
+  Apple's Game Porting Toolkit 7.7 exports several including a `WineMetalView`
+  class — promising, but DXMT does not claim support for it.
 - Nothing is notarised; see above.
 
 ## Status
@@ -347,7 +352,7 @@ The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
 Swift with no external dependencies — every dependency is a future 404.
-**328 checks** run in a hand-rolled harness; see
+**337 checks** run in a hand-rolled harness; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing

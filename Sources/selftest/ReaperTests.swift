@@ -76,3 +76,37 @@ func runRecipeVerbTests(_ t: Harness) {
         }
     }
 }
+
+/// Whether a Wine build can host DXMT is a property of its binary — the macOS
+/// driver's symbols are hidden unless the build exported them. Worth measuring
+/// rather than asserting, since the README asserted it wrongly for a while.
+func runMetalHostingTests(_ t: Harness) {
+    t.suite("DXMT hosting capability")
+    let mgr = RuntimeManager(paths: Paths())
+
+    var checked = 0
+    for r in (try? Store(paths: Paths()))?.state.runtimes ?? [] {
+        let m = mgr.metalHosting(of: r)
+        guard m.driverPath != nil else { continue }
+        checked += 1
+        // Whatever the answer, it must be self-consistent.
+        t.expect(!m.looksCapable || m.hasCocoaViewAccess,
+                 "\(r.id): capable implies the cocoa view accessors are exported")
+        t.expect(!m.looksCapable || m.hasMetalView,
+                 "\(r.id): capable implies a WineMetalView class is exported")
+        t.expect(m.exportedSymbols.allSatisfy { $0.contains("macdrv") || $0.contains("WineMetalView") },
+                 "\(r.id): only relevant symbols are collected")
+    }
+    if checked == 0 { t.skip("DXMT hosting", "no pinned runtime with a macOS driver") }
+    else { t.expect(true, "measured \(checked) runtime(s) for DXMT hosting") }
+
+    // A runtime pointing nowhere must answer "no", not crash.
+    let bogus = RuntimeSpec(id: "nope", kind: .wine, version: "0",
+                            root: URL(filePath: "/nonexistent"),
+                            winePath: URL(filePath: "/nonexistent/wine"),
+                            wineserverPath: nil, supports32Bit: false,
+                            backends: [], pinnedAt: Date())
+    let m = mgr.metalHosting(of: bogus)
+    t.expect(m.driverPath == nil, "a missing runtime has no driver")
+    t.expect(!m.looksCapable, "…and is not reported as capable")
+}

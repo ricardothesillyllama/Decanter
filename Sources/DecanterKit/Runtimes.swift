@@ -18,6 +18,55 @@ public struct RuntimeManager {
     }
 
     /// Known install locations, in preference order.
+    /// Whether a Wine build could host DXMT, Direct3D 11 translated straight
+    /// to Metal.
+    ///
+    /// DXMT attaches to Wine's macOS driver, and those symbols are hidden by
+    /// default — a build compiled with `-fvisibility=hidden` and no patch
+    /// exports nothing, so DXMT cannot load however it is installed. That is a
+    /// property of the binary, so it can be measured rather than guessed at.
+    ///
+    /// Measured on this machine: Gcenx's Wine 11.0 exports 0 `macdrv_*`
+    /// symbols; Apple's Game Porting Toolkit 7.7 exports several, including
+    /// `macdrv_get_cocoa_view` and a `WineMetalView` class. DXMT's own
+    /// documentation names FOSS CrossOver Wine 24+ as sufficient and says
+    /// nothing about the Game Porting Toolkit, so a positive result here means
+    /// "worth trying", not "supported".
+    public struct MetalHosting: Sendable {
+        public var driverPath: URL?
+        public var exportedSymbols: [String] = []
+        /// The view accessors DXMT needs to hand Metal a surface to draw into.
+        public var hasCocoaViewAccess: Bool {
+            exportedSymbols.contains { $0.contains("macdrv_get_cocoa_view") }
+                || exportedSymbols.contains { $0.contains("macdrv_get_client_cocoa_view") }
+        }
+        public var hasMetalView: Bool {
+            exportedSymbols.contains { $0.contains("WineMetalView") }
+        }
+        public var looksCapable: Bool { hasCocoaViewAccess && hasMetalView }
+    }
+
+    public func metalHosting(of runtime: RuntimeSpec) -> MetalHosting {
+        var out = MetalHosting()
+        let fm = FileManager.default
+        for name in ["winemac.drv.so", "winemac.so"] {
+            let u = runtime.root.appending(path: "lib/wine/x86_64-unix/\(name)")
+            if fm.fileExists(atPath: u.path) { out.driverPath = u; break }
+        }
+        guard let driver = out.driverPath else { return out }
+        // `nm -gU` lists external, defined symbols — exactly "what can another
+        // library link against".
+        guard let r = try? Shell.run(URL(filePath: "/usr/bin/nm"),
+                                     ["-gU", driver.path], timeout: 60) else { return out }
+        out.exportedSymbols = r.out.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: " ")
+            guard let last = parts.last else { return nil }
+            let name = String(last)
+            return name.contains("macdrv") || name.contains("WineMetalView") ? name : nil
+        }
+        return out
+    }
+
     public func discover() -> [Candidate] {
         var found: [Candidate] = []
         let wineApps = [
