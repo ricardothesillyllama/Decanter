@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.1.1 — 2026-08-25
+
+Feedback and recovery. Actions used to be fire-and-forget: the pane went
+quietly disabled while something ran, with no sign of which one was in
+flight, no result, and any error gone the moment the next thing happened.
+
+- Every action shows its own progress, says what it is for, and reports what
+  it did.
+- **Activity panel** keeping the last 50 actions with durations and full
+  error text, so "what have I already tried?" is answerable.
+- **Stop** a running game. A hung Windows game cannot be quit from its own
+  window and Force Quit does not list it — Wine processes are not
+  applications — so the only recovery was killing every Wine session at once.
+- The **executable picker no longer disappears**. Switching the chosen .exe
+  cleared its cache and nothing re-scanned it, so the control vanished until
+  you navigated away and back. It now shows what it is doing instead.
+- **A second game in the same folder** can be added as its own library entry,
+  with its own prefix. On request only: Decanter cannot tell a game from a
+  config tool or a crash handler, and guessing would fill the library with
+  junk. Adding the same executable twice is refused.
+- **Unmarked DXVK builds are identified** by matching the installed
+  `d3d11.dll` against staged versions, instead of reporting `DXVK ?` in every
+  problem report.
+- **Mod loader failures are surfaced** from BepInEx's own log, which is the
+  only place a broken plugin explains itself.
+
+### Fixed
+
+- Two URLs naming the same folder compared unequal when one was
+  directory-flagged. Per-game stop matched nothing, and the reaper's "spare
+  these prefixes" guard protected nothing — it would have killed a running
+  game it was told to leave alone.
+- Release binaries embedded the builder's home directory, and so their
+  username, in debug info. `strings` does not surface it.
+- `install.sh` signed the installed copy after copying, leaving the bundle it
+  built unsigned and carrying the wrong identifier.
+
+244 checks.
+
 ## v0.1.0 — 2026-08-25
 
 First tagged build. Runs Windows games on Apple Silicon macOS via Wine, with a
