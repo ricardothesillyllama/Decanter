@@ -21,8 +21,6 @@ cp Resources/Info.plist   "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp .build/release/DecanterApp "$APP/Contents/MacOS/Decanter"
 
-rm -rf /Applications/Decanter.app
-cp -R "$APP" /Applications/Decanter.app
 
 # The CLI goes to the first writable directory that is already on PATH, so this
 # works without Homebrew. ~/.local/bin is created if nothing else fits.
@@ -44,10 +42,16 @@ esac
 # its trust setting changed is usable for signing but invisible to -v.
 if security find-certificate -c "Decanter Dev" >/dev/null 2>&1; then
   echo "signing with the stable 'Decanter Dev' identity"
-  codesign --force --deep -s "Decanter Dev" /Applications/Decanter.app
+  codesign --force --deep -s "Decanter Dev" "$APP"
 else
   echo "no 'Decanter Dev' identity found - falling back to ad-hoc."
   echo "  permissions will reset on every rebuild until you create one; see README."
-  codesign --force --deep -s - /Applications/Decanter.app
+  codesign --force --deep -s - "$APP"
 fi
+
+# Install the signed bundle, not an unsigned copy of it. Signing /Applications
+# afterwards left the bundle in .build unsigned, so anything packaged from it
+# for a release shipped without a signature and with the wrong identifier.
+rm -rf /Applications/Decanter.app
+cp -R "$APP" /Applications/Decanter.app
 echo "installed Decanter $VERSION."
