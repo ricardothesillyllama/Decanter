@@ -5,8 +5,16 @@ import Foundation
 public struct Paths: Sendable {
     public let root: URL
     public init(root: URL? = nil) {
-        self.root = root ?? FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Application Support/Decanter")
+        // DECANTER_ROOT runs the app and CLI against an isolated store. Used
+        // for the documentation screenshots and for trying things out without
+        // touching a real library.
+        if let root { self.root = root }
+        else if let env = ProcessInfo.processInfo.environment["DECANTER_ROOT"], !env.isEmpty {
+            self.root = URL(filePath: (env as NSString).expandingTildeInPath)
+        } else {
+            self.root = FileManager.default.homeDirectoryForCurrentUser
+                .appending(path: "Library/Application Support/Decanter")
+        }
     }
     public var runtimes: URL   { root.appending(path: "runtimes") }
     /// One golden template per runtime. A prefix built by Wine 11 is not safe

@@ -128,3 +128,38 @@ func runStopScopeTests(_ t: Harness) {
     t.expect(matches(stray(URL(filePath: mine.path + "/"))),
              "a trailing slash does not change the identity")
 }
+
+/// A save browser that lists log files is worse than none: it offers junk for
+/// backup and, more damagingly, warns that "saves are still inside the prefix"
+/// when the only things in there are logs — so rebuilding looks dangerous when
+/// it is not.
+func runSaveNoiseTests(_ t: Harness) {
+    t.suite("save discovery noise")
+
+    func noise(_ path: String) -> Bool { SaveStore.isNoise(URL(filePath: "/x/" + path)) }
+
+    // Unity names its player log with a .txt extension, which is exactly how it
+    // slipped past an extension-only filter and showed up as a 400 KB "save".
+    t.expect(noise("output_log.txt"), "Unity's output_log.txt is not a save")
+    t.expect(noise("Player.log"), "Unity's Player.log is not a save")
+    t.expect(noise("prev_output_log.txt"), "the rolled copy is not a save either")
+    t.expect(noise("index.dat"), "Internet Explorer's index.dat is not a save")
+    t.expect(noise("LogOutput.log"), "BepInEx's loader log is not a save")
+    t.expect(noise("something.tmp"), "temp files are still skipped")
+
+    // The point of the filter is to keep real saves, so over-matching is the
+    // failure that actually loses data.
+    t.expect(!noise("savedata.txt"), "a plainly named .txt save is kept")
+    t.expect(!noise("player.dat"), "a .dat save is kept")
+    t.expect(!noise("prefs"), "an extensionless prefs file is kept")
+    t.expect(!noise("catalog.json"), "a .json save is kept")
+    t.expect(!noise("slot1.sav"), "a .sav file is kept")
+
+    // Windows' own cache directories should never be walked into.
+    t.expect(SaveStore.isCachePath(["AppData", "Local", "Microsoft", "Windows", "INetCache"]),
+             "INetCache is treated as a cache directory")
+    t.expect(SaveStore.isCachePath(["INetCache", "Content.IE5"]),
+             "Content.IE5 is treated as a cache directory")
+    t.expect(!SaveStore.isCachePath(["AppData", "LocalLow", "SomeStudio", "SomeGame"]),
+             "an ordinary Unity save folder is not mistaken for a cache")
+}

@@ -43,9 +43,33 @@ public struct SaveStore {
         "extensions_crx_cache", "graphitedawncache", "service worker", "programs",
         "vulkan", "shader_cache", "pipeline_cache", "d3dcache", "nvidia",
         "analytics", "archivedevents", "unityanalytics", "diagnostics",
+        // Windows' own caches. INetCache in particular fills up with
+        // index.dat and Content.IE5 junk that is never a save.
+        "inetcache", "content.ie5", "inetcookies", "webcache", "temporary internet files",
+    ]
+
+    /// Files that are never saves however they are named.
+    ///
+    /// Extension alone is not enough: Unity writes its player log as
+    /// `output_log.txt`, so it slips past a `.log` filter and then shows up as
+    /// a 400 KB "save" — offered for backup, and counted as progress at risk.
+    static let skipFileNames: Set<String> = [
+        "output_log.txt", "player.log", "player-prev.log", "prev_output_log.txt",
+        "logoutput.log", "error.log", "debug.log", "index.dat", "unityplayer.log",
+        "crash.dmp", "thumbs.db", ".ds_store",
     ]
     static let skipExtensions: Set<String> = ["tmp", "log", "pma", "old", "dmp", "exe",
                                               "msi", "dll", "asar", "node", "pak", "cache"]
+
+    /// True for anything that is not worth backing up or warning about.
+    public static func isNoise(_ file: URL) -> Bool {
+        let name = file.lastPathComponent.lowercased()
+        if skipFileNames.contains(name) { return true }
+        if skipExtensions.contains(file.pathExtension.lowercased()) { return true }
+        // Rolled logs: output_log.1.txt, Player-prev.log, and friends.
+        if name.hasSuffix(".txt"), name.contains("_log") || name.hasSuffix("log.txt") { return true }
+        return false
+    }
 
     /// A recognised save location, used purely for labelling.
     static func label(for relPath: String) -> String? {
@@ -87,7 +111,7 @@ public struct SaveStore {
         return u.dropFirst(b.count).joined(separator: "/")
     }
 
-    static func isCachePath(_ comps: [String]) -> Bool {
+    public static func isCachePath(_ comps: [String]) -> Bool {
         for c in comps {
             let l = c.lowercased()
             if cacheDirs.contains(l) { return true }
@@ -117,7 +141,7 @@ public struct SaveStore {
                 if Self.isCachePath(comps) { en.skipDescendants(); continue }
                 guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
                 else { continue }
-                if Self.skipExtensions.contains(f.pathExtension.lowercased()) { continue }
+                if Self.isNoise(f) { continue }
                 // In the template => shipped by Wine, not written by the game.
                 if fm.fileExists(atPath: template.appending(path: rel).path) { continue }
                 let vals = try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
@@ -148,7 +172,7 @@ public struct SaveStore {
             let comps = rel.split(separator: "/").map(String.init)
             if Self.isCachePath(comps) { en.skipDescendants(); continue }
             guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
-            if Self.skipExtensions.contains(f.pathExtension.lowercased()) { continue }
+            if Self.isNoise(f) { continue }
             guard !seen.contains(rel) else { continue }
             seen.insert(rel)
             let vals = try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])

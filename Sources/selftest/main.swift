@@ -15,6 +15,7 @@ if wantAll || args.contains("reap")    { runReaperTests(t) }
 if wantAll || args.contains("dxvk")    { runDXVKTests(t) }
 if wantAll || args.contains("mods")    { runModLogTests(t) }
 if wantAll || args.contains("stop")    { runStopScopeTests(t) }
+if wantAll || args.contains("noise")   { runSaveNoiseTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
 
 exit(t.summary())
