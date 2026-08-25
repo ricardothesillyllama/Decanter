@@ -433,12 +433,10 @@ case "check":
 
 case "report":
     let (e, g) = requireGame(rest.first)
-    let wantShot = false
     do {
-        let (rep, shot) = try e.report(g, includeScreenshot: wantShot, progress: step)
+        let rep = try e.report(g, progress: step)
         ok("report written")
         out("    \(rep.path)")
-        if let shot { out("    \(shot.path)") }
         // Put it on the clipboard so it can be pasted straight into a chat.
         if let text = try? String(contentsOf: rep, encoding: .utf8) {
             let p = Process()

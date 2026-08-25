@@ -137,7 +137,7 @@ func runLaunchTests(_ t: Harness) {
     // ---- the report path, with a real log ---------------------------------
     if let g = e.store.state.games.first {
         t.survives("building a problem report for a really-launched game") {
-            let (rep, _) = try e.report(g, includeScreenshot: false)
+            let rep = try e.report(g)
             let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
             t.expect(text.contains("## System"), "the report contains the system section")
             t.expect(text.contains("Effective D3D"), "the report states which D3D is really in use")

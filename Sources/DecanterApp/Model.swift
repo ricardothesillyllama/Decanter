@@ -216,7 +216,6 @@ final class AppModel: ObservableObject {
     @Published var externalised: Set<UUID> = []
     @Published var searchHits: [Engine.SaveHit] = []
     @Published var lastReport: URL?
-    @Published var lastShot: URL?
     @Published var reportNote: String?
 
     // Decanter never captures the screen, so it never asks for permission.
@@ -322,29 +321,22 @@ final class AppModel: ObservableObject {
 
     /// Builds the pasteable bundle and puts it on the clipboard, because the
     /// whole point is having something to hand over.
-    func makeReport(_ game: Game, screenshot: Bool) {
-        guard let e = engine else { return }
-        busy = "Collecting diagnostics…"; lastError = nil; reportNote = nil
-        Task.detached(priority: .userInitiated) {
-            do {
-                let (rep, shot) = try e.report(game, includeScreenshot: false)
-                let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
-                await MainActor.run {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    self.lastReport = rep; self.lastShot = shot
-                    self.reportNote = "Report copied to the clipboard. If the problem is visual, add a screenshot: Command-Shift-4, Space, click the window."
-                }
-            } catch {
-                await MainActor.run { self.lastError = error.localizedDescription }
+    func makeReport(_ game: Game) {
+        perform("Collecting diagnostics…", key: "report") { e in
+            let rep = try e.report(game)
+            let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
+            Task { @MainActor in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                self.lastReport = rep
             }
-            await MainActor.run { self.busy = nil }
+            return "Report copied to the clipboard (\(text.count) characters)"
         }
     }
 
     func revealReport() {
         guard let r = lastReport else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([lastShot, r].compactMap { $0 })
+        NSWorkspace.shared.activateFileViewerSelecting([r])
     }
 
     var savesRoot: URL { engine?.paths.saves ?? URL(filePath: NSHomeDirectory()) }

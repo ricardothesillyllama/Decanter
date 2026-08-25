@@ -1021,14 +1021,15 @@ public final class Engine: @unchecked Sendable {
         return rep
     }
 
-    public func report(_ game: Game, includeScreenshot: Bool,
-                       progress: (String) -> Void = { _ in }) throws -> (report: URL, shot: URL?) {
+    /// Screenshots are deliberately not captured: Decanter never asks for
+    /// Screen Recording permission. A visual fault is the user's to screenshot.
+    public func report(_ game: Game,
+                       progress: (String) -> Void = { _ in }) throws -> URL {
         guard let bottle = store.bottle(game.bottleID) else { throw DecanterError.notFound("bottle") }
         guard let rt = store.runtime(bottle.runtimeID) else { throw DecanterError.noRuntime(bottle.runtimeID) }
         let pre = try? preflight(game)
         return try Reporter(paths: paths).buildReport(
-            game: game, bottle: bottle, runtime: rt, preflight: pre,
-            includeScreenshot: includeScreenshot, progress: progress)
+            game: game, bottle: bottle, runtime: rt, preflight: pre, progress: progress)
     }
 
     public func importSaves(into game: Game, from source: URL,

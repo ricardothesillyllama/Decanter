@@ -129,8 +129,7 @@ public struct Reporter {
 
     public func buildReport(game: Game, bottle: Bottle, runtime: RuntimeSpec,
                             preflight: Engine.PreflightReport?,
-                            includeScreenshot: Bool,
-                            progress: (String) -> Void = { _ in }) throws -> (URL, URL?) {
+                            progress: (String) -> Void = { _ in }) throws -> URL {
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let safe = game.name.replacingOccurrences(of: " ", with: "-")
@@ -139,7 +138,6 @@ public struct Reporter {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let reportURL = dir.appending(path: "decanter-\(safe)-\(stamp).md")
 
-        let shotURL: URL? = nil   // screenshots are the user's to take
 
         let sys = Self.systemSummary()
         let logURL = paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
@@ -210,7 +208,7 @@ public struct Reporter {
         """
         if md.count > 400_000 { md = String(md.prefix(400_000)) + "\n\n(truncated)" }
         try md.write(to: reportURL, atomically: true, encoding: .utf8)
-        return (reportURL, shotURL)
+        return reportURL
     }
 
     /// Pulls out the lines that matter for a rendering problem specifically.

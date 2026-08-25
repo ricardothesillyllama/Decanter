@@ -93,7 +93,7 @@ struct Sidebar: View {
                             Button("Troubleshoot Launch") { model.play(g, verbose: true) }
                                 .disabled(model.running.contains(g.id))
                             Divider()
-                            Button("Copy Problem Report") { model.makeReport(g, screenshot: true) }
+                            Button("Copy Problem Report") { model.makeReport(g) }
                             Button("Diagnose Last Failure") { model.diagnose(g) }
                             Divider()
                             Button("Reveal Prefix in Finder") { model.revealPrefix(g) }
@@ -740,7 +740,7 @@ struct GameDetail: View {
                 .disabled(isRunning || model.busy != nil)
 
                 Button {
-                    model.makeReport(game, screenshot: true)
+                    model.makeReport(game)
                 } label: {
                     Label("Copy Problem Report", systemImage: "doc.on.clipboard")
                 }
