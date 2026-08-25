@@ -21,14 +21,81 @@ lines. Decanter itself never records game names anywhere but your own library.
 
 ## Before opening a pull request
 
-Run the suite. It is fast and it has caught real bugs:
+Run the suite. It is fast, and every one of these exists because something
+broke:
 
-```sh
-swift run -c release selftest
-```
+    swift run -c release selftest          # everything
+    swift run selftest unit                # detection, PE parsing, registry, path mapping
+    swift run selftest abuse               # hostile input, corrupt state, sandbox escapes
+    swift run selftest stress              # concurrency and large binaries
+    swift run selftest saves               # discovery, externalising, snapshots
+    swift run selftest schema              # state migration
+    swift run selftest fonts               # font name mapping and registry writes
+    swift run selftest dxvk                # identifying an unmarked DXVK build
+    swift run selftest mods                # picking real failures out of a loader log
+    swift run selftest reap                # stray Wine process parsing
+    swift run selftest stop                # per-game stop must not kill other games
+    swift run selftest noise               # logs must not be mistaken for saves
+    swift run selftest explain             # mod failures in plain language
+    swift run selftest verbs               # winetricks verb validation
+    swift run selftest exes                # telling a game from a crash handler
+    swift run selftest launch              # real Windows executables, 32- and 64-bit
 
-The launch tests need a pinned runtime and a built template; they skip cleanly
-without one, so a first run on a fresh machine will show fewer checks.
+XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
+CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
+the no-dependency rule. **328 checks.**
+
+The launch suite also proves the font mapping end to end: it writes the
+mapping into a real prefix, asks Wine to read it back through its own registry
+parser, and confirms all of it survives a wineserver shutdown — which rewrites
+the registry, and is where a malformed edit would quietly disappear. Testing
+that Decanter can read what Decanter wrote proves nothing.
+
+The launch suite is the interesting one: it clones the golden template into an
+isolated root and launches Wine's own real PE binaries (`winemine.exe`, 32-bit
+and 64-bit) through the full pipeline, then confirms via CoreGraphics that a
+window with real dimensions actually appeared. A rendered window is the proof
+the whole chain worked.
+
+### Releasing
+
+    ./install.sh              # build, sign, install locally
+    ./scripts/make-dmg.sh     # dist/Decanter-<version>.dmg for a release
+    ./scripts/make-demo.sh    # throwaway library of invented games, for screenshots
+
+### Bugs these tests found
+
+- **Adding one field silently wiped the library.** Swift's synthesised
+  `Decodable` requires every non-optional key even when the property has a
+  default, so a new field made every previously-saved record undecodable and the
+  store fell back to empty. It happened twice before the decoding was
+  hand-written and the failure made loud.
+- **Lost update between concurrent writers.** The GUI and CLI are routinely open
+  together; whichever wrote last silently discarded the other's changes. State
+  mutation now takes an exclusive `flock` and re-reads from disk first.
+- **A 220MB executable took 33 seconds to inspect.** The DLL-name scan
+  lowercased a copy of the whole file, then made ten naive passes over it.
+  Unity's `GameAssembly.dll` is routinely that size, so adding a big game looked
+  like a hang. Now a single bounded pass with a flat 256-entry first-byte table:
+  **0.13s**.
+- **The test suite leaked Wine processes.** Each test shut its own bottle down,
+  but a test that threw part-way skipped that — and Wine's services survive their
+  parent, so the leak was permanent and invisible. Found only when a process that
+  had been spinning at 100% CPU for six days turned up in a battery menu.
+- **A recipe verb reached `sh -c` unquoted.** Verbs were interpolated into a
+  shell string, so `decanter install X "vcrun; …"` ran whatever followed the
+  semicolon. winetricks is now invoked with an argv array, and verbs are
+  validated besides.
+- **`[ErrorHandler]` is a plugin name, not an error.** Matching mod-loader logs
+  on the word "error" flagged plugin names and config keys, and a log full of
+  false positives gets ignored.
+- **Two URLs for the same folder compared unequal.** `appending(path:)` on an
+  existing directory flags it as one, so it renders as `…/mine/`, while
+  `URL(filePath:)` on the identical string does not. Per-game stop therefore
+  matched nothing, and the reaper's "spare these prefixes" guard protected
+  nothing — it would have killed a running game it was told to leave alone.
+  Path comparison now goes through one helper that normalises both this and
+  `/var` versus `/private/var`.
 
 ## The rules this codebase actually holds to
 
