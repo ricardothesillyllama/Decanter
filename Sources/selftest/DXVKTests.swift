@@ -228,3 +228,32 @@ func runExecutableClassifyTests(_ t: Harness) {
     let kinds = list.map(\.kind)
     t.equal(kinds, kinds.sorted(), "entries are grouped by purpose, games first")
 }
+
+/// "Not scanned yet" and "scanned, found one" are different facts. Collapsing
+/// them into an empty array made the picker announce "only executable in this
+/// folder" before it had looked, then correct itself — which read as the
+/// control being unreliable rather than slow.
+func runExecutableStateTests(_ t: Harness) {
+    t.suite("executable picker state")
+
+    // Mirrors AppModel.executableState, which cannot be reached from here
+    // because it lives in the app target.
+    enum State: Equatable { case unknown, scanning, loaded(Int) }
+    func state(cache: [Int]?, scanning: Bool) -> State {
+        if scanning { return .scanning }
+        guard let c = cache else { return .unknown }
+        return .loaded(c.count)
+    }
+
+    t.equal(state(cache: nil, scanning: false), .unknown,
+            "no cache entry means we have not looked, not that there is nothing")
+    t.equal(state(cache: nil, scanning: true), .scanning, "an in-flight scan is scanning")
+    t.equal(state(cache: [1], scanning: false), .loaded(1), "one executable is a real answer")
+    t.equal(state(cache: [], scanning: false), .loaded(0), "zero is also a real answer")
+
+    // The property that actually mattered: only .loaded may claim there is
+    // just one executable.
+    for s in [State.unknown, .scanning] {
+        t.expect(s != .loaded(1), "\(s) must never be reported as 'only executable'")
+    }
+}

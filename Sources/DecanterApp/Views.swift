@@ -751,8 +751,10 @@ struct GameDetail: View {
     /// has to be overridable — and the other executables are often worth
     /// running once in the same prefix.
     @ViewBuilder private var executablePicker: some View {
-        let choices = model.executableChoices[game.id] ?? []
-        let scanning = model.scanningExecutables.contains(game.id)
+        let state = model.executableState(game)
+        let choices: [Detector.ExecutableChoice] = if case .loaded(let c) = state { c } else { [] }
+        // "unknown" must never render as "only executable": we have not looked.
+        let scanning = { if case .loaded = state { false } else { true } }()
         HStack(spacing: 6) {
             Image(systemName: "doc.badge.gearshape").imageScale(.small).foregroundStyle(.secondary)
             Text(game.exePath.lastPathComponent)
@@ -822,7 +824,10 @@ struct GameDetail: View {
             }
             Spacer()
         }
-        .task { model.loadExecutables(game) }
+        // Keyed on the game: SwiftUI reuses this view when you pick a
+        // different one in the sidebar, and a plain .task would not re-run —
+        // leaving the new game's picker stuck saying "checking folder…".
+        .task(id: game.id) { model.loadExecutables(game) }
     }
 
     /// The whole point: say which setup is most likely to work, and why,

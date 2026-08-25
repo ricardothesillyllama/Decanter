@@ -341,7 +341,7 @@ ad-hoc otherwise.
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **322 checks.**
+the no-dependency rule. **328 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

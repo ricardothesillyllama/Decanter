@@ -275,6 +275,26 @@ final class AppModel: ObservableObject {
     /// "looking" instead of silently rendering nothing.
     @Published var scanningExecutables: Set<UUID> = []
 
+    /// Whether we have looked yet, kept separate from what we found.
+    ///
+    /// The picker read `executableChoices[id] ?? []`, which collapses "not
+    /// scanned yet" and "scanned, found one" into the same empty array — so
+    /// between the view appearing and the scan starting it confidently
+    /// announced "only executable in this folder", and corrected itself a
+    /// moment later. Reopening the app appeared to fix it because by then the
+    /// cache was warm.
+    enum ExecutableState {
+        case unknown                       // not looked yet
+        case scanning
+        case loaded([Detector.ExecutableChoice])
+    }
+
+    func executableState(_ game: Game) -> ExecutableState {
+        if scanningExecutables.contains(game.id) { return .scanning }
+        guard let found = executableChoices[game.id] else { return .unknown }
+        return .loaded(found)
+    }
+
     /// Scanning a game folder touches disk, so do it off the main thread and
     /// cache the result. `force` re-scans after the chosen executable changes.
     func loadExecutables(_ game: Game, force: Bool = false) {
