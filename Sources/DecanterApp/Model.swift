@@ -106,7 +106,7 @@ final class AppModel: ObservableObject {
         perform("Preparing your Mac for Windows games…", key: "setup") { e in
             let pinned = try e.pinAll()
             try e.buildTemplate()
-            return "Pinned \(pinned.count) runtime(s) and built the golden template"
+            return "Set up \(plural(pinned.count, "engine")) and prepared a clean Windows environment"
         }
     }
 
@@ -183,21 +183,21 @@ final class AppModel: ObservableObject {
     }
 
     func rederive(_ game: Game) {
-        perform("Rebuilding \(game.name)'s prefix…", key: "rebuild") { e in
+        perform("Rebuilding \(game.name)'s Windows environment…", key: "rebuild") { e in
             let b = try e.rederive(game)
-            return "Prefix rebuilt from the \(b.runtimeID) template; saves relinked"
+            return "Windows environment rebuilt; saves kept"
         }
     }
 
     func importSaves(_ game: Game, from url: URL) {
         perform("Importing saves into \(game.name)…", key: "import") { e in
-            let n = try e.importSaves(into: game, from: url)
-            return "Imported \(n) save file(s)"
+            let r = try e.importSaves(into: game, from: url)
+            return "Imported \(plural(r.filesCopied, "save file"))"
         }
     }
 
     func setBackend(_ game: Game, _ backend: GraphicsBackend) {
-        perform("Switching \(game.name) to \(backend.label)…", key: "backend") { e in
+        perform("Switching \(game.name) to \(Help.plainName(backend)) graphics…", key: "backend") { e in
             try e.store.mutate { s in
                 if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) {
                     s.bottles[i].backend = backend
@@ -206,14 +206,14 @@ final class AppModel: ObservableObject {
                     s.games[i].runtimeLocked = true
                 }
             }
-            return "Graphics backend is now \(backend.label)"
+            return "Graphics is now \(Help.plainName(backend))"
         }
     }
 
     func setRuntime(_ game: Game, _ runtimeID: String) {
-        perform("Moving \(game.name) to \(runtimeID)…", key: "runtime") { e in
+        perform("Switching \(game.name)'s engine…", key: "runtime") { e in
             _ = try e.setRuntime(game, to: runtimeID)
-            return "Now running on \(runtimeID)"
+            return "Engine is now \(runtimeID)"
         }
     }
 
@@ -264,7 +264,7 @@ final class AppModel: ObservableObject {
     func applyRecommendation(_ game: Game) {
         perform("Applying the recommended setup for \(game.name)…", key: "recommend") { e in
             let r = try e.applyRecommendation(game)
-            return "Now on \(r.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine") + \(r.backend.label)"
+            return "Now using \(Help.plainName(r.backend)) graphics"
         }
     }
 
@@ -301,7 +301,7 @@ final class AppModel: ObservableObject {
     func addAsSeparateGame(_ url: URL) {
         perform("Adding \(url.lastPathComponent) as its own game…", key: "addSeparate") { e in
             let g = try e.add(path: url)
-            return "Added \(g.name) with its own prefix — \(g.detection.engine.label)"
+            return "Added \(g.name) with its own Windows environment — \(g.detection.engine.label)"
         }
     }
 
@@ -323,7 +323,7 @@ final class AppModel: ObservableObject {
         lastError = nil
         do {
             _ = try e.runOther(game, exe: url)
-            reportNote = "Running \(url.lastPathComponent) in \(game.name)'s prefix."
+            reportNote = "Running \(url.lastPathComponent) inside \(game.name)'s Windows environment."
         } catch { lastError = error.localizedDescription }
     }
 
@@ -411,7 +411,7 @@ final class AppModel: ObservableObject {
         perform("Snapshotting every game…", key: "snapshotAll") { e in
             var n = 0
             for g in e.store.state.games where (try? e.snapshotSaves(g, note: "manual (all)")) != nil { n += 1 }
-            return "Snapshotted \(n) game(s)"
+            return "Snapshotted \(plural(n, "game"))"
         }
     }
 
@@ -419,8 +419,8 @@ final class AppModel: ObservableObject {
         perform("Protecting \(game.name)'s saves…", key: "externalise") { e in
             let r = try e.externaliseSaves(game)
             return r.moved.isEmpty
-                ? "Already protected — \(r.alreadyLinked.count) folder(s) linked out"
-                : "\(r.moved.count) save folder(s) moved out of the prefix and symlinked back"
+                ? "Already protected — \(plural(r.alreadyLinked.count, "folder")) kept outside"
+                : "\(plural(r.moved.count, "save folder")) moved somewhere rebuilding cannot erase"
         }
     }
 
@@ -428,14 +428,14 @@ final class AppModel: ObservableObject {
         perform("Protecting every game's saves…", key: "externaliseAll") { e in
             var n = 0
             for g in e.store.state.games { n += (try? e.externaliseSaves(g))?.moved.count ?? 0 }
-            return "\(n) save folder(s) moved out of prefixes across the library"
+            return "\(plural(n, "save folder")) protected across the library"
         }
     }
 
     func restoreSnapshot(_ game: Game, _ name: String) {
         perform("Restoring \(game.name)…", key: "restore") { e in
             let n = try e.restoreSaves(game, snapshot: name)
-            return "Restored \(n) file(s) from \(name)"
+            return "Restored \(plural(n, "file")) from \(name)"
         }
     }
 
@@ -447,36 +447,36 @@ final class AppModel: ObservableObject {
     }
 
     func gc() {
-        perform("Cleaning orphaned prefixes…", key: "gc") { e in
+        perform("Cleaning up leftovers…", key: "gc") { e in
             let r = try e.gc()
             return r.bottles == 0 ? "Nothing orphaned"
-                : "Removed \(r.bottles) orphaned prefix(es), \(r.bytes / 1_048_576) MB"
+                : "Removed \(plural(r.bottles, "leftover Windows environment")), \(r.bytes / 1_048_576) MB freed"
         }
     }
 
     func reapWine() {
         perform("Ending leftover Wine processes…", key: "reap") { e in
             let o = e.reapWine()
-            return "Ended \(o.sessionsEnded) Wine session(s) and \(o.killed.count) process(es)"
+            return "Ended \(plural(o.killed.count, "leftover process"))"
         }
     }
 
     /// Applies to every template and bottle at once. The mapping is registry
     /// data, so this is idempotent and nothing is launched.
     func fixFonts() {
-        perform("Mapping Windows font names…", key: "fonts") { e in
+        perform("Fixing fonts…", key: "fonts") { e in
             let r = e.provisionFonts()
             let n = r.reduce(0) { $0 + $1.plan.mapped.count }
             return n == 0
                 ? "Every Windows font name already resolved — nothing to change"
-                : "Mapped \(n) font name(s) across \(r.count) prefix(es); takes effect next launch"
+                : "Mapped \(plural(n, "font name")) across \(plural(r.count, "game")); takes effect next launch"
         }
     }
 
     func stop(_ game: Game) {
         perform("Stopping \(game.name)…", key: "stop") { e in
             let n = try e.stop(game)
-            return n == 0 ? "Nothing left running" : "Ended \(n) process(es)"
+            return n == 0 ? "Nothing left running" : "Ended \(plural(n, "process", "processes"))"
         } then: { [weak self] in
             self?.running.remove(game.id)
         }
@@ -495,7 +495,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self.diagnosis[game.id] = rep }
             if !exists { return "No log yet — this game has not been run from Decanter." }
             if rep.isEmpty { return "Nothing wrong found in the last run's log." }
-            return "Found \(rep.findings.count) thing(s) worth looking at."
+            return "Found \(plural(rep.findings.count, "thing")) worth looking at."
         }
     }
 

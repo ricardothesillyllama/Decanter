@@ -10,3 +10,7 @@
 # Local editor state
 .swiftpm/
 *.xcuserstate
+
+# Screenshots are generated from the demo library and optimised before use;
+# raw captures do not belong in history.
+Resources/screenshots/

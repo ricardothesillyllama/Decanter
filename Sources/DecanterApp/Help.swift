@@ -59,6 +59,22 @@ enum Help {
     half a second. Saves are kept.
     """
 
+    /// Swaps backend names for the words the controls use.
+    ///
+    /// The engine writes "switch to WineD3D" because the CLI should say that.
+    /// In the app the control beside it says "Compatibility", and one warning
+    /// naming a setting that appears nowhere on screen is worse than none.
+    /// Only applied to text on the primary path — the Why section and Advanced
+    /// keep the real names, because the people reading those want them.
+    static func plainify(_ text: String) -> String {
+        var out = text
+        for (technical, plain) in [("D3DMetal", "Apple"), ("DXVK", "Standard"),
+                                   ("WineD3D", "Compatibility")] {
+            out = out.replacingOccurrences(of: technical, with: plain + " graphics")
+        }
+        return out
+    }
+
     /// The name people will meet in forum threads and bug reports.
     static func backendTechnicalName(_ b: GraphicsBackend) -> String {
         switch b {
@@ -166,7 +182,7 @@ enum Help {
 
     // MARK: Actions
 
-    static let play = "Launch the game in its own isolated prefix."
+    static let play = "Start the game in its own private copy of Windows."
     static let running = "This game is running. The dot in the sidebar pulses while it lives."
 
     static let importSaves = """
@@ -197,7 +213,7 @@ enum Help {
 
     static let revealPrefix = "Open this game's Windows environment in Finder — its C: drive, registry files and logs."
 
-    static let addGame = "Add a game from a folder or an .exe. Decanter inspects the binary, identifies the engine, and clones it a private prefix."
+    static let addGame = "Add a game from a folder or an .exe. Decanter inspects the binary, identifies the engine, and gives it a private copy of Windows."
 
     static let inspectorToggle = "Show or hide the evidence pane, which explains how this game was configured."
 
@@ -239,9 +255,9 @@ enum Help {
     Decanter's store and the fresh prefix is simply re-attached to them.
     """
 
-    static let externaliseAll = "Move every game's saves out of their prefixes, so rebuilding a prefix can never destroy progress."
+    static let externaliseAll = "Move every game's saves somewhere a rebuild cannot reach, so starting a game over can never lose progress."
 
-    static let protectedBadge = "This game's saves live outside its prefix. Rebuilding cannot lose them."
+    static let protectedBadge = "These saves are stored outside the game's Windows environment, so rebuilding cannot lose them."
 
     static let restoreSnapshot = "Copy this snapshot's files back over the current saves, and merge its registry keys."
 
@@ -346,13 +362,13 @@ enum Help {
 
     // MARK: Bottles
 
-    static let generation = "How many times this prefix has been rebuilt. Each re-derive starts a fresh generation."
+    static let generation = "How many times this Windows environment has been replaced with a clean one."
 
-    static let bottleHealth = "Whether this prefix is usable, still installing dependencies, or broken and in need of a rebuild."
+    static let bottleHealth = "Whether this Windows environment is usable, still setting itself up, or broken and needing a rebuild."
 
-    static let recipes = "Dependencies installed into this prefix beyond the base template, such as Visual C++ runtimes."
+    static let recipes = "Extra Windows components installed into this environment, such as Visual C++ runtimes."
 
-    static let orphanBottle = "No game points at this prefix any more. Cleaning up deletes it and reclaims the space."
+    static let orphanBottle = "No game uses this Windows environment any more. Cleaning up deletes it and reclaims the space."
 
     static let runtimePinned = """
     The Wine build this prefix uses, copied into Decanter's own store.
@@ -389,4 +405,10 @@ struct InfoButton: View {
             .frame(width: 340)
         }
     }
+}
+
+/// Proper plurals. "1 failure(s)" is the sort of thing that makes an app feel
+/// unfinished, and it was in every result message.
+func plural(_ n: Int, _ singular: String, _ pluralForm: String? = nil) -> String {
+    "\(n) " + (n == 1 ? singular : (pluralForm ?? singular + "s"))
 }

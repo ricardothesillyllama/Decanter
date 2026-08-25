@@ -149,8 +149,10 @@ struct Sidebar: View {
                         .help(h.rosetta
                               ? "Rosetta 2 is present. Wine is an x86_64 program, so nothing here runs without it."
                               : "Rosetta 2 is missing — Wine cannot run at all until it is installed.")
-                    Text(h.pinnedRuntimes.first.map { "\($0.id)" } ?? "no runtime")
-                        .font(.evidence).foregroundStyle(.secondary)
+                    Text(h.pinnedRuntimes.isEmpty
+                         ? "Not set up yet"
+                         : "Ready · \(h.pinnedRuntimes.count) engine\(h.pinnedRuntimes.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
                         .help(Help.runtimePinned)
                     Spacer()
                 }
@@ -384,58 +386,34 @@ struct ActionButton: View {
 /// Error recovery was the weak point: you could try four things, have the third
 /// fail, and by the time the fourth finished there was nothing on screen saying
 /// so. Entries survive navigation and keep full error text.
-struct ActivityPanel: View {
+struct ActivityList: View {
     @EnvironmentObject var model: AppModel
-    @State private var expanded = false
 
     var body: some View {
-        let entries = model.activity
-        return VStack(alignment: .leading, spacing: 8) {
-            DisclosureGroup(isExpanded: $expanded) {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(entries) { a in
-                        HStack(alignment: .top, spacing: 8) {
-                            icon(a)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(a.label.replacingOccurrences(of: "…", with: ""))
-                                        .font(.callout)
-                                    Text(a.started.formatted(date: .omitted, time: .standard))
-                                        .font(.caption).foregroundStyle(.tertiary)
-                                    if a.outcome != .running {
-                                        Text(String(format: "%.1fs", a.duration))
-                                            .font(.caption).foregroundStyle(.tertiary)
-                                    }
-                                }
-                                if let d = a.detail {
-                                    Text(d)
-                                        .font(.caption)
-                                        .foregroundStyle(a.outcome == .failed ? Palette.danger : .secondary)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(model.activity) { a in
+                HStack(alignment: .top, spacing: 8) {
+                    icon(a)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(a.label.replacingOccurrences(of: "…", with: ""))
+                                .font(.callout)
+                            Text(a.started.formatted(date: .omitted, time: .shortened))
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                        if let d = a.detail {
+                            Text(d)
+                                .font(.caption)
+                                .foregroundStyle(a.outcome == .failed ? Palette.danger : .secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                }
-                .padding(.top, 6)
-            } label: {
-                HStack(spacing: 6) {
-                    Text("Activity").font(.headline)
-                    if let last = model.lastActivity, !expanded {
-                        Text("·").foregroundStyle(.tertiary)
-                        icon(last)
-                        Text(last.detail ?? last.label)
-                            .font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.tail)
-                    }
+                    Spacer(minLength: 0)
                 }
             }
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.03)))
     }
 
     @ViewBuilder private func icon(_ a: AppModel.Activity) -> some View {
@@ -448,7 +426,6 @@ struct ActivityPanel: View {
         }
     }
 }
-
 
 /// A collapsible section. Everything that is not "what is this and how do I
 /// play it" lives inside one of these.
@@ -529,7 +506,7 @@ struct GameDetail: View {
                 }
                 if !model.activity.isEmpty {
                     DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
-                                  subtitle: model.lastActivity?.detail) { ActivityPanel() }
+                                  subtitle: model.lastActivity?.detail) { ActivityList() }
                 }
             }
             .padding(26)
@@ -544,11 +521,11 @@ struct GameDetail: View {
             if case .success(let url) = result { model.importSaves(game, from: url) }
         }
 
-        .confirmationDialog("Rebuild this game's prefix?", isPresented: $confirmRebuild, titleVisibility: .visible) {
-            Button("Rebuild and Erase", role: .destructive) { model.rederive(game) }
+        .confirmationDialog("Start this game's Windows over?", isPresented: $confirmRebuild, titleVisibility: .visible) {
+            Button("Start Over", role: .destructive) { model.rederive(game) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Decanter never repairs a broken prefix — it re-derives a clean one, which takes about half a second.\n\nAnything stored inside the prefix is erased, including saves. You can import them again afterwards.")
+            Text("Decanter never repairs a broken Windows environment — it replaces it with a clean one, which takes about half a second.\n\nAnything the game stored inside is erased, including saves that are not protected yet. Protect them first from the Saves page.")
         }
     }
 
@@ -556,8 +533,8 @@ struct GameDetail: View {
     /// worth pulling someone's attention to.
     private var modsSubtitle: String? {
         guard let st = model.mods[game.id], st.installed else { return nil }
-        if !st.errors.isEmpty { return "\(st.errors.count) failure(s)" }
-        return "\(st.plugins.count) plugin(s)"
+        if !st.errors.isEmpty { return plural(st.errors.count, "mod failed", "mods failed") }
+        return plural(st.plugins.count, "plugin")
     }
 
     private var header: some View {
@@ -650,47 +627,48 @@ struct GameDetail: View {
                 }
 
                 // Everything below is for people who already know what it means.
-                // The engine is not an advanced setting: it is the other half
-                // of "why won't this game run", and burying it made Wine 11
-                // effectively unavailable to anyone who did not already know
-                // it existed.
-                if model.pinnedRuntimes.count > 1 {
-                    Divider().padding(.vertical, 2)
-                    HStack(spacing: 6) {
-                        Text("Engine").font(.callout).foregroundStyle(.secondary)
-                        Picker("", selection: Binding(get: { b.runtimeID },
-                                                      set: { model.setRuntime(game, $0) })) {
-                            ForEach(model.pinnedRuntimes) { rt in
-                                Text(runtimeLabel(rt)).tag(rt.id)
-                            }
-                        }
-                        .labelsHidden().frame(width: 240)
-                        .disabled(model.busy != nil)
-                        InfoButton(text: Help.runtimeWhich, title: "Which engine?")
-                    }
-                    if let rt = model.pinnedRuntimes.first(where: { $0.id == b.runtimeID }) {
-                        Text(Help.runtimeOneLiner(rt.kind))
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-
+                // Deliberately not promoted to the main surface. Someone who
+                // does not know what Wine 11 is has no use for the choice, and
+                // putting it in front of them costs attention that Play and
+                // Graphics need. Someone who does know goes looking — so it is
+                // one click away, and it keeps the real names rather than being
+                // translated into something they would have to translate back.
                 DisclosureGroup {
-                    // DisclosureGroup centres its content unless told not to.
-                    VStack(alignment: .leading, spacing: 6) {
-                        LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
-                        LabeledContent("Engine build", value: b.runtimeID)
-                        LabeledContent("Windows environment", value: b.prefixPath.lastPathComponent)
-                            .textSelection(.enabled)
-                        Button("Reveal in Finder") { model.revealPrefix(game) }
-                            .controlSize(.small).padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if model.pinnedRuntimes.count > 1 {
+                            HStack(spacing: 6) {
+                                Text("Engine").font(.callout)
+                                Picker("", selection: Binding(get: { b.runtimeID },
+                                                              set: { model.setRuntime(game, $0) })) {
+                                    ForEach(model.pinnedRuntimes) { rt in
+                                        Text(runtimeLabel(rt)).tag(rt.id)
+                                    }
+                                }
+                                .labelsHidden().frame(width: 240)
+                                .disabled(model.busy != nil)
+                                InfoButton(text: Help.runtimeWhich, title: "Which engine?")
+                            }
+                            if let rt = model.pinnedRuntimes.first(where: { $0.id == b.runtimeID }) {
+                                Text(Help.runtimeOneLiner(rt.kind))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Divider()
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
+                            LabeledContent("Engine build", value: b.runtimeID)
+                            LabeledContent("Prefix", value: b.prefixPath.lastPathComponent)
+                                .textSelection(.enabled)
+                            Button("Reveal in Finder") { model.revealPrefix(game) }
+                                .controlSize(.small).padding(.top, 4)
+                        }
+                        .font(.caption).foregroundStyle(.tertiary)
                     }
-                    .font(.caption).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 8)
                 } label: {
-                    Text("Technical details").font(.callout).foregroundStyle(.secondary)
+                    Text("Advanced").font(.callout).foregroundStyle(.secondary)
                 }
             }
         }
@@ -808,7 +786,7 @@ struct GameDetail: View {
                     Text("Why").font(.caption).foregroundStyle(.tertiary)
                 }
                 ForEach(Array(rec.caveats.prefix(2).enumerated()), id: \.offset) { _, c in
-                    Label(c, systemImage: "exclamationmark.triangle")
+                    Label(Help.plainify(c), systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -824,27 +802,26 @@ struct GameDetail: View {
 
     private var maintenance: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Maintenance").font(.headline)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ActionButton(title: "Import Saves", systemImage: "square.and.arrow.down",
                              key: "import",
-                             blurb: "Bring in saves from another prefix or a backup folder.") { importing = true }
-                ActionButton(title: "Rebuild Prefix", systemImage: "arrow.triangle.2.circlepath",
+                             blurb: "Bring in saves from a backup, or from another copy of the game.") { importing = true }
+                ActionButton(title: "Rebuild Environment", systemImage: "arrow.triangle.2.circlepath",
                              key: "rebuild",
-                             blurb: "Throw the Windows environment away and clone a fresh one. Saves survive.") { confirmRebuild = true }
+                             blurb: "Start this game's Windows over from clean. Saves are kept.") { confirmRebuild = true }
                 ActionButton(title: "Diagnose", systemImage: "stethoscope",
                              key: "diagnose",
-                             blurb: "Read the last run's log and say what went wrong.") { model.diagnose(game) }
+                             blurb: "Look at what happened the last time this game ran.") { model.diagnose(game) }
                 ActionButton(title: "Re-inspect", systemImage: "magnifyingglass",
                              key: "redetect",
-                             blurb: "Re-read the game's files after installing mods or an update.") { model.redetect(game) }
+                             blurb: "Check the game again after installing mods or an update.") { model.redetect(game) }
                 ActionButton(title: "Fix Fonts", systemImage: "textformat",
                              key: "fonts",
-                             blurb: "Map Windows font names onto macOS faces. For blank text in filled buttons.") { model.fixFonts() }
+                             blurb: "For when text is missing but the buttons are the right size.") { model.fixFonts() }
                 ActionButton(title: "Reveal in Finder", systemImage: "folder",
                              key: "reveal",
-                             blurb: "Open this game's Windows C: drive.") { model.revealPrefix(game) }
+                             blurb: "Open this game's Windows files.") { model.revealPrefix(game) }
             }
         }
     }
@@ -903,7 +880,7 @@ struct GameDetail: View {
     private func runtimeLabel(_ rt: RuntimeSpec) -> String {
         switch rt.kind {
         case .wine: "Wine \(rt.version) — newest"
-        case .gptk: "Apple Game Porting Toolkit"
+        case .gptk: "Game Porting Toolkit \(rt.version)"
         }
     }
 
@@ -967,7 +944,7 @@ struct StorageView: View {
                                 Image(systemName: "internaldrive").foregroundStyle(.secondary)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(g.name).font(.callout.weight(.medium))
-                                    Text("\(Help.plainName(b.backend)) graphics · rebuilt \(b.generation) time\(b.generation == 1 ? "" : "s")")
+                                    Text("\(Help.plainName(b.backend)) graphics · \(b.generation <= 1 ? "never rebuilt" : "rebuilt \(b.generation - 1) time\(b.generation == 2 ? "" : "s")")")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -989,7 +966,11 @@ struct StorageView: View {
                         .frame(maxWidth: 320)
                 }
 
-                if !model.activity.isEmpty { ActivityPanel().frame(maxWidth: 640) }
+                if !model.activity.isEmpty {
+                    DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
+                                  subtitle: model.lastActivity?.detail) { ActivityList() }
+                        .frame(maxWidth: 640)
+                }
             }
             .padding(26)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1012,7 +993,7 @@ struct EvidenceInspector: View {
                 }
                 if let ov = model.saveOverview[game.id] {
                     LabeledContent("Saves") {
-                        Text(ov.files == 0 ? "none yet" : "\(ov.files) file(s)")
+                        Text(ov.files == 0 ? "none yet" : plural(ov.files, "file"))
                     }
                     LabeledContent("Protected") {
                         Text(model.externalised.contains(game.id) ? "yes" : "not yet")
@@ -1020,7 +1001,7 @@ struct EvidenceInspector: View {
                                              ? Palette.running : Palette.caution)
                             .font(.callout)
                     }
-                    if !model.externalised.contains(game.id) {
+                    if !model.externalised.contains(game.id), ov.files > 0 {
                         Button("Protect Saves") { model.externaliseSaves(game) }
                             .controlSize(.small).disabled(model.busy != nil)
                     }
