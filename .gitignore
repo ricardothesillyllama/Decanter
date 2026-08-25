@@ -14,3 +14,6 @@
 # Raw captures do not belong in history. Screenshots in Resources/screenshots
 # are downscaled from the demo library before being committed.
 Resources/screenshots/Screenshot*.png
+
+# Release artefacts are attached to GitHub releases, not committed.
+dist/

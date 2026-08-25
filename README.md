@@ -55,6 +55,11 @@ back in, so starting a game over cannot lose progress.
 
 ## Quick start
 
+Download the [latest release](https://github.com/ricardothesillyllama/Decanter/releases/latest),
+drag Decanter into Applications, and drop a game folder onto it.
+
+Or from source, if you prefer the CLI:
+
 ```sh
 git clone https://github.com/ricardothesillyllama/Decanter.git
 cd Decanter && ./install.sh
@@ -62,8 +67,6 @@ decanter pin && decanter template build     # one-time setup
 decanter add ~/Games/SomeGame
 decanter run SomeGame
 ```
-
-Or open **Decanter.app** from `/Applications` and drag a game folder in.
 
 You will need a Wine build and, ideally, Apple's Game Porting Toolkit — see
 [Getting the pieces](#getting-the-pieces). Decanter does not download them for
@@ -119,12 +122,24 @@ Wine is LGPL, DXVK is zlib-licensed, and GPTK is Apple's, under Apple's terms.
 
 ## Install
 
-    ./install.sh
+**Download the [latest release](https://github.com/ricardothesillyllama/Decanter/releases/latest)**, open the disk image, and drag Decanter into Applications.
 
-That builds in release mode, assembles `Decanter.app`, copies it to
-`/Applications`, and puts the `decanter` CLI on your `PATH`. The app bundle is
-assembled from `Resources/` at build time rather than kept in the repo, so a
-fresh clone always produces a matching binary.
+macOS will refuse to open it the first time, because releases are not notarised
+— that needs a paid Apple Developer account this project does not have. Open
+**System Settings ▸ Privacy & Security**, scroll to the bottom, and press **Open
+Anyway**. Once only.
+
+### Or build it yourself
+
+Nothing downloaded, nothing to allow — a locally built app is never quarantined:
+
+```sh
+./install.sh
+```
+
+That builds in release mode, assembles `Decanter.app` into `/Applications`, and
+puts the `decanter` CLI on your `PATH`. It is the recommended path if you have
+the Command Line Tools already.
 
 ## Setup
 

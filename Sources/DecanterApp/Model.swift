@@ -473,6 +473,48 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Installs Windows components a game may ask for by name.
+    ///
+    /// Unlike everything else here, this reaches the network: winetricks
+    /// fetches the redistributables from Microsoft and friends. That is said
+    /// plainly in the UI rather than buried, because the whole project
+    /// otherwise downloads nothing.
+    func installComponents(_ game: Game, _ verbs: [String], label: String) {
+        perform("Installing \(label)…", key: "components") { e in
+            let tool = e.recipes.tooling()
+            guard tool.missing.isEmpty else {
+                throw DecanterError.notFound("missing helper(s): \(tool.missing.joined(separator: ", "))")
+            }
+            let r = try e.install(game, verbs: verbs)
+            if !r.failed.isEmpty && r.succeeded.isEmpty {
+                throw DecanterError.notFound("\(label) failed to install")
+            }
+            return r.failed.isEmpty
+                ? "\(label) installed"
+                : "\(label) partly installed — \(r.failed.joined(separator: ", ")) failed"
+        }
+    }
+
+    var componentToolingReady: Bool { engine?.recipes.tooling().missing.isEmpty ?? false }
+
+    /// Opens a prefilled issue on the project, after putting the report on the
+    /// clipboard. Telling someone to "open an issue" without saying where is
+    /// how bug reports do not get written.
+    func reportProblem(_ game: Game) {
+        perform("Preparing a problem report…", key: "reportIssue") { e in
+            let rep = try e.report(game)
+            let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
+            Task { @MainActor in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                if let u = URL(string: "https://github.com/ricardothesillyllama/Decanter/issues/new?template=game-does-not-work.md") {
+                    NSWorkspace.shared.open(u)
+                }
+            }
+            return "Report copied. Paste it into the issue that just opened."
+        }
+    }
+
     func stop(_ game: Game) {
         perform("Stopping \(game.name)…", key: "stop") { e in
             let n = try e.stop(game)

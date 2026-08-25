@@ -466,6 +466,74 @@ struct DetailSection<Content: View>: View {
     }
 }
 
+
+/// Optional Windows pieces a game may demand by name.
+///
+/// Wine ships most of what games need, so this is deliberately not run by
+/// default — installing everything "just in case" is how prefixes rot. It is
+/// here because a game that says "MSVCP140.dll is missing" gives the user no
+/// route forward otherwise.
+struct ComponentsCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+
+    struct Item: Identifiable {
+        let id: String
+        let title: String
+        let blurb: String
+        let verbs: [String]
+    }
+
+    static let items: [Item] = [
+        .init(id: "vcrun", title: "Visual C++ runtime",
+              blurb: "The usual answer when a game names a missing MSVC file.",
+              verbs: ["vcrun"]),
+        .init(id: "media", title: "Video and audio codecs",
+              blurb: "For games with cutscenes, or with silent audio.",
+              verbs: ["media"]),
+        .init(id: "d3dcompiler", title: "Shader compiler",
+              blurb: "Some Unity and Unreal games expect this to exist.",
+              verbs: ["d3dcompiler"]),
+        .init(id: "dotnet", title: ".NET Framework",
+              blurb: "Slow to install and rarely needed. Try the others first.",
+              verbs: ["dotnet"]),
+    ]
+
+    var body: some View {
+        let applied = Set(model.bottle(for: game)?.appliedRecipes ?? [])
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Wine already provides most of what games need. Add these only when a game asks for one by name — installing everything is how a Windows environment goes wrong.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !model.componentToolingReady {
+                Label("winetricks is not available, so these cannot be installed.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(Palette.caution)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(Self.items) { item in
+                    let done = item.verbs.allSatisfy { applied.contains($0) }
+                    ActionButton(title: done ? "\(item.title) ✓" : item.title,
+                                 systemImage: done ? "checkmark.circle" : "shippingbox",
+                                 key: "components",
+                                 blurb: item.blurb) {
+                        model.installComponents(game, item.verbs, label: item.title)
+                    }
+                    .disabled(!model.componentToolingReady || done)
+                    .opacity(done ? 0.6 : 1)
+                }
+            }
+
+            Text("These are downloaded from their publishers by winetricks. Everything else in Decanter works offline.")
+                .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 // MARK: - Game detail
 
 struct GameDetail: View {
@@ -503,6 +571,10 @@ struct GameDetail: View {
                 DetailSection(title: "Saves & Maintenance", systemImage: "shippingbox",
                               subtitle: "Import, rebuild, diagnose") {
                     VStack(alignment: .leading, spacing: 18) { maintenance; troubleshoot }
+                }
+                DetailSection(title: "Windows Components", systemImage: "puzzlepiece.extension",
+                              subtitle: "Add only if a game asks for one") {
+                    ComponentsCard(game: game)
                 }
                 if !model.activity.isEmpty {
                     DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
