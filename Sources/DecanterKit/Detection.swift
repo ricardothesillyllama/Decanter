@@ -391,56 +391,92 @@ public struct Detector {
     }
 
     public struct ExecutableChoice: Sendable, Identifiable {
+        /// What this executable is for. A big game folder can hold thirty
+        /// .exe files and only one of them is the game; listing them flat
+        /// makes the picker useless exactly when it is most needed.
+        public enum Kind: Int, Sendable, Comparable {
+            case game = 0        // the game, or something that could be
+            case tool = 1        // config editors, launchers, editors
+            case installer = 2   // redistributables and setup programs
+            case noise = 3       // crash handlers, uninstallers, updaters
+            public static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
+        }
         public var id: String { url.path }
         public var url: URL
         public var bytes: Int
         public var relativePath: String
         public var note: String?
         public var isLikelyGame: Bool
+        public var kind: Kind = .game
     }
 
     /// Every executable under a folder, ranked, with a note explaining what
     /// each one probably is. The automatic pick is a guess; this is how a
     /// person overrules it.
-    public func listExecutables(in folder: URL, limit: Int = 40) -> [ExecutableChoice] {
+    /// Classifies one executable by name and location.
+    ///
+    /// Names are the only honest signal short of running the thing, but they
+    /// are a good one: nobody ships a game called UnityCrashHandler64.exe.
+    public static func classify(name rawName: String, path: String) -> (ExecutableChoice.Kind, String?) {
+        let name = rawName.lowercased()
+        if name.contains("crashhandler") || name.contains("crashreport")
+            || name.contains("crashpad") || name.contains("errorreport") {
+            return (.noise, "crash reporter")
+        }
+        if name.contains("unins") || name.contains("uninstall") { return (.noise, "uninstaller") }
+        if name.contains("updater") || name.contains("update.exe") { return (.noise, "updater") }
+        if name.contains("vcredist") || name.contains("dxsetup") || name.contains("dxwebsetup")
+            || name.contains("prereqsetup") || name.contains("directx") || name.contains("dotnetfx")
+            || name.contains("ndp4") || name.contains("oalinst") || name.contains("xnafx") {
+            return (.installer, "prerequisite installer — worth running once")
+        }
+        if name.contains("setup") || name.contains("install") { return (.installer, "installer") }
+        if name.contains("config") || name.contains("setting") || name.contains("options") {
+            return (.tool, "configuration tool")
+        }
+        if name.contains("editor") || name.contains("tool") || name.contains("benchmark") {
+            return (.tool, "bundled tool")
+        }
+        if name.contains("launcher") { return (.tool, "launcher") }
+        if path.contains("/Binaries/Win") { return (.tool, "Unreal inner binary — launch the root .exe instead") }
+        return (.game, nil)
+    }
+
+    /// Every executable under a folder, ranked, with a note explaining what
+    /// each one probably is. The automatic pick is a guess; this is how a
+    /// person overrules it.
+    ///
+    /// Depth-limited because game folders bundle redistributables several
+    /// levels down, and a flat walk of a large install turns up dozens of
+    /// executables nobody would ever want to launch.
+    public func listExecutables(in folder: URL, limit: Int = 60, maxDepth: Int = 4) -> [ExecutableChoice] {
         var root = folder.standardizedFileURL
         var isDir: ObjCBool = false
         fm.fileExists(atPath: root.path, isDirectory: &isDir)
         if !isDir.boolValue { root = root.deletingLastPathComponent() }
-        // For a packaged Unreal build, show the whole package, not one subtree.
         if let launcher = unrealLauncher(near: root) { root = launcher.deletingLastPathComponent() }
 
         guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey],
                                      options: [.skipsHiddenFiles]) else { return [] }
-        // Compare resolved paths: macOS hands back /private/var where the URL
-        // says /var, so plain URL equality silently never matches.
         let best = findExecutable(in: root)?.pathKey
         var out: [ExecutableChoice] = []
         for case let u as URL in en {
+            if en.level > maxDepth { en.skipDescendants(); continue }
             guard u.pathExtension.lowercased() == "exe" else { continue }
             let size = (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             let rel = Self.relative(u, under: root)
-            let name = u.lastPathComponent.lowercased()
-            var note: String? = nil
-            if name.contains("unins") { note = "uninstaller" }
-            else if name.contains("crashhandler") || name.contains("crashreport") { note = "crash reporter" }
-            else if name.contains("vcredist") || name.contains("prereqsetup") || name.contains("dxsetup") {
-                note = "prerequisite installer — worth running once inside the prefix"
-            }
-            else if name.contains("setup") || name.contains("install") { note = "installer" }
-            else if name.contains("config") || name.contains("setting") || name.contains("launcher") {
-                note = "configuration/launcher tool"
-            }
-            else if u.path.contains("/Binaries/Win") { note = "Unreal inner binary — launch the root .exe instead" }
+            let (kind, note) = Self.classify(name: u.lastPathComponent, path: u.path)
             let same = u.pathKey == best
             out.append(ExecutableChoice(url: u, bytes: size, relativePath: rel,
-                                        note: note, isLikelyGame: same))
+                                        note: note, isLikelyGame: same,
+                                        kind: same ? .game : kind))
             if out.count >= limit { break }
         }
-        // Likely game first, then plain executables, then tooling, largest first.
+        // The chosen one first, then by purpose, then largest — a game binary
+        // is almost always bigger than the tools shipped beside it.
         return out.sorted { a, b in
             if a.isLikelyGame != b.isLikelyGame { return a.isLikelyGame }
-            if (a.note == nil) != (b.note == nil) { return a.note == nil }
+            if a.kind != b.kind { return a.kind < b.kind }
             return a.bytes > b.bytes
         }
     }

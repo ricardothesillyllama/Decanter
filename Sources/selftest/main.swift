@@ -18,6 +18,7 @@ if wantAll || args.contains("stop")    { runStopScopeTests(t) }
 if wantAll || args.contains("noise")   { runSaveNoiseTests(t) }
 if wantAll || args.contains("explain") { runModExplainTests(t) }
 if wantAll || args.contains("verbs")   { runRecipeVerbTests(t) }
+if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
 
 exit(t.summary())

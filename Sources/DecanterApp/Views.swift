@@ -766,8 +766,12 @@ struct GameDetail: View {
                 Text("checking folder…").font(.caption).foregroundStyle(.tertiary)
             } else if choices.count > 1 {
                 Menu("Change") {
+                    // Only plausible games at the top level. A large install
+                    // can hold thirty executables and listing them all three
+                    // times — launch, run once, add — made the menu unusable
+                    // exactly when there were most to choose between.
                     Section("Launch this game with") {
-                        ForEach(choices) { c in
+                        ForEach(choices.filter { $0.kind == .game }) { c in
                             Button {
                                 model.setExecutable(game, c.url)
                             } label: {
@@ -775,7 +779,20 @@ struct GameDetail: View {
                             }
                         }
                     }
-                    Section("Run once, without changing the game") {
+                    let others = choices.filter { $0.kind != .game }
+                    if !others.isEmpty {
+                        Menu("Other programs here (\(others.count))") {
+                            ForEach(others) { c in
+                                Button {
+                                    model.setExecutable(game, c.url)
+                                } label: {
+                                    Text(c.note.map { "\(c.relativePath) — \($0)" } ?? c.relativePath)
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Menu("Run once, without changing the game") {
                         ForEach(choices.filter { $0.url != game.exePath }) { c in
                             Button(c.note.map { "\(c.relativePath) — \($0)" } ?? c.relativePath) {
                                 model.runOther(game, c.url)
@@ -784,11 +801,9 @@ struct GameDetail: View {
                     }
                     // Decanter cannot tell a second game from a config tool, so
                     // this is offered rather than detected.
-                    Section("This folder holds another game") {
+                    Menu("Add another game from this folder") {
                         ForEach(choices.filter { $0.url != game.exePath }) { c in
-                            Button("Add \(c.relativePath) as its own game") {
-                                model.addAsSeparateGame(c.url)
-                            }
+                            Button(c.relativePath) { model.addAsSeparateGame(c.url) }
                         }
                     }
                 }
@@ -796,7 +811,9 @@ struct GameDetail: View {
                 .fixedSize()
                 .help(Help.executablePicker)
                 .disabled(model.busy != nil)
-                Text("\(choices.count) executables here")
+                Text(choices.filter { $0.kind == .game }.count > 1
+                     ? "\(choices.filter { $0.kind == .game }.count) could be the game"
+                     : "\(choices.count) programs here")
                     .font(.caption).foregroundStyle(.tertiary)
             } else {
                 Text("only executable in this folder")

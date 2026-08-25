@@ -336,11 +336,12 @@ ad-hoc otherwise.
     swift run selftest noise               # logs must not be mistaken for saves
     swift run selftest explain             # mod failures in plain language
     swift run selftest verbs               # winetricks verb validation
+    swift run selftest exes                # telling a game from a crash handler
     swift run selftest launch              # real Windows executables, 32- and 64-bit
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **299 checks.**
+the no-dependency rule. **322 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

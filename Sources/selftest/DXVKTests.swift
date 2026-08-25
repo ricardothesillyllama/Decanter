@@ -188,3 +188,43 @@ func runModExplainTests(_ t: Harness) {
     t.expect(!e("[Error  :   BepInEx] something odd happened").isEmpty,
              "an unrecognised failure still produces a sentence")
 }
+
+/// A big install can hold thirty executables and exactly one is the game.
+/// Getting this wrong is what made the picker unusable: the interesting entry
+/// buried under crash handlers and redistributables.
+func runExecutableClassifyTests(_ t: Harness) {
+    t.suite("executable classification")
+    func k(_ n: String, path: String = "") -> Detector.ExecutableChoice.Kind {
+        Detector.classify(name: n, path: path.isEmpty ? "/g/" + n : path).0
+    }
+
+    // Things that are never the game.
+    for n in ["UnityCrashHandler64.exe", "CrashReportClient.exe", "unins000.exe",
+              "Uninstall.exe", "GameUpdater.exe"] {
+        t.equal(k(n), .noise, "\(n) is noise")
+    }
+    for n in ["vcredist_x64.exe", "DXSETUP.exe", "dxwebsetup.exe",
+              "dotnetfx45.exe", "oalinst.exe", "UEPrereqSetup_x64.exe"] {
+        t.equal(k(n), .installer, "\(n) is a prerequisite installer")
+    }
+    for n in ["Config.exe", "SettingTool.exe", "GameLauncher.exe", "LevelEditor.exe"] {
+        t.equal(k(n), .tool, "\(n) is a tool")
+    }
+    // …and the ones that must survive as candidates.
+    for n in ["SampleGame.exe", "Start Sample Game.exe", "Adventure.exe", "hl2.exe"] {
+        t.equal(k(n), .game, "\(n) stays a game candidate")
+    }
+    t.equal(k("Shipping.exe", path: "/g/SampleGame/Binaries/Win64/Shipping.exe"), .tool,
+            "an Unreal inner binary is a tool, not the thing to launch")
+
+    // Ordering is what the menu depends on.
+    let fixture = Fixture.noisy()
+    let list = Detector().listExecutables(in: fixture)
+    t.expect(!list.isEmpty, "the noisy fixture produces choices")
+    if let first = list.first {
+        t.expect(first.isLikelyGame || first.kind == .game,
+                 "the first entry is a game candidate, not a crash handler")
+    }
+    let kinds = list.map(\.kind)
+    t.equal(kinds, kinds.sorted(), "entries are grouped by purpose, games first")
+}
