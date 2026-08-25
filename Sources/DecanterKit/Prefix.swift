@@ -1,0 +1,220 @@
+import Foundation
+
+/// Creates and derives Wine prefixes. Per the design: a broken prefix is never
+/// repaired, it is re-derived from the golden template — which is cheap
+/// because APFS clones a 335MB prefix in about half a second.
+public struct PrefixBuilder {
+    let paths: Paths
+    let fm = FileManager.default
+    public init(paths: Paths) { self.paths = paths }
+
+    public typealias Progress = (String) -> Void
+
+    // MARK: Golden template
+
+    public func buildGoldenTemplate(runtime: RuntimeSpec, store: Store,
+                                    progress: Progress = { _ in }) throws {
+        let dst = paths.template(for: runtime.id)
+        if fm.fileExists(atPath: dst.path) {
+            progress("removing previous template")
+            try fm.removeItem(at: dst)
+        }
+        try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        // Wine's services outlive whatever spawned them, so the shutdown has
+        // to happen even when the bootstrap throws. Skipping it on the error
+        // path is how a failed template build left a rundll32 running for days.
+        defer {
+            if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
+                _ = try? Shell.run(ws, ["-k"],
+                                   env: ["WINEPREFIX": dst.path], timeout: 60)
+            }
+        }
+        progress("bootstrapping prefix with \(runtime.id) (this takes a minute)")
+        var env = baseEnv(prefix: dst, runtime: runtime)
+        // Suppress only the Gecko dialog. Suppressing mscoree here stopped
+        // wineboot installing the bundled wine-mono into the prefix, so every
+        // prefix silently had no .NET at all.
+        env["WINEDLLOVERRIDES"] = "mshtml="
+        let r = try Shell.run(runtime.winePath, ["wineboot", "-u"], env: env, timeout: 600)
+        guard fm.fileExists(atPath: dst.appending(path: "system.reg").path) else {
+            throw DecanterError.cloneFailed("wineboot produced no prefix: \(r.err.suffix(400))")
+        }
+        progress("setting Windows 10 mode")
+        _ = try? Shell.run(runtime.winePath,
+                           ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version",
+                            "/d", "win10", "/f"], env: env, timeout: 120)
+
+        progress("removing full-filesystem drive mapping")
+        try descope(prefix: dst)
+
+        // Wine registers the host's fonts but invents no aliases, so every
+        // Windows-only name (MS PGothic, Segoe UI, SimSun) resolves to nothing
+        // and games drawing with them render blank. Map them here so every
+        // bottle cloned from this template inherits the fix.
+        progress("mapping Windows font names onto macOS faces")
+        let fonts = try FontProvisioner().apply(to: dst)
+        progress("  \(fonts.mapped.count) names mapped from \(fonts.families) host families")
+        if !fonts.unmapped.isEmpty {
+            progress("  no macOS face for: \(fonts.unmapped.joined(separator: ", "))")
+        }
+
+        // Bake DXVK into the template so every cloned prefix inherits it.
+        let dxvk = DXVKInstaller(paths: paths)
+        if dxvk.isStaged {
+            progress("installing DXVK \(dxvk.stagedVersion ?? "") into template")
+            _ = try? dxvk.install(into: dst, runtime: runtime, progress: progress)
+        } else {
+            progress("DXVK not staged - template will use Wine's builtin D3D")
+        }
+
+        progress("shutting down wineserver")
+        if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
+            _ = try? Shell.run(ws, ["-k"], env: env, timeout: 60)
+        }
+        try store.mutate { s in
+            s.templateBuiltAt = Date()
+            s.templateRuntimeID = runtime.id
+            s.templates[runtime.id] = Date()
+        }
+        progress("golden template ready")
+    }
+
+    // MARK: Derivation
+
+    /// Clones the golden template into a new bottle. Uses APFS clonefile so
+    /// this costs no meaningful disk and takes well under a second.
+    public func derive(bottleID: UUID, runtime: RuntimeSpec,
+                       backend: GraphicsBackend) throws -> Bottle {
+        let template = templateURL(for: runtime)
+        guard fm.fileExists(atPath: template.path) else {
+            throw DecanterError.noTemplate(runtime.id)
+        }
+        let dst = paths.bottles.appending(path: bottleID.uuidString)
+        if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+        try fm.createDirectory(at: paths.bottles, withIntermediateDirectories: true)
+        let r = try Shell.run(URL(filePath: "/bin/cp"),
+                              ["-Rc", template.path, dst.path], timeout: 300)
+        if r.code != 0 {
+            let r2 = try Shell.run(URL(filePath: "/bin/cp"),
+                                   ["-R", template.path, dst.path], timeout: 900)
+            guard r2.code == 0 else { throw DecanterError.cloneFailed(r2.err) }
+        }
+        return Bottle(id: bottleID, prefixPath: dst, runtimeID: runtime.id, backend: backend)
+    }
+
+    /// Per-runtime template, falling back to the legacy shared one.
+    public func templateURL(for runtime: RuntimeSpec) -> URL {
+        let perRuntime = paths.template(for: runtime.id)
+        if fm.fileExists(atPath: perRuntime.path) { return perRuntime }
+        return paths.template
+    }
+
+    // MARK: Scoping
+
+    /// Removes `z: -> /`. Whisky mapped the entire Mac filesystem into every
+    /// bottle; a Windows binary from the open internet could read ~/Documents,
+    /// ~/.ssh and iCloud. Decanter grants specific folders instead.
+    public func descope(prefix: URL) throws {
+        let dd = prefix.appending(path: "dosdevices")
+        for name in ["z:", "z::"] {
+            let p = dd.appending(path: name)
+            if let _ = try? fm.destinationOfSymbolicLink(atPath: p.path) {
+                try? fm.removeItem(at: p)
+            }
+        }
+        try sandboxUserFolders(prefix: prefix)
+    }
+
+    /// Removing `z:` is NOT sufficient. Wine also points each Windows user
+    /// folder at the corresponding real one in the host home directory —
+    /// Documents, Downloads, Desktop, Music, Pictures, Videos — so a game can
+    /// still read and write them through C:\users\<user>\Documents.
+    /// Replace any symlink that escapes the prefix with a real folder inside it.
+    @discardableResult
+    public func sandboxUserFolders(prefix: URL) throws -> [String] {
+        var fixed: [String] = []
+        let users = prefix.appending(path: "drive_c/users")
+        guard let names = try? fm.contentsOfDirectory(atPath: users.path) else { return fixed }
+        let prefixReal = prefix.resolvingSymlinksInPath().path
+        for user in names where !user.hasPrefix(".") {
+            let home = users.appending(path: user)
+            guard let entries = try? fm.contentsOfDirectory(atPath: home.path) else { continue }
+            for entry in entries where !entry.hasPrefix(".") {
+                let item = home.appending(path: entry)
+                guard let dest = try? fm.destinationOfSymbolicLink(atPath: item.path) else { continue }
+                let target = dest.hasPrefix("/") ? dest
+                    : home.appending(path: dest).standardizedFileURL.path
+                // A link that stays inside the prefix is ours and is fine.
+                if URL(filePath: target).resolvingSymlinksInPath().path.hasPrefix(prefixReal) { continue }
+                try? fm.removeItem(at: item)
+                try? fm.createDirectory(at: item, withIntermediateDirectories: true)
+                fixed.append("\(user)/\(entry) -> was \(target)")
+            }
+        }
+        return fixed
+    }
+
+    public func applyScopes(prefix: URL, scopes: [ScopeGrant]) throws {
+        let dd = prefix.appending(path: "dosdevices")
+        try fm.createDirectory(at: dd, withIntermediateDirectories: true)
+        try descope(prefix: prefix)   // also re-seals the user folders
+        for s in scopes {
+            let link = dd.appending(path: "\(s.letter):")
+            try? fm.removeItem(at: link)
+            try fm.createSymbolicLink(atPath: link.path, withDestinationPath: s.hostPath.path)
+        }
+    }
+
+    /// Names of Windows user folders that currently escape the prefix.
+    public func escapingUserFolders(prefix: URL) -> [String] {
+        var out: [String] = []
+        let users = prefix.appending(path: "drive_c/users")
+        guard let names = try? fm.contentsOfDirectory(atPath: users.path) else { return out }
+        let prefixReal = prefix.resolvingSymlinksInPath().path
+        for user in names where !user.hasPrefix(".") {
+            let home = users.appending(path: user)
+            for entry in (try? fm.contentsOfDirectory(atPath: home.path)) ?? [] where !entry.hasPrefix(".") {
+                let item = home.appending(path: entry)
+                guard let dest = try? fm.destinationOfSymbolicLink(atPath: item.path) else { continue }
+                let target = dest.hasPrefix("/") ? dest : home.appending(path: dest).standardizedFileURL.path
+                if URL(filePath: target).resolvingSymlinksInPath().path.hasPrefix(prefixReal) { continue }
+                out.append("\(entry)")
+            }
+        }
+        return out
+    }
+
+    // MARK: Environment
+
+    public func baseEnv(prefix: URL, runtime: RuntimeSpec) -> [String: String] {
+        var e: [String: String] = [
+            "WINEPREFIX": prefix.path,
+            "WINEDEBUG": "-all",
+            "WINEDLLPATH": runtime.root.appending(path: "lib/wine").path,
+        ]
+        // GPTK needs its D3DMetal libs on the external lib path.
+        if runtime.kind == .gptk {
+            e["DYLD_FALLBACK_LIBRARY_PATH"] = runtime.root.appending(path: "lib/external").path
+                + ":" + runtime.root.appending(path: "lib").path + ":/usr/lib"
+        }
+        return e
+    }
+
+    public func graphicsEnv(_ backend: GraphicsBackend, runtime: RuntimeSpec) -> [String: String] {
+        switch backend {
+        case .dxvk:
+            return ["DXVK_HUD": "0", "DXVK_LOG_LEVEL": "none",
+                    "WINEDLLOVERRIDES": "d3d9,d3d10core,d3d11,dxgi=n"]
+        case .d3dmetal:
+            guard runtime.kind == .gptk else { return [:] }
+            // GPTK implements D3DMetal *inside* Wine's builtin D3D modules, so
+            // these must resolve builtin. Using "native" here would pick up the
+            // DXVK DLLs sitting in the prefix and quietly run DXVK instead.
+            return ["D3DM_SUPPORT_DXR": "0", "MTL_HUD_ENABLED": "0",
+                    "WINEDLLOVERRIDES": "d3d9,d3d10core,d3d11,d3d12,d3d12core,dxgi=b"]
+        case .wined3d:
+            return ["WINEDLLOVERRIDES": "d3d11,d3d10core,dxgi,d3d9=b"]
+        }
+    }
+}

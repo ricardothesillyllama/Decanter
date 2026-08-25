@@ -1,0 +1,864 @@
+import SwiftUI
+import DecanterKit
+import UniformTypeIdentifiers
+
+enum Selection: Hashable {
+    case game(UUID)
+    case bottle(UUID)
+    case saves
+}
+
+struct RootView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var selection: Selection?
+    @State private var showInspector = true
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        NavigationSplitView {
+            Sidebar(selection: $selection)
+                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
+        } detail: {
+            Group {
+                switch selection {
+                case .game(let id):
+                    if let g = model.games.first(where: { $0.id == id }) {
+                        GameDetail(game: g, showInspector: $showInspector)
+                    } else { EmptyState() }
+                case .bottle(let id):
+                    if let b = model.bottles.first(where: { $0.id == id }) {
+                        BottleDetail(bottle: b)
+                    } else { EmptyState() }
+                case .saves:
+                    SavesView()
+                case nil:
+                    EmptyState()
+                }
+            }
+            .frame(minWidth: 480, minHeight: 380)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { addGame() } label: { Label("Add Game", systemImage: "plus") }
+                    .help(Help.addGame)
+            }
+            ToolbarItem {
+                Button { showInspector.toggle() } label: {
+                    Label("Details", systemImage: "sidebar.trailing")
+                }.help(Help.inspectorToggle)
+            }
+        }
+        .overlay(alignment: .bottom) { BusyBar() }
+        .sheet(isPresented: .constant(model.setupNeeded && model.busy == nil)) { SetupSheet() }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            for p in providers {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { Task { @MainActor in model.add(path: url) } }
+                }
+            }
+            return true
+        }
+        .tint(Palette.accent(scheme))
+    }
+
+    private func addGame() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a game folder or its .exe"
+        if panel.runModal() == .OK, let url = panel.url { model.add(path: url) }
+    }
+}
+
+// MARK: - Sidebar
+
+struct Sidebar: View {
+    @EnvironmentObject var model: AppModel
+    @Binding var selection: Selection?
+    @State private var pendingRemoval: Game?
+    @State private var keepSaves = true
+
+    var body: some View {
+        List(selection: $selection) {
+            Section {
+                if model.games.isEmpty {
+                    Text("No games yet").foregroundStyle(.secondary).font(.callout)
+                }
+                ForEach(model.gamesByRecency) { g in
+                    GameRow(game: g).tag(Selection.game(g.id))
+                        .contextMenu {
+                            Button("Play") { model.play(g) }
+                                .disabled(model.running.contains(g.id))
+                            Button("Troubleshoot Launch") { model.play(g, verbose: true) }
+                                .disabled(model.running.contains(g.id))
+                            Divider()
+                            Button("Copy Problem Report") { model.makeReport(g, screenshot: true) }
+                            Button("Diagnose Last Failure") { model.diagnose(g) }
+                            Divider()
+                            Button("Reveal Prefix in Finder") { model.revealPrefix(g) }
+                            Divider()
+                            Button("Remove Game…", role: .destructive) { pendingRemoval = g }
+                        }
+                }
+            } header: {
+                HStack(spacing: 5) {
+                    Text("Library")
+                    InfoButton(text: Help.librarySection, title: "Library")
+                }
+            }
+
+            Section {
+                Label("All Saves", systemImage: "externaldrive.badge.checkmark")
+                    .tag(Selection.saves)
+                    .help(Help.savesPane)
+            }
+
+            Section {
+                ForEach(model.bottles) { b in
+                    BottleRow(bottle: b).tag(Selection.bottle(b.id))
+                }
+            } header: {
+                HStack(spacing: 5) {
+                    Text("Bottles")
+                    InfoButton(text: Help.bottlesSection, title: "Bottles")
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .confirmationDialog(pendingRemoval.map { "Remove \($0.name)?" } ?? "Remove game?",
+                            isPresented: Binding(get: { pendingRemoval != nil },
+                                                 set: { if !$0 { pendingRemoval = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove, Keep Saves", role: .destructive) {
+                if let g = pendingRemoval { model.remove(g, keepSaves: true) }
+                pendingRemoval = nil
+            }
+            Button("Remove and Delete Saves", role: .destructive) {
+                if let g = pendingRemoval { model.remove(g, keepSaves: false) }
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: {
+            Text("This deletes the game's Windows environment and forgets it.\n\nYour actual game files are never touched — they live outside the prefix, wherever you downloaded them.")
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let h = model.health {
+                HStack(spacing: 6) {
+                    StatusDot(color: h.rosetta ? Palette.running : Palette.danger)
+                        .help(h.rosetta
+                              ? "Rosetta 2 is present. Wine is an x86_64 program, so nothing here runs without it."
+                              : "Rosetta 2 is missing — Wine cannot run at all until it is installed.")
+                    Text(h.pinnedRuntimes.first.map { "\($0.id)" } ?? "no runtime")
+                        .font(.evidence).foregroundStyle(.secondary)
+                        .help(Help.runtimePinned)
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(.ultraThinMaterial)
+            }
+        }
+    }
+}
+
+struct GameRow: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+
+    var body: some View {
+        HStack(spacing: 8) {
+            StatusDot(color: model.running.contains(game.id) ? Palette.running : .secondary.opacity(0.5),
+                      pulsing: model.running.contains(game.id))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(game.name).lineLimit(1)
+                Text(game.detection.engine.label)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct BottleRow: View {
+    @EnvironmentObject var model: AppModel
+    let bottle: Bottle
+
+    var owner: String {
+        model.games.first { $0.bottleID == bottle.id }?.name ?? "orphan"
+    }
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cylinder.split.1x2").imageScale(.small).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(owner).lineLimit(1)
+                Text("gen \(bottle.generation) · \(bottle.backend.label)")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+
+/// Wine outlives the app that started it, so a crashed or timed-out launch can
+/// leave a process spinning at full CPU indefinitely. macOS blames Decanter for
+/// the battery drain even when Decanter is not running, and Force Quit does not
+/// list these — so the app has to say it plainly.
+struct StrayWineCard: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        let strays = model.leakedWine
+        let worst = strays.max { $0.cpu < $1.cpu }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.trianglebadge.exclamationmark")
+                Text("\(strays.count) leftover Wine process\(strays.count == 1 ? "" : "es")")
+                    .font(.headline)
+            }
+            if let w = worst, w.cpu >= 50 {
+                Text("\(w.displayName) has been using \(Int(w.cpu))% CPU for \(w.elapsed).")
+            } else {
+                Text("Left running by an earlier session. They keep using power even when Decanter is closed.")
+            }
+            Text("They do not appear in Force Quit, because they are not applications.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("End Them") { model.reapWine() }.buttonStyle(.borderedProminent)
+                Text("This also stops any game you are playing.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
+    }
+}
+
+
+/// BepInEx status. Worth its own card because a mod loader fails in a way
+/// nothing else in the app can see: the game launches, draws nothing, and dies,
+/// while the actual reason sits in a log next to the .exe.
+struct ModsCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    @State private var showAllPlugins = false
+
+    var body: some View {
+        let st = model.mods[game.id] ?? ModInspector.Status()
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Mods").font(.headline)
+                InfoButton(text: Help.mods, title: "BepInEx and mod loaders")
+            }
+            HStack(spacing: 6) {
+                Image(systemName: st.loaderRan ? "checkmark.seal" : "clock")
+                Text("BepInEx\(st.loaderVersion.map { " \($0)" } ?? "")")
+                Text(st.loaderRan ? "has run" : "has not written a log yet")
+                    .foregroundStyle(.secondary)
+                Text("·").foregroundStyle(.secondary)
+                Text("\(st.plugins.count) plugin\(st.plugins.count == 1 ? "" : "s")")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+
+            if let n = st.note {
+                Text(n).font(.caption).foregroundStyle(.secondary)
+            }
+
+            if !st.errors.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("The mod loader reported \(st.errors.count) failure\(st.errors.count == 1 ? "" : "s")")
+                        .font(.callout.weight(.medium))
+                    ForEach(Array(st.errors.enumerated()), id: \.offset) { _, e in
+                        Text(e).font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(3)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+            }
+
+            if !st.plugins.isEmpty {
+                DisclosureGroup(isExpanded: $showAllPlugins) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(st.plugins) { p in
+                            HStack {
+                                Text(p.fileName).font(.system(.caption, design: .monospaced))
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(p.bytes),
+                                                               countStyle: .file))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                } label: {
+                    Text("Installed plugins").font(.callout)
+                }
+            }
+
+            HStack(spacing: 8) {
+                if st.pluginsDir != nil {
+                    Button("Reveal Plugins") { model.revealPluginsFolder(game) }
+                }
+                if st.logPath != nil {
+                    Button("Open Loader Log") { model.openLoaderLog(game) }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Game detail
+
+struct GameDetail: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    @Binding var showInspector: Bool
+    @Environment(\.colorScheme) private var scheme
+    @State private var importing = false
+    @State private var confirmRebuild = false
+
+    var bottle: Bottle? { model.bottle(for: game) }
+    var isRunning: Bool { model.running.contains(game.id) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                header
+                if !model.leakedWine.isEmpty { StrayWineCard() }
+                if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
+                graphics
+                if model.mods[game.id]?.installed == true { ModsCard(game: game) }
+                maintenance
+                troubleshoot
+            }
+            .padding(26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle(game.name)
+        .inspector(isPresented: $showInspector) {
+            EvidenceInspector(game: game)
+                .inspectorColumnWidth(min: 250, ideal: 300, max: 400)
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { model.importSaves(game, from: url) }
+        }
+
+        .confirmationDialog("Rebuild this game's prefix?", isPresented: $confirmRebuild, titleVisibility: .visible) {
+            Button("Rebuild and Erase", role: .destructive) { model.rederive(game) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Decanter never repairs a broken prefix — it re-derives a clean one, which takes about half a second.\n\nAnything stored inside the prefix is erased, including saves. You can import them again afterwards.")
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(game.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
+            HStack(spacing: 6) {
+                FactChip(text: game.detection.engine.label, icon: "cube.transparent")
+                    .help("The game engine Decanter identified from the files next to the executable.")
+                FactChip(text: game.detection.bitness.label)
+                    .help(Help.architecture)
+                if let b = bottle {
+                    FactChip(text: b.backend.label, tint: Palette.accent(scheme), icon: "square.stack.3d.up")
+                        .help(Help.backend(b.backend))
+                }
+                if game.detection.modded {
+                    FactChip(text: "modded", icon: "wrench.and.screwdriver")
+                        .help("A mod loader (BepInEx or Doorstop) sits next to this game. Its mods load through winhttp.dll.")
+                }
+            }
+            executablePicker
+
+            HStack(spacing: 10) {
+                Button {
+                    model.play(game)
+                } label: {
+                    Label(isRunning ? "Running" : "Play", systemImage: isRunning ? "waveform" : "play.fill")
+                        .frame(minWidth: 88)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isRunning || model.busy != nil)
+                .help(isRunning ? Help.running : Help.play)
+
+                if let d = game.lastPlayed {
+                    Text("Last played \(d.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var graphics: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Graphics").font(.headline)
+                InfoButton(text: Help.backendPicker, title: "Choosing a graphics backend")
+            }
+
+            recommendationBanner
+
+            if let b = bottle {
+                Picker("", selection: Binding(get: { b.backend },
+                                              set: { model.setBackend(game, $0) })) {
+                    ForEach(availableBackends, id: \.self) { bk in
+                        Text(bk == model.recommendation(for: game)?.backend ? "\(bk.label) ★" : bk.label)
+                            .tag(bk)
+                    }
+                }
+                .labelsHidden().pickerStyle(.segmented).frame(width: 280)
+                .help(Help.backendPicker)
+                .disabled(model.busy != nil)
+
+                // A live explanation of what is currently selected beats a
+                // tooltip you have to go hunting for.
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(Help.backend(b.backend))
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(Help.whenToChoose(b.backend))
+                        .font(.caption).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: 520, alignment: .leading)
+                .animation(.easeInOut(duration: 0.15), value: b.backend)
+
+                HStack(spacing: 6) {
+                    Text("Runtime").font(.callout).foregroundStyle(.secondary)
+                    Picker("", selection: Binding(get: { b.runtimeID },
+                                                  set: { model.setRuntime(game, $0) })) {
+                        ForEach(model.pinnedRuntimes) { rt in
+                            Text(runtimeLabel(rt)).tag(rt.id)
+                        }
+                    }
+                    .labelsHidden().frame(width: 260)
+                    .help(Help.runtimePicker)
+                    .disabled(model.busy != nil)
+                    InfoButton(text: Help.runtimePicker, title: "Choosing a runtime")
+                }
+                .padding(.top, 2)
+
+                if b.backend == .dxvk && !dxvkReallyPresent {
+                    Label("This prefix has Wine's builtin Direct3D, not DXVK. Rebuild it to pick up DXVK.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Palette.caution)
+                }
+            }
+        }
+    }
+
+    /// Game folders routinely hold launchers, config tools and prerequisite
+    /// installers beside the real game. The automatic pick is a guess, so it
+    /// has to be overridable — and the other executables are often worth
+    /// running once in the same prefix.
+    @ViewBuilder private var executablePicker: some View {
+        let choices = model.executableChoices[game.id] ?? []
+        HStack(spacing: 6) {
+            Image(systemName: "doc.badge.gearshape").imageScale(.small).foregroundStyle(.secondary)
+            Text(game.exePath.lastPathComponent)
+                .font(.evidence).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            if choices.count > 1 {
+                Menu("Change") {
+                    Section("Launch this game with") {
+                        ForEach(choices) { c in
+                            Button {
+                                model.setExecutable(game, c.url)
+                            } label: {
+                                Text(c.url == game.exePath ? "\(c.relativePath)  ✓" : c.relativePath)
+                            }
+                        }
+                    }
+                    Section("Run once, without changing the game") {
+                        ForEach(choices.filter { $0.url != game.exePath }) { c in
+                            Button(c.note.map { "\(c.relativePath) — \($0)" } ?? c.relativePath) {
+                                model.runOther(game, c.url)
+                            }
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help(Help.executablePicker)
+                .disabled(model.busy != nil)
+            }
+            Spacer()
+        }
+        .task { model.loadExecutables(game) }
+    }
+
+    /// The whole point: say which setup is most likely to work, and why,
+    /// instead of leaving five combinations to be tried by hand.
+    @ViewBuilder private var recommendationBanner: some View {
+        if let rec = model.recommendation(for: game) {
+            let onIt = model.isOnRecommended(game)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 7) {
+                    Image(systemName: onIt ? "checkmark.seal.fill" : "lightbulb.fill")
+                        .foregroundStyle(onIt ? Palette.running : Palette.accent(scheme))
+                    Text(onIt
+                         ? "You're on the recommended setup"
+                         : "Recommended: \(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(rec.backend.label)")
+                        .font(.callout).bold()
+                    FactChip(text: "\(rec.confidence) confidence")
+                    Spacer()
+                    if !onIt {
+                        Button("Use This") { model.applyRecommendation(game) }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            .disabled(model.busy != nil)
+                            .help("Switch to the recommended runtime and backend. Nothing is launched.")
+                    } else {
+                        Button("This Works") { model.markWorking(game) }
+                            .controlSize(.small)
+                            .disabled(model.busy != nil)
+                            .help(Help.markWorking)
+                    }
+                }
+                ForEach(Array(rec.reasons.prefix(3).enumerated()), id: \.offset) { _, r in
+                    Text("· \(r)").font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(Array(rec.caveats.prefix(2).enumerated()), id: \.offset) { _, c in
+                    Label(c, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Palette.caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: 560, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill((onIt ? Palette.running : Palette.accent(scheme)).opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 9)
+                .strokeBorder((onIt ? Palette.running : Palette.accent(scheme)).opacity(0.30), lineWidth: 0.5))
+        }
+    }
+
+    private var maintenance: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Maintenance").font(.headline)
+            HStack(spacing: 8) {
+                Button("Import Saves…") { importing = true }
+                    .help(Help.importSaves)
+                Button("Rebuild Prefix") { confirmRebuild = true }
+                    .help(Help.rebuildPrefix)
+                Button("Diagnose") { model.diagnose(game) }
+                    .help(Help.diagnose)
+                Button("Re-inspect") { model.redetect(game) }
+                    .help(Help.redetect)
+                Button("Fix Fonts") { model.fixFonts() }
+                    .help(Help.fixFonts)
+                Button("Reveal in Finder") { model.revealPrefix(game) }
+                    .help(Help.revealPrefix)
+            }
+            .disabled(model.busy != nil)
+        }
+    }
+
+    private var troubleshoot: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Something looks wrong?").font(.headline)
+                InfoButton(text: Help.troubleshootPane, title: "Reporting a graphics problem")
+            }
+            Text("If the game runs but renders badly, a normal log proves nothing. Launch it in troubleshoot mode, then collect a report while it is on screen.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 520, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Button {
+                    model.play(game, verbose: true)
+                } label: {
+                    Label("Troubleshoot Launch", systemImage: "ladybug")
+                }
+                .help(Help.troubleshootLaunch)
+                .disabled(isRunning || model.busy != nil)
+
+                Button {
+                    model.makeReport(game, screenshot: true)
+                } label: {
+                    Label("Copy Problem Report", systemImage: "doc.on.clipboard")
+                }
+                .help(Help.copyReport)
+                .disabled(model.busy != nil)
+
+                if model.lastReport != nil {
+                    Button("Show Files") { model.revealReport() }
+                        .help("Open the report and screenshot in Finder.")
+                }
+            }
+
+            if let note = model.reportNote {
+                Label(note, systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(Palette.running)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("If the problem is visual, take a screenshot yourself: Command-Shift-4, Space, click the window — then attach it to the report.")
+                .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var dxvkReallyPresent: Bool {
+        guard let b = bottle else { return false }
+        return FileManager.default.fileExists(
+            atPath: b.prefixPath.appending(path: "drive_c/windows/system32/d3d11.dll.wine-builtin").path)
+    }
+
+    private func runtimeLabel(_ rt: RuntimeSpec) -> String {
+        switch rt.kind {
+        case .wine: "Wine \(rt.version)"
+        case .gptk: "Game Porting Toolkit \(rt.version)"
+        }
+    }
+
+    private var availableBackends: [GraphicsBackend] {
+        guard let b = bottle,
+              let rt = model.pinnedRuntimes.first(where: { $0.id == b.runtimeID })
+        else { return [.dxvk, .wined3d] }
+        return rt.backends
+    }
+}
+
+struct DiagnosisCard: View {
+    let report: Diagnostics.Report
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("This game exited early", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline).foregroundStyle(Palette.caution)
+            ForEach(Array(report.findings.enumerated()), id: \.offset) { _, f in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(f.summary).font(.callout)
+                    Text(f.suggestion).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let p = report.logPath {
+                Text(p.path).font(.evidence).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.caution.opacity(0.30), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Inspector
+
+struct EvidenceInspector: View {
+    let game: Game
+    var body: some View {
+        Form {
+            Section {
+                Text(Help.inspectorPane)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                LabeledContent("Confidence", value: String(format: "%.2f", game.detection.confidence))
+                    .help(Help.confidence)
+                LabeledContent("Engine", value: game.detection.engine.label)
+                    .help("Identified from the files sitting next to the executable.")
+                LabeledContent("Architecture", value: game.detection.bitness.label)
+                    .help(Help.architecture)
+                if !game.detection.graphicsAPIs.isEmpty {
+                    LabeledContent("Graphics") {
+                        Text(game.detection.graphicsAPIs.joined(separator: ", ")).font(.evidence)
+                    }
+                    .help(Help.graphicsAPIs)
+                }
+            } header: {
+                HStack(spacing: 5) { Text("Detection"); InfoButton(text: Help.confidence, title: "Confidence") }
+            }
+
+            Section {
+                ForEach(Array(game.detection.signals.enumerated()), id: \.offset) { _, sig in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(String(format: "%.2f", sig.weight))
+                            .font(.evidence).foregroundStyle(.tertiary)
+                        Text(sig.rule).font(.caption)
+                    }
+                    .help("Weight \(String(format: "%.2f", sig.weight)) — heavier evidence counted for more.")
+                }
+            } header: {
+                HStack(spacing: 5) { Text("Evidence"); InfoButton(text: Help.evidenceWeights, title: "Evidence weights") }
+            }
+
+            Section {
+                ForEach(Array(game.scopes.enumerated()), id: \.offset) { _, sc in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(sc.letter.uppercased()):\(sc.readOnly ? "  read-only" : "")").font(.factLabel)
+                        Text(sc.hostPath.path).font(.evidence).foregroundStyle(.secondary)
+                            .lineLimit(2).truncationMode(.middle)
+                    }
+                    .help("Mapped as drive \(sc.letter.uppercased()): inside Windows.\n\(sc.hostPath.path)")
+                }
+                Text("No other part of your Mac is visible to this game.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            } header: {
+                HStack(spacing: 5) { Text("Allowed folders"); InfoButton(text: Help.allowedFolders, title: "Scoped access") }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Bottles
+
+struct BottleDetail: View {
+    @EnvironmentObject var model: AppModel
+    let bottle: Bottle
+
+    var owner: Game? { model.games.first { $0.bottleID == bottle.id } }
+
+    private func backendsFor(_ b: Bottle) -> [GraphicsBackend] {
+        model.pinnedRuntimes.first { $0.id == b.runtimeID }?.backends ?? [.dxvk, .wined3d]
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(owner?.name ?? "Orphaned bottle")
+                    .font(.system(size: 26, weight: .semibold))
+                HStack(spacing: 6) {
+                    FactChip(text: "generation \(bottle.generation)").help(Help.generation)
+                    FactChip(text: bottle.runtimeID, icon: "shippingbox").help(Help.runtimePinned)
+                    FactChip(text: bottle.backend.label).help(Help.backend(bottle.backend))
+                }
+                GroupBox("Prefix") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(bottle.prefixPath.path).font(.evidence).textSelection(.enabled)
+                        Text("Health: \(bottle.health.label)").font(.caption).foregroundStyle(.secondary)
+                            .help(Help.bottleHealth)
+                        if !bottle.appliedRecipes.isEmpty {
+                            Text("Recipes: \(bottle.appliedRecipes.joined(separator: ", "))")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .help(Help.recipes)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let g = owner {
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Text("Graphics settings live on the bottle").font(.callout).bold()
+                                InfoButton(text: Help.graphicsAreBottleScoped, title: "Why bottle-scoped?")
+                            }
+                            Picker("Backend", selection: Binding(
+                                get: { bottle.backend },
+                                set: { model.setBackend(g, $0) })) {
+                                ForEach(backendsFor(bottle), id: \.self) { Text($0.label).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .help(Help.backendPicker)
+                            Picker("Runtime", selection: Binding(
+                                get: { bottle.runtimeID },
+                                set: { model.setRuntime(g, $0) })) {
+                                ForEach(model.pinnedRuntimes) { rt in Text(rt.id).tag(rt.id) }
+                            }
+                            .help(Help.runtimePicker)
+                            Text(Help.backend(bottle.backend))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .disabled(model.busy != nil)
+                }
+
+                HStack {
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([bottle.prefixPath])
+                    }.help(Help.revealPrefix)
+                    if owner == nil {
+                        Button("Clean Up Orphans") { model.gc() }.help(Help.orphanBottle)
+                    }
+                }
+                Text("A broken prefix is never repaired here — it is thrown away and re-derived from the golden template, which takes about half a second.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+            }
+            .padding(26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle(owner?.name ?? "Bottle")
+    }
+}
+
+// MARK: - Chrome
+
+struct EmptyState: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "drop.degreesign")
+                .font(.system(size: 40, weight: .light)).foregroundStyle(.tertiary)
+            Text("Drop a game folder anywhere in this window")
+                .font(.title3).foregroundStyle(.secondary)
+            Text("Decanter inspects the binary, picks a runtime, and clones it a private prefix.")
+                .font(.callout).foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct BusyBar: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        VStack(spacing: 6) {
+            if let e = model.lastError {
+                Label(e, systemImage: "xmark.octagon.fill")
+                    .font(.callout).foregroundStyle(Palette.danger)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(.regularMaterial, in: Capsule())
+                    .onTapGesture { model.lastError = nil }
+            }
+            if let b = model.busy {
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text(b).font(.callout)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(.regularMaterial, in: Capsule())
+            }
+        }
+        .padding(.bottom, 14)
+        .animation(.easeInOut(duration: 0.18), value: model.busy)
+        .animation(.easeInOut(duration: 0.18), value: model.lastError)
+    }
+}
+
+struct SetupSheet: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Set up Decanter").font(.title2).bold()
+            Text("Decanter takes its own pinned copy of every Wine build on this Mac, then builds one golden prefix that every game clones from. Pinning matters: Whisky stopped working because the runtime it downloaded disappeared.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let h = model.health {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(h.rosetta ? "Rosetta 2 present" : "Rosetta 2 missing",
+                          systemImage: h.rosetta ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(h.rosetta ? Palette.running : Palette.danger)
+                    ForEach(Array(h.discovered.enumerated()), id: \.offset) { _, c in
+                        Label("\(c.kind.rawValue) \(c.version)\(c.supports32Bit ? " · 32-bit capable" : "")",
+                              systemImage: "shippingbox")
+                    }
+                }
+                .font(.callout)
+            }
+            HStack {
+                Spacer()
+                Button("Set Up") { model.runSetup() }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(model.busy != nil)
+            }
+        }
+        .padding(26)
+        .frame(width: 460)
+    }
+}

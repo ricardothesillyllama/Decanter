@@ -1,0 +1,12 @@
+# Build products. The .app bundle is assembled by install.sh from Resources/,
+# so nothing under here is source and none of it should ever be committed.
+.build/
+*.o
+*.dSYM/
+
+# macOS clutter
+.DS_Store
+
+# Local editor state
+.swiftpm/
+*.xcuserstate
