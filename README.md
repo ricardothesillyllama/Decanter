@@ -2,6 +2,10 @@
 
 **Run Windows games on your Apple Silicon Mac.**
 
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter)](https://github.com/ricardothesillyllama/Decanter/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20·%20Apple%20Silicon-lightgrey.svg)](#requirements)
+
 Decanter manages Wine for you: it works out what a game needs, builds it an
 isolated Windows environment, and picks the graphics translation most likely to
 work — instead of leaving you to guess between five combinations and try each
@@ -125,6 +129,52 @@ fresh clone always produces a matching binary.
 
 Run `decanter help` for the full list.
 
+## Troubleshooting
+
+Start here. Most problems are one of these, and the first row fixes a
+surprising share of them.
+
+| What you see | Usually means | Do this |
+|---|---|---|
+| Window flashes and closes, or nothing happens | Wrong runtime or graphics backend | `decanter recommend <game> --apply`, then run it again |
+| Text is missing — buttons and menus are blank but correctly sized | The game asks for a Windows-only font that macOS does not have | `decanter fonts` |
+| Game runs, but cutscenes or videos fail | D3DMetal has no `ID3D11Multithread`, so video cannot play on it | Switch the backend to **WineD3D** |
+| Black screen, or garbled 3D | Backend mismatch | Try **DXVK 1.10.3** first, then **WineD3D** |
+| Crash naming a plugin, or a mod loader error | A BepInEx plugin threw | Check **Mods** in the app, or `decanter mods <game>` |
+| `Failed to load il2cpp` | Usually Unity 6, which does not work on any current runtime | `decanter info <game>` will say if it is Unity 6 |
+| `Failed to open descriptor file '../../X.uproject'` | The wrong executable is being launched | Pick the launcher beside `Engine/` in the executable picker |
+| Fans spin up and macOS blames Decanter while it is closed | Wine processes left running by an earlier session | `decanter reap` |
+| The app forgets granted permissions after every rebuild | Ad-hoc signing — see [Signing](#signing-and-why-permissions-reset) | Create a `Decanter Dev` certificate once |
+| Worked before, broken after a game update or new mods | Detection is stale | `decanter redetect <game>`, then `decanter rederive <game>` if needed |
+
+Two things worth knowing before you go deeper:
+
+- **You do not need a Microsoft C++ runtime.** Wine ships `vcruntime140` and
+  `msvcp140` as builtins. A game complaining about them under Wine usually has a
+  different problem.
+- **Newer DXVK is not better here.** 2.x and 3.x need Vulkan 1.3 features
+  MoltenVK does not fully implement. 1.10.3 is the one that works on macOS.
+
+## Reporting a problem
+
+```sh
+decanter report <game>     # lands on your clipboard
+```
+
+Open an issue with the **A game does not work** template and paste it. The
+report contains the machine, the runtime and backend *actually* in use (not
+merely the one configured), the DXVK build actually installed in the prefix,
+whether font names are mapped, detection evidence, an automatic diagnosis, and
+the graphics-related log lines.
+
+**You can rename or redact the game.** The report is still useful without the
+title. Decanter itself never records game names outside your own library — the
+knowledge base counts confirmations, it does not name them.
+
+If the fault is visual, add a screenshot: Command-Shift-4, then Space, then
+click the window. Decanter never captures the screen, so it never asks for
+Screen Recording permission.
+
 ## Choosing a backend
 
 Five runtime/backend combinations exist and guessing between them is miserable,
@@ -145,23 +195,14 @@ named. Two rules were measured rather than guessed:
 
 ## When a game runs but looks wrong
 
-This is the hard case: nothing crashes, so the log is nearly empty and there is
-nothing to hand to anyone.
+The hard case: nothing crashes, so the log is nearly empty. Turn the noise up
+before reporting it:
 
     decanter run <game> --debug    # verbose D3D/DXGI/Vulkan/DXVK/MoltenVK logging
-    decanter report <game>         # full problem report, copied to the clipboard
 
-`report` collects the machine, the runtime and backend actually in use (not
-merely the one configured), the DXVK build actually installed in the prefix,
-whether Windows font names are mapped, detection evidence, an automatic
-diagnosis, every graphics-related log line, and the log tail.
-
-For a visual fault, take a screenshot yourself with Command-Shift-4, then Space,
-then click the window. Decanter deliberately does not capture the screen, so it
-never asks for Screen Recording permission.
-
-The same flow is in the app under "Something looks wrong?", and on the
-right-click menu of any game in the sidebar.
+Then `decanter report <game>` as above. The same flow is in the app under
+"Something looks wrong?", and on the right-click menu of any game in the
+sidebar.
 
 ## Blank text, empty buttons
 
@@ -322,6 +363,13 @@ GPTK; storing it against a Wine runtime would silently mean no acceleration at a
 
 Verified working on an M2 MacBook Air, macOS 26.5.1, with Wine 11.0 and
 GPTK 3.0-3 pinned side by side.
+
+## Contributing
+
+Bug reports for games that do not work are the most useful contribution, and
+they need no code — see [CONTRIBUTING.md](CONTRIBUTING.md). It also lists the
+handful of rules this codebase actually holds to, each of which exists because
+breaking it caused a real failure.
 
 ## License
 
