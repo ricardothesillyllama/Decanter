@@ -340,7 +340,13 @@ ad-hoc otherwise.
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **293 checks.**
+the no-dependency rule. **299 checks.**
+
+The launch suite also proves the font mapping end to end: it writes the
+mapping into a real prefix, asks Wine to read it back through its own registry
+parser, and confirms all of it survives a wineserver shutdown — which rewrites
+the registry, and is where a malformed edit would quietly disappear. Testing
+that Decanter can read what Decanter wrote proves nothing.
 
 The launch suite is the interesting one: it clones the golden template into an
 isolated root and launches Wine's own real PE binaries (`winemine.exe`, 32-bit

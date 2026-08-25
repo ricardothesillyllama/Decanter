@@ -73,6 +73,60 @@ func runLaunchTests(_ t: Harness) {
 
     // Other Wine windows may legitimately be on screen (the user's own game),
     // so record what was there before and only reason about the difference.
+    // ---- fonts, read back through Wine's own parser ------------------------
+    //
+    // The unit tests prove Decanter can read what Decanter wrote, which is
+    // circular. The mapping is only worth anything if *Wine* accepts it, and a
+    // malformed registry edit fails silently — Wine drops the section and
+    // carries on. So write it into a real prefix and ask Wine what it sees.
+    t.suite("font mapping, via Wine")
+    do {
+        let prefix = paths.template
+        let plan = try! FontProvisioner().apply(to: prefix)
+        t.expect(!plan.mapped.isEmpty, "the template has Windows font names to map")
+
+        var env = PrefixBuilder(paths: paths).baseEnv(prefix: prefix, runtime: wine)
+        env["WINEPREFIX"] = prefix.path
+        env["WINEDEBUG"] = "-all"
+
+        func query(_ key: String) -> String {
+            guard let r = try? Shell.run(wine.winePath, ["reg", "query", key],
+                                         env: env, timeout: 120) else { return "" }
+            return r.out + r.err
+        }
+        let hkcu = query(#"HKCU\Software\Wine\Fonts\Replacements"#)
+        let hklm = query(#"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"#)
+
+        // Whatever the machine's fonts are, the mapping we just wrote must come
+        // back through Wine unchanged.
+        let sample = plan.mapped.first { $0.name == "MS PGothic" } ?? plan.mapped[0]
+        t.expect(hkcu.contains(sample.name),
+                 "Wine reads back the replacement for \(sample.name)")
+        t.expect(hkcu.contains(sample.target),
+                 "…pointing at \(sample.target)")
+        t.expect(hklm.contains(sample.name),
+                 "Wine reads back the HKLM substitution too")
+
+        // A malformed edit shows up as a missing or truncated section, so count.
+        // reg query emits CRLF, and its first run in a fresh prefix can
+        // interleave wineboot chatter, so count occurrences rather than lines.
+        let lines = hkcu.components(separatedBy: "REG_SZ").count - 1
+        if lines < plan.mapped.count {
+            print("      DEBUG query returned \(hkcu.count) chars, \(lines) values")
+        }
+        t.expect(lines >= plan.mapped.count,
+                 "all \(plan.mapped.count) mappings survive Wine's parser (saw \(lines))")
+
+        // The registry Wine rewrote on exit must still contain them.
+        if let ws = wine.wineserverPath {
+            _ = try? Shell.run(ws, ["-k"], env: env, timeout: 45)
+        }
+        Thread.sleep(forTimeInterval: 1.0)
+        let installed = FontProvisioner().installed(in: prefix)
+        t.expect(installed[sample.name] == sample.target,
+                 "the mapping survives a wineserver shutdown rewriting the registry")
+    }
+
     // ---- 64-bit -----------------------------------------------------------
     if let exe = stageWineProgram("winemine.exe", arch: "x86_64-windows", as: "DecanterTest64.exe") {
         t.expect(true, "staged a real 64-bit PE (winemine.exe)")
