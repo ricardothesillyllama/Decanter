@@ -1,38 +1,55 @@
 # Decanter
 
-A replacement for [Whisky](https://github.com/Whisky-App/Whisky), which was archived in
-2025 and whose bundled Wine runtime repository was deleted — leaving installed copies
-unable to finish setting themselves up.
+**Run Windows games on your Apple Silicon Mac.**
 
-Decanter runs Windows games on Apple Silicon macOS. One engine, two front ends: a CLI
-that is fully usable on its own, and a native SwiftUI app.
+Decanter manages Wine for you: it works out what a game needs, builds it an
+isolated Windows environment, and picks the graphics translation most likely to
+work — instead of leaving you to guess between five combinations and try each
+one by hand.
 
-## Design decisions
+It is a maintained alternative to [Whisky](https://github.com/Whisky-App/Whisky),
+which was archived in 2025. When Whisky's bundled Wine repository was deleted,
+installed copies could no longer finish setting themselves up. Decanter is built
+so that cannot happen to it: it downloads nothing, and keeps its own copy of
+every runtime it uses.
 
-**Runtimes are pinned, not borrowed.** Decanter copies each Wine build into its own
-store (`~/Library/Application Support/Decanter/runtimes/`) via APFS clone. A Homebrew
-upgrade, a cask conflict, or a deleted upstream release cannot break an installed game.
-This is the exact failure that killed Whisky.
+<!-- TODO: screenshot of the game detail view goes here -->
 
-**Every game gets its own prefix.** Prefixes are cloned from one "golden" template with
-APFS copy-on-write — measured at 335 MB in 0.46 s, costing no meaningful disk. Because
-isolation is free, no game can break another through a conflicting dependency.
+## What you get
 
-**Broken prefixes are re-derived, never repaired.** `decanter rederive <game>` throws the
-prefix away and rebuilds it. Repair heuristics are the thing that rots.
+- **A native Mac app and a full CLI**, sharing one engine. Either is enough on
+  its own.
+- **A recommendation, not a guessing game.** Decanter reads the game's engine,
+  architecture and graphics API, combines that with what has already worked on
+  your machine, and tells you which runtime and backend to use — and why.
+- **Every game isolated.** Each one gets its own Windows environment, cloned
+  instantly with APFS copy-on-write. No game can break another.
+- **Your saves kept safe.** Saves are stored outside the Windows environment and
+  linked back in, so rebuilding a broken game never destroys your progress.
+  Snapshots on demand.
+- **Games cannot read your files.** Unlike Whisky, no game gets a view of your
+  whole Mac — just its own folder.
+- **Real answers when something breaks.** One command produces a problem report
+  with the runtime actually in use, the graphics layer actually loaded, an
+  automatic diagnosis, and the relevant log lines.
+- **Mod support.** BepInEx is detected and wired up automatically, with plugin
+  status and loader errors surfaced in the app.
 
-**No `z: -> /`.** Whisky mapped the entire Mac filesystem into every bottle, so any
-Windows binary could read `~/Documents`, `~/.ssh` and iCloud. Decanter grants a game its
-own folder plus a shared games dir, and nothing else.
+## Quick start
 
-**Detection decides the runtime.** The binary's PE header gives bitness; sibling files
-(`UnityPlayer.dll`, `GameAssembly.dll`, `package.nw`, `renpy/`, `.pck`, Unreal layout,
-`BepInEx/`) give the engine; and a `.dxvk-cache` is treated as proof DXVK already worked.
-Note that Unity and Unreal link `d3d12.dll` while rendering D3D11 — Decanter does not
-fall for that.
+```sh
+git clone https://github.com/ricardothesillyllama/Decanter.git
+cd Decanter && ./install.sh
+decanter pin && decanter template build     # one-time setup
+decanter add ~/Games/SomeGame
+decanter run SomeGame
+```
 
-**Backends are clamped to what the runtime can provide.** D3DMetal only exists inside
-GPTK; storing it against a Wine runtime would silently mean no acceleration at all.
+Or open **Decanter.app** from `/Applications` and drag a game folder in.
+
+You will need a Wine build and, ideally, Apple's Game Porting Toolkit — see
+[Getting the pieces](#getting-the-pieces). Decanter does not download them for
+you, on purpose.
 
 ## Requirements
 
@@ -223,11 +240,12 @@ ad-hoc otherwise.
     swift run selftest dxvk                # identifying an unmarked DXVK build
     swift run selftest mods                # picking real failures out of a loader log
     swift run selftest reap                # stray Wine process parsing
+    swift run selftest stop                # per-game stop must not kill other games
     swift run selftest launch              # real Windows executables, 32- and 64-bit
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **238 checks.**
+the no-dependency rule. **244 checks.**
 
 The launch suite is the interesting one: it clones the golden template into an
 isolated root and launches Wine's own real PE binaries (`winemine.exe`, 32-bit
@@ -257,6 +275,40 @@ the whole chain worked.
 - **`[ErrorHandler]` is a plugin name, not an error.** Matching mod-loader logs
   on the word "error" flagged plugin names and config keys, and a log full of
   false positives gets ignored.
+- **Two URLs for the same folder compared unequal.** `appending(path:)` on an
+  existing directory flags it as one, so it renders as `…/mine/`, while
+  `URL(filePath:)` on the identical string does not. Per-game stop therefore
+  matched nothing, and the reaper's "spare these prefixes" guard protected
+  nothing — it would have killed a running game it was told to leave alone.
+  Path comparison now goes through one helper that normalises both this and
+  `/var` versus `/private/var`.
+
+## Why it is built this way
+
+**Runtimes are pinned, not borrowed.** Decanter copies each Wine build into its own
+store (`~/Library/Application Support/Decanter/runtimes/`) via APFS clone. A Homebrew
+upgrade, a cask conflict, or a deleted upstream release cannot break an installed game.
+This is the exact failure that killed Whisky.
+
+**Every game gets its own prefix.** Prefixes are cloned from one "golden" template with
+APFS copy-on-write — measured at 335 MB in 0.46 s, costing no meaningful disk. Because
+isolation is free, no game can break another through a conflicting dependency.
+
+**Broken prefixes are re-derived, never repaired.** `decanter rederive <game>` throws the
+prefix away and rebuilds it. Repair heuristics are the thing that rots.
+
+**No `z: -> /`.** Whisky mapped the entire Mac filesystem into every bottle, so any
+Windows binary could read `~/Documents`, `~/.ssh` and iCloud. Decanter grants a game its
+own folder plus a shared games dir, and nothing else.
+
+**Detection decides the runtime.** The binary's PE header gives bitness; sibling files
+(`UnityPlayer.dll`, `GameAssembly.dll`, `package.nw`, `renpy/`, `.pck`, Unreal layout,
+`BepInEx/`) give the engine; and a `.dxvk-cache` is treated as proof DXVK already worked.
+Note that Unity and Unreal link `d3d12.dll` while rendering D3D11 — Decanter does not
+fall for that.
+
+**Backends are clamped to what the runtime can provide.** D3DMetal only exists inside
+GPTK; storing it against a Wine runtime would silently mean no acceleration at all.
 
 ## Known limitations
 

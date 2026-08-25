@@ -148,10 +148,10 @@ public struct WineReaper {
     /// something the caller knows is legitimately running.
     @discardableResult
     public func reap(keeping live: Set<URL> = [], progress: (String) -> Void = { _ in }) -> Outcome {
-        let liveResolved = Set(live.map { $0.resolvingSymlinksInPath().standardizedFileURL })
+        let spared = Set(live.map(\.pathKey))
         return reap(progress: progress) { s in
             guard let p = s.prefix else { return true }
-            return !liveResolved.contains(p.resolvingSymlinksInPath().standardizedFileURL)
+            return !spared.contains(p.pathKey)
         }
     }
 

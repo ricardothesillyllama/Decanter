@@ -87,3 +87,44 @@ func runModLogTests(_ t: Harness) {
     t.equal(ModInspector.failures(in: []).count, 0, "an empty log yields nothing")
     t.expect(ModInspector.failures(in: ["all fine here"]).isEmpty, "a clean log yields nothing")
 }
+
+/// Stopping one game must not touch another. The reaper's filter is the only
+/// thing standing between "quit this hung game" and "kill everything the user
+/// has open", so the prefix match is worth pinning down.
+func runStopScopeTests(_ t: Harness) {
+    t.suite("per-game stop scoping")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appending(path: "decanter-stop-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: root) }
+
+    let mine = root.appending(path: "bottles/mine")
+    let other = root.appending(path: "bottles/other")
+    for d in [mine, other] { try? fm.createDirectory(at: d, withIntermediateDirectories: true) }
+
+    func stray(_ prefix: URL?) -> WineReaper.Stray {
+        WineReaper.Stray(pid: 1, cpu: 0, elapsed: "00:10",
+                         command: #"C:\windows\system32\explorer.exe"#,
+                         prefix: prefix, isService: true)
+    }
+    // Exactly the comparison Engine.stop uses.
+    let target = mine.pathKey
+    func matches(_ s: WineReaper.Stray) -> Bool {
+        guard let p = s.prefix else { return false }
+        return p.pathKey == target
+    }
+
+    t.expect(matches(stray(mine)), "a process in this game's prefix is selected")
+    t.expect(!matches(stray(other)), "a process in another game's prefix is spared")
+    t.expect(!matches(stray(nil)),
+             "a process whose prefix cannot be read is spared, not killed on a guess")
+    // /var vs /private/var has broken path comparison in this codebase three
+    // times; stopping a game must not become "kill everything" because of it.
+    // The two shapes that broke this: a plain path URL (what ps gives us) and
+    // the /var form of a /private/var path.
+    t.expect(matches(stray(URL(filePath: mine.path))),
+             "a plain path URL matches a directory-flagged one for the same folder")
+    t.expect(matches(stray(URL(filePath: mine.path.replacingOccurrences(of: "/private/var", with: "/var")))),
+             "the same prefix reached through /var still matches")
+    t.expect(matches(stray(URL(filePath: mine.path + "/"))),
+             "a trailing slash does not change the identity")
+}

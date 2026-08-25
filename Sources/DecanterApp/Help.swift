@@ -207,6 +207,17 @@ enum Help {
     That is deliberate: DXVK is not a setting, it is a set of DLLs physically installed     inside the prefix. Since every game gets its own bottle, changing it here and changing     it on the game page are the same act — this is simply the other door into it.
     """
 
+    static let stop = """
+    Ends this game and nothing else.
+
+    A hung Windows game often cannot be quit from its own window, and Force \
+    Quit will not list it — Wine's processes are not applications, so macOS \
+    does not show them there. This shuts down the Wine session for this \
+    game's prefix only; anything else you have running is untouched.
+
+    Unsaved progress is lost, the same as force-quitting anything.
+    """
+
     static let mods = """
     BepInEx is a mod loader that hooks the game through a proxy DLL
     (winhttp.dll). Decanter enables that override automatically when it sees a

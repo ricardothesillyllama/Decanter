@@ -78,3 +78,21 @@ public struct Shell {
         return p
     }
 }
+
+public extension URL {
+    /// A comparable identity for a filesystem location.
+    ///
+    /// Comparing two file URLs with `==` is wrong twice over, and both have
+    /// caused real bugs here:
+    ///
+    /// 1. `/var/…` and `/private/var/…` name the same file, and only one of
+    ///    them comes back from `ps`, from Wine, or from a user-typed path.
+    /// 2. A URL built by `appending(path:)` on an existing folder is flagged as
+    ///    a directory and renders as `…/mine/`, while `URL(filePath:)` on the
+    ///    same string is not — so they compare unequal despite identical paths.
+    ///
+    /// The second one silently broke per-game stop (it matched nothing) and
+    /// the reaper's `keeping:` guard (it protected nothing, so a running game
+    /// it was told to spare would have been killed).
+    var pathKey: String { resolvingSymlinksInPath().standardizedFileURL.path }
+}

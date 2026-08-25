@@ -8,6 +8,28 @@ final class AppModel: ObservableObject {
     @Published var health: Engine.Health?
     @Published var busy: String?              // non-nil while a long task runs
     @Published var lastError: String?
+
+    /// What each action did, kept so "what have I already tried?" is answerable.
+    /// Error recovery was the weak point: an action would run, fail, and leave
+    /// nothing on screen once the next thing happened.
+    struct Activity: Identifiable, Sendable {
+        enum Outcome: Sendable { case running, succeeded, failed }
+        let id = UUID()
+        let started = Date()
+        var label: String
+        var outcome: Outcome = .running
+        var detail: String?
+        var finished: Date?
+        var duration: TimeInterval { (finished ?? Date()).timeIntervalSince(started) }
+    }
+    @Published var activity: [Activity] = []
+    /// Key of the action currently running, so its own button can show a
+    /// spinner instead of the whole pane going quietly disabled.
+    @Published var activeAction: String?
+
+    func isRunning(_ key: String) -> Bool { activeAction == key }
+    /// Most recent finished activity, for the inline result line.
+    var lastActivity: Activity? { activity.first { $0.outcome != .running } }
     @Published var running: Set<UUID> = []
     @Published var diagnosis: [UUID: Diagnostics.Report] = [:]
     @Published var strays: [WineReaper.Stray] = []
@@ -54,25 +76,45 @@ final class AppModel: ObservableObject {
 
     /// One entry point for every long operation, so the UI can never get out
     /// of sync with the engine and errors always surface in the same place.
-    private func perform(_ label: String, _ work: @escaping @Sendable (Engine) throws -> Void) {
+    private func perform(_ label: String, key: String? = nil,
+                         _ work: @escaping @Sendable (Engine) throws -> String?,
+                         then: (@MainActor () -> Void)? = nil) {
         guard let e = engine else { return }
-        busy = label; lastError = nil
+        busy = label; lastError = nil; activeAction = key
+        let entry = Activity(label: label)
+        activity.insert(entry, at: 0)
+        if activity.count > 50 { activity.removeLast(activity.count - 50) }
         Task.detached(priority: .userInitiated) {
-            do { try work(e) }
-            catch { await MainActor.run { self.lastError = error.localizedDescription } }
-            await MainActor.run { self.busy = nil; self.reload(); self.refreshSaves() }
+            var summary: String?
+            var failure: String?
+            do { summary = try work(e) }
+            catch { failure = error.localizedDescription }
+            await MainActor.run {
+                if let i = self.activity.firstIndex(where: { $0.id == entry.id }) {
+                    self.activity[i].outcome = failure == nil ? .succeeded : .failed
+                    self.activity[i].detail = failure ?? summary
+                    self.activity[i].finished = Date()
+                }
+                self.lastError = failure
+                self.busy = nil; self.activeAction = nil
+                self.reload(); self.refreshSaves(); then?()
+            }
         }
     }
 
     func runSetup() {
-        perform("Preparing your Mac for Windows games…") { e in
-            _ = try e.pinAll()
+        perform("Preparing your Mac for Windows games…", key: "setup") { e in
+            let pinned = try e.pinAll()
             try e.buildTemplate()
+            return "Pinned \(pinned.count) runtime(s) and built the golden template"
         }
     }
 
     func add(path: URL) {
-        perform("Inspecting \(path.lastPathComponent)…") { e in _ = try e.add(path: path) }
+        perform("Inspecting \(path.lastPathComponent)…", key: "add") { e in
+            let g = try e.add(path: path)
+            return "Added \(g.name) — \(g.detection.engine.label), \(g.detection.bitness.label)"
+        }
     }
 
     func play(_ game: Game, verbose: Bool = false) {
@@ -119,15 +161,21 @@ final class AppModel: ObservableObject {
     }
 
     func rederive(_ game: Game) {
-        perform("Rebuilding \(game.name)'s prefix…") { e in _ = try e.rederive(game) }
+        perform("Rebuilding \(game.name)'s prefix…", key: "rebuild") { e in
+            let b = try e.rederive(game)
+            return "Prefix rebuilt from the \(b.runtimeID) template; saves relinked"
+        }
     }
 
     func importSaves(_ game: Game, from url: URL) {
-        perform("Importing saves into \(game.name)…") { e in _ = try e.importSaves(into: game, from: url) }
+        perform("Importing saves into \(game.name)…", key: "import") { e in
+            let n = try e.importSaves(into: game, from: url)
+            return "Imported \(n) save file(s)"
+        }
     }
 
     func setBackend(_ game: Game, _ backend: GraphicsBackend) {
-        perform("Switching \(game.name) to \(backend.label)…") { e in
+        perform("Switching \(game.name) to \(backend.label)…", key: "backend") { e in
             try e.store.mutate { s in
                 if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) {
                     s.bottles[i].backend = backend
@@ -136,11 +184,15 @@ final class AppModel: ObservableObject {
                     s.games[i].runtimeLocked = true
                 }
             }
+            return "Graphics backend is now \(backend.label)"
         }
     }
 
     func setRuntime(_ game: Game, _ runtimeID: String) {
-        perform("Moving \(game.name) to \(runtimeID)…") { e in _ = try e.setRuntime(game, to: runtimeID) }
+        perform("Moving \(game.name) to \(runtimeID)…", key: "runtime") { e in
+            _ = try e.setRuntime(game, to: runtimeID)
+            return "Now running on \(runtimeID)"
+        }
     }
 
     var pinnedRuntimes: [RuntimeSpec] { health?.pinnedRuntimes ?? [] }
@@ -189,28 +241,58 @@ final class AppModel: ObservableObject {
     }
 
     func applyRecommendation(_ game: Game) {
-        perform("Applying the recommended setup for \(game.name)…") { e in
-            _ = try e.applyRecommendation(game)
+        perform("Applying the recommended setup for \(game.name)…", key: "recommend") { e in
+            let r = try e.applyRecommendation(game)
+            return "Now on \(r.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine") + \(r.backend.label)"
         }
     }
 
     /// Records the current setup as working, which also teaches future games.
     @Published var executableChoices: [UUID: [Detector.ExecutableChoice]] = [:]
 
-    /// Scanning a game folder touches disk, so do it on demand, off the main
-    /// thread, and cache the result.
-    func loadExecutables(_ game: Game) {
-        guard let e = engine, executableChoices[game.id] == nil else { return }
+    /// Games whose folder is being scanned right now, so the picker can say
+    /// "looking" instead of silently rendering nothing.
+    @Published var scanningExecutables: Set<UUID> = []
+
+    /// Scanning a game folder touches disk, so do it off the main thread and
+    /// cache the result. `force` re-scans after the chosen executable changes.
+    func loadExecutables(_ game: Game, force: Bool = false) {
+        guard let e = engine else { return }
+        if !force, executableChoices[game.id] != nil { return }
+        guard !scanningExecutables.contains(game.id) else { return }
+        scanningExecutables.insert(game.id)
         Task.detached(priority: .utility) {
             let list = e.executables(for: game)
-            await MainActor.run { self.executableChoices[game.id] = list }
+            await MainActor.run {
+                self.executableChoices[game.id] = list
+                self.scanningExecutables.remove(game.id)
+            }
+        }
+    }
+
+    /// Registers another executable from the same folder as a game in its own
+    /// right, with its own prefix and settings.
+    ///
+    /// Only ever on request. Decanter cannot tell a second game from a config
+    /// tool, a crash handler or a prerequisite installer, and guessing would
+    /// fill the library with junk — so the choice stays with the person who
+    /// knows what the folder contains.
+    func addAsSeparateGame(_ url: URL) {
+        perform("Adding \(url.lastPathComponent) as its own game…", key: "addSeparate") { e in
+            let g = try e.add(path: url)
+            return "Added \(g.name) with its own prefix — \(g.detection.engine.label)"
         }
     }
 
     func setExecutable(_ game: Game, _ url: URL) {
-        executableChoices[game.id] = nil
-        perform("Switching \(game.name) to \(url.lastPathComponent)…") { e in
+        // The old list stays on screen until the new one lands. Clearing it up
+        // front made the picker disappear for good: nothing re-scanned, and
+        // .task only fires when the view first appears.
+        perform("Switching \(game.name) to \(url.lastPathComponent)…", key: "setexe") { e in
             _ = try e.setExecutable(game, to: url)
+            return "Launches \(url.lastPathComponent) from now on"
+        } then: { [weak self] in
+            self?.loadExecutables(game, force: true)
         }
     }
 
@@ -225,11 +307,17 @@ final class AppModel: ObservableObject {
     }
 
     func redetect(_ game: Game) {
-        perform("Re-inspecting \(game.name)…") { e in _ = try e.redetect(game) }
+        perform("Re-inspecting \(game.name)…", key: "redetect") { e in
+            let d = try e.redetect(game)
+            return "\(d.engine.label), \(d.bitness.label)\(d.modded ? ", modded" : "")"
+        }
     }
 
     func markWorking(_ game: Game) {
-        perform("Remembering this setup…") { e in try e.rememberWorking(game) }
+        perform("Remembering this setup…", key: "remember") { e in
+            try e.rememberWorking(game)
+            return "Recorded as working for games with this profile"
+        }
     }
 
     /// Builds the pasteable bundle and puts it on the clipboard, because the
@@ -299,53 +387,84 @@ final class AppModel: ObservableObject {
     }
 
     func snapshotSaves(_ game: Game) {
-        perform("Snapshotting \(game.name)…") { e in _ = try e.snapshotSaves(game, note: "manual") }
+        perform("Snapshotting \(game.name)…", key: "snapshot") { e in
+            _ = try e.snapshotSaves(game, note: "manual")
+            return "Snapshot taken"
+        }
     }
 
     func snapshotAll() {
-        perform("Snapshotting every game…") { e in
-            for g in e.store.state.games { _ = try? e.snapshotSaves(g, note: "manual (all)") }
+        perform("Snapshotting every game…", key: "snapshotAll") { e in
+            var n = 0
+            for g in e.store.state.games where (try? e.snapshotSaves(g, note: "manual (all)")) != nil { n += 1 }
+            return "Snapshotted \(n) game(s)"
         }
     }
 
     func externaliseSaves(_ game: Game) {
-        perform("Protecting \(game.name)'s saves…") { e in _ = try e.externaliseSaves(game) }
+        perform("Protecting \(game.name)'s saves…", key: "externalise") { e in
+            let r = try e.externaliseSaves(game)
+            return r.moved.isEmpty
+                ? "Already protected — \(r.alreadyLinked.count) folder(s) linked out"
+                : "\(r.moved.count) save folder(s) moved out of the prefix and symlinked back"
+        }
     }
 
     func externaliseAll() {
-        perform("Protecting every game's saves…") { e in
-            for g in e.store.state.games { _ = try? e.externaliseSaves(g) }
+        perform("Protecting every game's saves…", key: "externaliseAll") { e in
+            var n = 0
+            for g in e.store.state.games { n += (try? e.externaliseSaves(g))?.moved.count ?? 0 }
+            return "\(n) save folder(s) moved out of prefixes across the library"
         }
     }
 
     func restoreSnapshot(_ game: Game, _ name: String) {
-        perform("Restoring \(game.name)…") { e in _ = try e.restoreSaves(game, snapshot: name) }
+        perform("Restoring \(game.name)…", key: "restore") { e in
+            let n = try e.restoreSaves(game, snapshot: name)
+            return "Restored \(n) file(s) from \(name)"
+        }
     }
 
     func remove(_ game: Game, keepSaves: Bool) {
-        perform("Removing \(game.name)…") { e in _ = try e.remove(game, keepSaves: keepSaves) }
+        perform("Removing \(game.name)…", key: "remove") { e in
+            _ = try e.remove(game, keepSaves: keepSaves)
+            return keepSaves ? "Removed; saves kept" : "Removed, saves deleted"
+        }
     }
 
-    func gc() { perform("Cleaning orphaned prefixes…") { e in _ = try e.gc() } }
+    func gc() {
+        perform("Cleaning orphaned prefixes…", key: "gc") { e in
+            let r = try e.gc()
+            return r.bottles == 0 ? "Nothing orphaned"
+                : "Removed \(r.bottles) orphaned prefix(es), \(r.bytes / 1_048_576) MB"
+        }
+    }
 
     func reapWine() {
-        perform("Ending leftover Wine processes…") { e in
+        perform("Ending leftover Wine processes…", key: "reap") { e in
             let o = e.reapWine()
-            let msg = "Ended \(o.sessionsEnded) Wine session(s) and \(o.killed.count) process(es)."
-            Task { @MainActor in self.reportNote = msg }
+            return "Ended \(o.sessionsEnded) Wine session(s) and \(o.killed.count) process(es)"
         }
     }
 
     /// Applies to every template and bottle at once. The mapping is registry
     /// data, so this is idempotent and nothing is launched.
     func fixFonts() {
-        perform("Mapping Windows font names…") { e in
+        perform("Mapping Windows font names…", key: "fonts") { e in
             let r = e.provisionFonts()
             let n = r.reduce(0) { $0 + $1.plan.mapped.count }
-            let msg = n == 0
-                ? "Every Windows font name already resolves — nothing to change."
-                : "Mapped \(n) font name(s) across \(r.count) prefix(es). Takes effect next launch."
-            Task { @MainActor in self.reportNote = msg }
+            return n == 0
+                ? "Every Windows font name already resolved — nothing to change"
+                : "Mapped \(n) font name(s) across \(r.count) prefix(es); takes effect next launch"
+        }
+    }
+
+    func stop(_ game: Game) {
+        perform("Stopping \(game.name)…", key: "stop") { e in
+            let n = try e.stop(game)
+            return n == 0 ? "Nothing left running" : "Ended \(n) process(es)"
+        } then: { [weak self] in
+            self?.running.remove(game.id)
         }
     }
 

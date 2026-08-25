@@ -312,6 +312,126 @@ struct ModsCard: View {
     }
 }
 
+
+/// A button that shows what it is doing and what it did.
+///
+/// The old maintenance row was six bare buttons that went quietly disabled
+/// while something ran: no indication of which one you pressed, no result, and
+/// any error vanished the moment the next thing happened. Each action now owns
+/// its progress state and carries a line saying what it is for, because a verb
+/// alone ("Re-inspect") does not tell you when to reach for it.
+struct ActionButton: View {
+    @EnvironmentObject var model: AppModel
+    let title: String
+    let systemImage: String
+    let key: String
+    let blurb: String
+    var role: ButtonRole? = nil
+    let action: () -> Void
+
+    var body: some View {
+        let mine = model.isRunning(key)
+        let otherBusy = model.busy != nil && !mine
+        return Button(role: role, action: action) {
+            HStack(alignment: .top, spacing: 9) {
+                Group {
+                    if mine { ProgressView().controlSize(.small).scaleEffect(0.7) }
+                    else { Image(systemName: systemImage).imageScale(.medium) }
+                }
+                .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(mine ? "\(title)…" : title).font(.callout.weight(.medium))
+                    Text(blurb).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(9)
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(Color.primary.opacity(mine ? 0.09 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .opacity(otherBusy ? 0.45 : 1)
+        .disabled(model.busy != nil)
+        .animation(.easeInOut(duration: 0.15), value: mine)
+    }
+}
+
+/// A running record of what was done and how it went.
+///
+/// Error recovery was the weak point: you could try four things, have the third
+/// fail, and by the time the fourth finished there was nothing on screen saying
+/// so. Entries survive navigation and keep full error text.
+struct ActivityPanel: View {
+    @EnvironmentObject var model: AppModel
+    @State private var expanded = false
+
+    var body: some View {
+        let entries = model.activity
+        return VStack(alignment: .leading, spacing: 8) {
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(entries) { a in
+                        HStack(alignment: .top, spacing: 8) {
+                            icon(a)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(a.label.replacingOccurrences(of: "…", with: ""))
+                                        .font(.callout)
+                                    Text(a.started.formatted(date: .omitted, time: .standard))
+                                        .font(.caption).foregroundStyle(.tertiary)
+                                    if a.outcome != .running {
+                                        Text(String(format: "%.1fs", a.duration))
+                                            .font(.caption).foregroundStyle(.tertiary)
+                                    }
+                                }
+                                if let d = a.detail {
+                                    Text(d)
+                                        .font(.caption)
+                                        .foregroundStyle(a.outcome == .failed ? Palette.danger : .secondary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Activity").font(.headline)
+                    if let last = model.lastActivity, !expanded {
+                        Text("·").foregroundStyle(.tertiary)
+                        icon(last)
+                        Text(last.detail ?? last.label)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.03)))
+    }
+
+    @ViewBuilder private func icon(_ a: AppModel.Activity) -> some View {
+        switch a.outcome {
+        case .running:   ProgressView().controlSize(.small).scaleEffect(0.55).frame(width: 14)
+        case .succeeded: Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Palette.running).imageScale(.small).frame(width: 14)
+        case .failed:    Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Palette.danger).imageScale(.small).frame(width: 14)
+        }
+    }
+}
+
 // MARK: - Game detail
 
 struct GameDetail: View {
@@ -335,6 +455,7 @@ struct GameDetail: View {
                 if model.mods[game.id]?.installed == true { ModsCard(game: game) }
                 maintenance
                 troubleshoot
+                if !model.activity.isEmpty { ActivityPanel() }
             }
             .padding(26)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -386,6 +507,17 @@ struct GameDetail: View {
                 .controlSize(.large)
                 .disabled(isRunning || model.busy != nil)
                 .help(isRunning ? Help.running : Help.play)
+
+                if isRunning {
+                    Button {
+                        model.stop(game)
+                    } label: {
+                        Label(model.isRunning("stop") ? "Stopping" : "Stop", systemImage: "stop.fill")
+                    }
+                    .controlSize(.large)
+                    .disabled(model.busy != nil)
+                    .help(Help.stop)
+                }
 
                 if let d = game.lastPlayed {
                     Text("Last played \(d.formatted(date: .abbreviated, time: .shortened))")
@@ -459,11 +591,19 @@ struct GameDetail: View {
     /// running once in the same prefix.
     @ViewBuilder private var executablePicker: some View {
         let choices = model.executableChoices[game.id] ?? []
+        let scanning = model.scanningExecutables.contains(game.id)
         HStack(spacing: 6) {
             Image(systemName: "doc.badge.gearshape").imageScale(.small).foregroundStyle(.secondary)
             Text(game.exePath.lastPathComponent)
                 .font(.evidence).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            if choices.count > 1 {
+
+            // Always say something. Rendering nothing while the scan was in
+            // flight — or after it was invalidated — made the control look like
+            // it came and went at random.
+            if scanning {
+                ProgressView().controlSize(.small).scaleEffect(0.6)
+                Text("checking folder…").font(.caption).foregroundStyle(.tertiary)
+            } else if choices.count > 1 {
                 Menu("Change") {
                     Section("Launch this game with") {
                         ForEach(choices) { c in
@@ -481,11 +621,26 @@ struct GameDetail: View {
                             }
                         }
                     }
+                    // Decanter cannot tell a second game from a config tool, so
+                    // this is offered rather than detected.
+                    Section("This folder holds another game") {
+                        ForEach(choices.filter { $0.url != game.exePath }) { c in
+                            Button("Add \(c.relativePath) as its own game") {
+                                model.addAsSeparateGame(c.url)
+                            }
+                        }
+                    }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .help(Help.executablePicker)
                 .disabled(model.busy != nil)
+                Text("\(choices.count) executables here")
+                    .font(.caption).foregroundStyle(.tertiary)
+            } else {
+                Text("only executable in this folder")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .help(Help.executablePicker)
             }
             Spacer()
         }
@@ -541,21 +696,27 @@ struct GameDetail: View {
     private var maintenance: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Maintenance").font(.headline)
-            HStack(spacing: 8) {
-                Button("Import Saves…") { importing = true }
-                    .help(Help.importSaves)
-                Button("Rebuild Prefix") { confirmRebuild = true }
-                    .help(Help.rebuildPrefix)
-                Button("Diagnose") { model.diagnose(game) }
-                    .help(Help.diagnose)
-                Button("Re-inspect") { model.redetect(game) }
-                    .help(Help.redetect)
-                Button("Fix Fonts") { model.fixFonts() }
-                    .help(Help.fixFonts)
-                Button("Reveal in Finder") { model.revealPrefix(game) }
-                    .help(Help.revealPrefix)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ActionButton(title: "Import Saves", systemImage: "square.and.arrow.down",
+                             key: "import",
+                             blurb: "Bring in saves from another prefix or a backup folder.") { importing = true }
+                ActionButton(title: "Rebuild Prefix", systemImage: "arrow.triangle.2.circlepath",
+                             key: "rebuild",
+                             blurb: "Throw the Windows environment away and clone a fresh one. Saves survive.") { confirmRebuild = true }
+                ActionButton(title: "Diagnose", systemImage: "stethoscope",
+                             key: "diagnose",
+                             blurb: "Read the last run's log and say what went wrong.") { model.diagnose(game) }
+                ActionButton(title: "Re-inspect", systemImage: "magnifyingglass",
+                             key: "redetect",
+                             blurb: "Re-read the game's files after installing mods or an update.") { model.redetect(game) }
+                ActionButton(title: "Fix Fonts", systemImage: "textformat",
+                             key: "fonts",
+                             blurb: "Map Windows font names onto macOS faces. For blank text in filled buttons.") { model.fixFonts() }
+                ActionButton(title: "Reveal in Finder", systemImage: "folder",
+                             key: "reveal",
+                             blurb: "Open this game's Windows C: drive.") { model.revealPrefix(game) }
             }
-            .disabled(model.busy != nil)
         }
     }
 

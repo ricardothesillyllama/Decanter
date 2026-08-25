@@ -92,6 +92,14 @@ public final class Engine: @unchecked Sendable {
         }
         guard exe.pathExtension.lowercased() == "exe" else { throw DecanterError.notAnExecutable(exe) }
 
+        // A folder can legitimately hold two separate games, so sharing a
+        // directory is allowed — but the same executable twice is always a
+        // mistake, and silently making a second prefix for it wastes a rebuild.
+        let target = exe.pathKey
+        if let clash = store.state.games.first(where: { $0.exePath.pathKey == target }) {
+            throw DecanterError.notFound("\(exe.lastPathComponent) is already in the library as \"\(clash.name)\"")
+        }
+
         progress("inspecting \(exe.lastPathComponent)")
         var det = detector.detect(exe: exe)
         guard let rt = runtimes.choose(for: det, store: store) else {
@@ -311,6 +319,22 @@ public final class Engine: @unchecked Sendable {
     @discardableResult
     public func reapWine(progress: (String) -> Void = { _ in }) -> WineReaper.Outcome {
         reaper.reap(progress: progress)
+    }
+
+    /// Ends one game without touching anything else that is running.
+    ///
+    /// A hung game cannot be quit from its own window, and Force Quit does not
+    /// list it — Wine processes are not applications. Killing that prefix's
+    /// wineserver takes its clients with it and leaves other games alone.
+    @discardableResult
+    public func stop(_ game: Game) throws -> Int {
+        guard let b = store.bottle(game.bottleID) else { return 0 }
+        let target = b.prefixPath.pathKey
+        let o = reaper.reap { stray in
+            guard let p = stray.prefix else { return false }
+            return p.pathKey == target
+        }
+        return o.killed.count
     }
 
     // MARK: Fonts

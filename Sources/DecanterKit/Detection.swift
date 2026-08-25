@@ -414,7 +414,7 @@ public struct Detector {
                                      options: [.skipsHiddenFiles]) else { return [] }
         // Compare resolved paths: macOS hands back /private/var where the URL
         // says /var, so plain URL equality silently never matches.
-        let best = findExecutable(in: root)?.resolvingSymlinksInPath().standardizedFileURL
+        let best = findExecutable(in: root)?.pathKey
         var out: [ExecutableChoice] = []
         for case let u as URL in en {
             guard u.pathExtension.lowercased() == "exe" else { continue }
@@ -432,7 +432,7 @@ public struct Detector {
                 note = "configuration/launcher tool"
             }
             else if u.path.contains("/Binaries/Win") { note = "Unreal inner binary — launch the root .exe instead" }
-            let same = u.resolvingSymlinksInPath().standardizedFileURL == best
+            let same = u.pathKey == best
             out.append(ExecutableChoice(url: u, bytes: size, relativePath: rel,
                                         note: note, isLikelyGame: same))
             if out.count >= limit { break }
