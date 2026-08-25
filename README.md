@@ -17,7 +17,7 @@ installed copies could no longer finish setting themselves up. Decanter is built
 so that cannot happen to it: it downloads nothing, and keeps its own copy of
 every runtime it uses.
 
-<!-- TODO: screenshot of the game detail view goes here -->
+![Decanter](Resources/screenshots/game.png)
 
 ## What you get
 
@@ -39,6 +39,20 @@ every runtime it uses.
 - **Mod support.** BepInEx is detected and wired up automatically, with plugin
   status and loader errors surfaced in the app.
 
+### Pick a graphics mode without guessing
+
+Decanter recommends one and says why. The real names — DXVK, D3DMetal, WineD3D —
+are a click away under Advanced, for when a forum thread uses them.
+
+![Graphics settings](Resources/screenshots/graphics.png)
+
+### Saves that survive a rebuild
+
+Protected saves are stored outside the game's Windows environment and linked
+back in, so starting a game over cannot lose progress.
+
+![Saves](Resources/screenshots/saves.png)
+
 ## Quick start
 
 ```sh
@@ -54,6 +68,9 @@ Or open **Decanter.app** from `/Applications` and drag a game folder in.
 You will need a Wine build and, ideally, Apple's Game Porting Toolkit — see
 [Getting the pieces](#getting-the-pieces). Decanter does not download them for
 you, on purpose.
+
+> The screenshots above are Decanter running against a throwaway demo library.
+> `./scripts/make-demo.sh` builds it, if you want the same starting point.
 
 ## Requirements
 

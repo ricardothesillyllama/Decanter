@@ -260,7 +260,7 @@ public final class Engine: @unchecked Sendable {
         // This is what makes "never repair, always re-derive" safe to use.
         progress("snapshotting saves first")
         _ = try? saves.snapshot(game: game, prefix: old.prefixPath, template: template(for: game),
-                                note: "taken automatically before rebuild", progress: progress)
+                                note: "taken automatically before rebuilding", progress: progress)
         progress("re-deriving prefix from golden template")
         var fresh = try prefixes.derive(bottleID: old.id, runtime: rt, backend: old.backend)
         fresh.generation = old.generation + 1
@@ -426,7 +426,7 @@ public final class Engine: @unchecked Sendable {
             throw DecanterError.runtimeLacks32Bit(rt.id)
         }
         _ = try? saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
-                                note: "taken automatically before runtime switch")
+                                note: "taken automatically before switching engine")
         // A prefix built by one Wine generation is not safe under another.
         if let old = store.runtime(bottle.runtimeID), old.kind != rt.kind {
             guard FileManager.default.fileExists(atPath: paths.template(for: rt.id).path) else {

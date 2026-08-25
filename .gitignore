@@ -11,6 +11,6 @@
 .swiftpm/
 *.xcuserstate
 
-# Screenshots are generated from the demo library and optimised before use;
-# raw captures do not belong in history.
-Resources/screenshots/
+# Raw captures do not belong in history. Screenshots in Resources/screenshots
+# are downscaled from the demo library before being committed.
+Resources/screenshots/Screenshot*.png
