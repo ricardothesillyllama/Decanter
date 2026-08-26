@@ -81,7 +81,7 @@ public struct DecanterState: Codable, Sendable {
         runtimes = try c.decodeIfPresent([RuntimeSpec].self, forKey: .runtimes) ?? []
         templateBuiltAt = try? c.decodeIfPresent(Date.self, forKey: .templateBuiltAt)
         templateRuntimeID = try? c.decodeIfPresent(String.self, forKey: .templateRuntimeID)
-        templates = (try? c.decodeIfPresent([String: Date].self, forKey: .templates)) as? [String: Date] ?? [:]
+        templates = (try? c.decode([String: Date].self, forKey: .templates)) ?? [:]
         unknownKeys = UnknownKeys.capture(from: decoder,
                                           known: CodingKeys.allCases.map(\.rawValue))
     }

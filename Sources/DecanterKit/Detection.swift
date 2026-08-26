@@ -111,7 +111,7 @@ public struct Detector {
         // The launcher .exe is often a thin stub — Unity, nw.js and Godot all
         // keep the real Direct3D imports in a sibling runtime DLL. Look there
         // too, or every Unity game looks like it needs no graphics at all.
-        var siblingProbes = ["UnityPlayer.dll", "nw.dll", "libGLESv2.dll", "GameAssembly.dll"]
+        let siblingProbes = ["UnityPlayer.dll", "nw.dll", "libGLESv2.dll", "GameAssembly.dll"]
         // Unreal's launcher is a thin shim too: the Direct3D imports live in
         // <Game>/Binaries/Win64/<Game>-Win64-Shipping.exe. Without this an
         // Unreal game looks like it needs no graphics at all.

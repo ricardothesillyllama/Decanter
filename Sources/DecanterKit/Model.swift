@@ -108,19 +108,19 @@ public struct DetectionResult: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        engine = (try? c.decodeIfPresent(GameEngineKind.self, forKey: .engine)) as? GameEngineKind ?? .generic
-        bitness = (try? c.decodeIfPresent(Bitness.self, forKey: .bitness)) as? Bitness ?? .unknown
-        graphicsAPIs = (try? c.decodeIfPresent([String].self, forKey: .graphicsAPIs)) as? [String] ?? []
-        modded = (try? c.decodeIfPresent(Bool.self, forKey: .modded)) as? Bool ?? false
-        hasWarmDXVKCache = (try? c.decodeIfPresent(Bool.self, forKey: .hasWarmDXVKCache)) as? Bool ?? false
-        usesVideo = (try? c.decodeIfPresent(Bool.self, forKey: .usesVideo)) as? Bool ?? false
+        engine = (try? c.decode(GameEngineKind.self, forKey: .engine)) ?? .generic
+        bitness = (try? c.decode(Bitness.self, forKey: .bitness)) ?? .unknown
+        graphicsAPIs = (try? c.decode([String].self, forKey: .graphicsAPIs)) ?? []
+        modded = (try? c.decode(Bool.self, forKey: .modded)) ?? false
+        hasWarmDXVKCache = (try? c.decode(Bool.self, forKey: .hasWarmDXVKCache)) ?? false
+        usesVideo = (try? c.decode(Bool.self, forKey: .usesVideo)) ?? false
         engineVersion = try? c.decodeIfPresent(String.self, forKey: .engineVersion)
         knownUnsupported = try? c.decodeIfPresent(String.self, forKey: .knownUnsupported)
-        confidence = (try? c.decodeIfPresent(Double.self, forKey: .confidence)) as? Double ?? 0
-        signals = (try? c.decodeIfPresent([DetectionSignal].self, forKey: .signals)) as? [DetectionSignal] ?? []
-        recommendedRuntimeKind = (try? c.decodeIfPresent(RuntimeKind.self, forKey: .recommendedRuntimeKind)) as? RuntimeKind ?? .wine
-        recommendedBackend = (try? c.decodeIfPresent(GraphicsBackend.self, forKey: .recommendedBackend)) as? GraphicsBackend ?? .dxvk
-        recipes = (try? c.decodeIfPresent([String].self, forKey: .recipes)) as? [String] ?? []
+        confidence = (try? c.decode(Double.self, forKey: .confidence)) ?? 0
+        signals = (try? c.decode([DetectionSignal].self, forKey: .signals)) ?? []
+        recommendedRuntimeKind = (try? c.decode(RuntimeKind.self, forKey: .recommendedRuntimeKind)) ?? .wine
+        recommendedBackend = (try? c.decode(GraphicsBackend.self, forKey: .recommendedBackend)) ?? .dxvk
+        recipes = (try? c.decode([String].self, forKey: .recipes)) ?? []
     }
 }
 

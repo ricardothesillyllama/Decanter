@@ -185,7 +185,7 @@ final class AppModel: ObservableObject {
     func rederive(_ game: Game) {
         perform("Rebuilding \(game.name)'s Windows environment…", key: "rebuild") { e in
             let b = try e.rederive(game)
-            return "Windows environment rebuilt; saves kept"
+            return "Windows environment rebuilt from the \(b.runtimeID) template; saves kept"
         }
     }
 

@@ -65,9 +65,9 @@ public struct Knowledge: Codable, Sendable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             runtimeKind = try c.decode(RuntimeKind.self, forKey: .runtimeKind)
             backend = try c.decode(GraphicsBackend.self, forKey: .backend)
-            confirmedGames = (try? c.decodeIfPresent(Set<UUID>.self, forKey: .confirmedGames)) as? Set<UUID> ?? []
-            failedGames = (try? c.decodeIfPresent(Set<UUID>.self, forKey: .failedGames)) as? Set<UUID> ?? []
-            seeded = (try? c.decodeIfPresent(Bool.self, forKey: .seeded)) as? Bool ?? false
+            confirmedGames = (try? c.decode(Set<UUID>.self, forKey: .confirmedGames)) ?? []
+            failedGames = (try? c.decode(Set<UUID>.self, forKey: .failedGames)) ?? []
+            seeded = (try? c.decode(Bool.self, forKey: .seeded)) ?? false
             note = try? c.decodeIfPresent(String.self, forKey: .note)
         }
     }

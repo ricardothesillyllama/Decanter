@@ -75,7 +75,7 @@ func runAbuseTests(_ t: Harness) {
 
     t.suite("Save import cannot escape the prefix")
     do {
-        let e = freshEngine("import")
+        _ = freshEngine("import")
         // Build a bottle by hand so no runtime is needed.
         let prefix = Fixture.dir("prefix")
         try? fm.createDirectory(at: prefix.appending(path: "drive_c/users/testuser"), withIntermediateDirectories: true)
@@ -375,7 +375,7 @@ func runSavesTests(_ t: Harness) {
 
         // Simulate a re-derive: throw the prefix away, clone the template, relink.
         try? fm.removeItem(at: prefix)
-        try? Shell.run(URL(filePath: "/bin/cp"), ["-R", tpl.path, prefix.path], timeout: 60)
+        _ = try? Shell.run(URL(filePath: "/bin/cp"), ["-R", tpl.path, prefix.path], timeout: 60)
         let n = try! store.relink(game: g, prefix: prefix)
         t.expect(n >= 1, "relink re-attaches after a rebuild")
         let after = prefix.appending(path: "drive_c/users/testuser/AppData/LocalLow/Acme/save.json")
