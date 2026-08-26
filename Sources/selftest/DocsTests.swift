@@ -68,6 +68,17 @@ func runDocsTests(_ t: Harness) {
     let phantom = documented.subtracting(registered)
     t.expect(phantom.isEmpty,
              "CONTRIBUTING lists no suite that does not exist (extra: \(phantom.sorted().joined(separator: ", ")))")
+
+    // Screenshots go stale silently: the UI moves on and an unreferenced image
+    // sits in the repo showing labels that no longer exist. Three of them did.
+    let shots = (try? FileManager.default.contentsOfDirectory(
+        atPath: root.appending(path: "Resources/screenshots").path)) ?? []
+    let prose = readme + contributing
+        + read("docs/CLI.md") + read("docs/RUNTIMES.md")
+        + read("docs/TROUBLESHOOTING.md") + read("docs/DESIGN.md")
+    let orphans = shots.filter { $0.hasSuffix(".png") && !prose.contains($0) }.sorted()
+    t.expect(orphans.isEmpty,
+             "every screenshot is referenced by a document (unused: \(orphans.joined(separator: ", ")))")
 }
 
 /// Small guarantees that are cheap to state and were not being kept.
