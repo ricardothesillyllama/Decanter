@@ -17,7 +17,11 @@ func runReaperTests(_ t: Harness) {
     t.equal(WineReaper.Stray.seconds("00:30"), 30, "mm:ss")
     t.equal(WineReaper.Stray.seconds("02:30"), 150, "mm:ss with minutes")
     t.equal(WineReaper.Stray.seconds("01:02:30"), 3750, "hh:mm:ss")
-    t.equal(WineReaper.Stray.seconds("05-22:48:29"), 5 * 86400 + 22 * 3600 + 48 * 60 + 29,
+    // Spelled out as a typed constant: inferring the numeric type of
+    // `5 * 86400 + …` inside a generic equality call makes Swift's type checker
+    // give up on a cold CI runner, though it manages locally.
+    let sixDaysish: TimeInterval = 5 * 86_400 + 22 * 3_600 + 48 * 60 + 29
+    t.equal(WineReaper.Stray.seconds("05-22:48:29"), sixDaysish,
             "dd-hh:mm:ss — the shape a real leak has")
     t.equal(WineReaper.Stray.seconds("garbage"), 0, "unparseable elapsed time is 0, not a crash")
 
