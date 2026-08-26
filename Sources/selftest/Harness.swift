@@ -54,6 +54,9 @@ final class Harness {
             print("\n  failures:")
             for f in failures { print("   - \(f)") }
         }
+        // Machine-readable, so the docs can be generated from the suite rather
+        // than kept in step by hand. They drifted to 328 against 337 once.
+        print("TOTAL_CHECKS=\(passed + failed)")
         return failed == 0 ? 0 : 1
     }
 }

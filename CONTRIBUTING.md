@@ -39,11 +39,14 @@ broke:
     swift run selftest explain             # mod failures in plain language
     swift run selftest verbs               # winetricks verb validation
     swift run selftest exes                # telling a game from a crash handler
+    swift run selftest metal               # can a Wine build host DXMT
+    swift run selftest fwd                 # state survives an older binary
+    swift run selftest docs                # documentation matches the code
     swift run selftest launch              # real Windows executables, 32- and 64-bit
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **328 checks.**
+the no-dependency rule. **350 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

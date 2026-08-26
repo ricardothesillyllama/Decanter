@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    # Apple Silicon: the whole project targets it, and the runtime detection
+    # reads Mach-O symbols.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      # Warnings become errors here rather than scrolling past in a local build.
+      - name: Build
+        run: swift build -c release -Xswiftc -warnings-as-errors -Xswiftc -gnone
+
+      # The launch suite needs a pinned Wine runtime and a built template, which
+      # a fresh runner does not have. Everything else is hermetic.
+      - name: Test
+        run: |
+          ./.build/release/selftest unit abuse stress saves schema \
+            fonts dxvk mods reap stop noise explain verbs exes metal fwd docs
+
+      - name: Rules that exist because breaking them caused a real failure
+        run: ./scripts/check-rules.sh
+
+      # The check count itself is verified by the `docs` suite above, which
+      # compares the two documents to each other. Regenerating it here would
+      # produce a smaller number, since the launch suite cannot run without a
+      # pinned Wine runtime.

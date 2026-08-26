@@ -54,6 +54,11 @@ public struct DecanterState: Codable, Sendable {
     /// runtimeID -> when its template was built
     public var templates: [String: Date] = [:]
 
+    /// Keys written by a newer version than the one that loaded this file.
+    /// Carried through untouched so an older binary cannot delete them by
+    /// rewriting the store — see JSONValue.swift.
+    public var unknownKeys: [String: JSONValue] = [:]
+
     public init() {}
 
     // Decoding is written by hand on purpose. Swift's synthesised Decodable
@@ -61,7 +66,7 @@ public struct DecanterState: Codable, Sendable {
     // simply adding a field makes every existing state.json fail to decode —
     // and a silent fallback to an empty state would then be written back over
     // the user's whole library on the next save.
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case games, bottles, runtimes, templateBuiltAt, templateRuntimeID, templates
     }
 
@@ -77,6 +82,8 @@ public struct DecanterState: Codable, Sendable {
         templateBuiltAt = try? c.decodeIfPresent(Date.self, forKey: .templateBuiltAt)
         templateRuntimeID = try? c.decodeIfPresent(String.self, forKey: .templateRuntimeID)
         templates = (try? c.decodeIfPresent([String: Date].self, forKey: .templates)) as? [String: Date] ?? [:]
+        unknownKeys = UnknownKeys.capture(from: decoder,
+                                          known: CodingKeys.allCases.map(\.rawValue))
     }
 }
 
@@ -108,7 +115,12 @@ public final class Store: @unchecked Sendable {
     public func save() throws {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try enc.encode(state).write(to: paths.statePath, options: .atomic)
+        // .atomic is a temp file plus rename, so a crash mid-write cannot
+        // truncate the library. The merge puts back any field a newer version
+        // wrote that this binary does not know about.
+        let encoded = try enc.encode(state)
+        let merged = UnknownKeys.merge(state.unknownKeys, into: encoded)
+        try merged.write(to: paths.statePath, options: .atomic)
     }
 
     private var lockPath: URL { paths.root.appending(path: "state.lock") }

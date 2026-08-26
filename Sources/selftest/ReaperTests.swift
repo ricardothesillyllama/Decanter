@@ -110,3 +110,58 @@ func runMetalHostingTests(_ t: Harness) {
     t.expect(m.driverPath == nil, "a missing runtime has no driver")
     t.expect(!m.looksCapable, "…and is not reported as capable")
 }
+
+/// An older binary reading a newer state file used to drop every key it had no
+/// property for, then write that loss back to disk. The app and the CLI are
+/// separate binaries sharing one store and are routinely open together, so this
+/// is a real path, not a hypothetical one.
+func runForwardCompatTests(_ t: Harness) {
+    t.suite("state survives an older binary")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appending(path: "decanter-fwd-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: root) }
+    let paths = Paths(root: root)
+    try? paths.ensure()
+
+    // A state file written by a hypothetical future version.
+    let future = """
+    {
+      "games": [],
+      "bottles": [],
+      "runtimes": [],
+      "templates": {},
+      "cloudSyncToken": "abc123",
+      "futureSettings": { "theme": "dark", "retries": 3 },
+      "unrecognisedList": [1, 2, 3]
+    }
+    """
+    try? future.write(to: paths.statePath, atomically: true, encoding: .utf8)
+
+    guard let store = try? Store(paths: paths) else {
+        t.expect(false, "the future state file loads"); return
+    }
+    t.expect(store.loadError == nil, "a file with unknown keys is not treated as corrupt")
+    t.equal(store.state.unknownKeys.count, 3, "the three unknown keys are captured")
+
+    // Write it back, exactly as any ordinary mutation would.
+    try? store.mutate { $0.templateRuntimeID = "wine-11.0" }
+
+    guard let raw = try? Data(contentsOf: paths.statePath),
+          let obj = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else {
+        t.expect(false, "the rewritten file is valid JSON"); return
+    }
+    t.expect(obj["cloudSyncToken"] as? String == "abc123",
+             "an unknown string key survives the rewrite")
+    t.expect(obj["unrecognisedList"] != nil, "an unknown array survives")
+    if let nested = obj["futureSettings"] as? [String: Any] {
+        t.equal(nested["theme"] as? String, "dark", "a nested unknown object survives intact")
+        t.equal(nested["retries"] as? Int, 3, "…including its numbers")
+    } else {
+        t.expect(false, "the nested unknown object survives")
+    }
+    t.equal(obj["templateRuntimeID"] as? String, "wine-11.0",
+            "and the change we actually made was written")
+
+    // Known keys must always win: preserved data cannot shadow real state.
+    t.expect(obj["games"] as? [Any] != nil, "known keys are still written normally")
+}

@@ -352,7 +352,7 @@ The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
 Swift with no external dependencies — every dependency is a future 404.
-**337 checks** run in a hand-rolled harness; see
+**350 checks** run in a hand-rolled harness; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
