@@ -11,6 +11,10 @@ cd "$(dirname "$0")"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 APP=.build/Decanter.app
 
+# Stamp the commit so a problem report from a source build is attributable.
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+/usr/bin/sed -i '' -E "s/public static let version = \".*\"/public static let version = \"$VERSION\"/; s/public static let commit = \".*\"/public static let commit = \"$COMMIT\"/" Sources/DecanterKit/Model.swift
+
 echo "building Decanter $VERSION (release)"
 # -gnone keeps debug info out of the binary. Swift otherwise embeds the
 # absolute path of every source file, which puts the builder's home directory

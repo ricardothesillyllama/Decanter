@@ -42,6 +42,17 @@ public struct Paths: Sendable {
                   template.deletingLastPathComponent()] {
             try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         }
+        // Prefixes and runtimes are re-derivable by design, so backing them up
+        // is pure waste — tens of gigabytes of Time Machine for something a
+        // rebuild reconstructs in half a second. Saves live here too, but they
+        // are small and this is a deliberate trade: the store is a cache with
+        // a saves directory in it, not a document.
+        for d in [runtimes, bottles, template.deletingLastPathComponent()] {
+            var u = d
+            var v = URLResourceValues()
+            v.isExcludedFromBackup = true
+            try? u.setResourceValues(v)
+        }
     }
 }
 

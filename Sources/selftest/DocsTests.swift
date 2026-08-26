@@ -57,3 +57,32 @@ func runDocsTests(_ t: Harness) {
     t.expect(phantom.isEmpty,
              "CONTRIBUTING lists no suite that does not exist (extra: \(phantom.sorted().joined(separator: ", ")))")
 }
+
+/// Small guarantees that are cheap to state and were not being kept.
+func runHygieneTests(_ t: Harness) {
+    t.suite("report and build hygiene")
+
+    // The README invites people to redact the game name. It should not then
+    // leak who they are through /Users/<name> in every path.
+    let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+    let sample = """
+    | Executable | `\(home)/Games/Thing/Thing.exe` |
+    prefix: /private\(home)/Library/Application Support/Decanter/bottles/abc
+    log line: could not open \(home)/Games/Thing/x.log
+    """
+    let red = Reporter.redactHome(sample)
+    t.expect(!red.contains(home), "the home directory is gone from a report")
+    t.expect(!red.contains("/private" + home), "…including its /private twin")
+    t.equal(red.components(separatedBy: "~").count - 1, 3, "each occurrence became a tilde")
+    t.expect(red.contains("Games/Thing/Thing.exe"), "the rest of the path is untouched")
+
+    // A report from a source build has to be traceable to a commit.
+    t.expect(!Build.commit.isEmpty, "the build records a commit")
+    t.expect(Build.summary.contains(Build.version), "the summary names the version")
+    t.expect(Build.summary.contains(Build.commit), "…and the commit")
+
+    // Redaction must be safe on text that contains no paths at all.
+    t.equal(Reporter.redactHome("nothing to redact"), "nothing to redact",
+            "text without paths is unchanged")
+    t.equal(Reporter.redactHome(""), "", "empty input is fine")
+}

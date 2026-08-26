@@ -119,6 +119,9 @@ func humanBytes(_ b: Int) -> String {
 
 switch cmd {
 
+case "version", "--version", "-v":
+    out(Build.summary)
+
 case "doctor":
     let e = engine()
     let h = e.doctor()

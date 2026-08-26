@@ -112,6 +112,18 @@ public struct Reporter {
 
     // MARK: The bundle
 
+    /// Replaces the user's home directory with `~` throughout.
+    ///
+    /// Both the real path and its /private-prefixed twin, since Wine and `ps`
+    /// disagree about which one they report.
+    public static func redactHome(_ text: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+            .standardizedFileURL.path
+        var out = text.replacingOccurrences(of: "/private" + home, with: "~")
+        out = out.replacingOccurrences(of: home, with: "~")
+        return out
+    }
+
     /// Blank-but-correctly-sized text is a font failure that looks like a
     /// rendering failure, so the report has to say whether the Windows font
     /// names are mapped. Without this line the only symptom is a screenshot.
@@ -207,7 +219,11 @@ public struct Reporter {
         ```
         """
         if md.count > 400_000 { md = String(md.prefix(400_000)) + "\n\n(truncated)" }
-        try md.write(to: reportURL, atomically: true, encoding: .utf8)
+        // Every path in here contained the account name. The README tells
+        // people they may redact the game; it should not then leak who they
+        // are through /Users/<name> in a dozen places.
+        let redacted = Self.redactHome(md)
+        try redacted.write(to: reportURL, atomically: true, encoding: .utf8)
         return reportURL
     }
 
