@@ -454,6 +454,25 @@ enum Help {
 
 /// A small "?" that opens a popover. Used where a hover tooltip would be too
 /// long to read comfortably.
+/// Renders a runtime string as Markdown.
+///
+/// `Text("**bold**")` parses Markdown only because a *literal* becomes a
+/// LocalizedStringKey. `Text(someString)` does not, and every explanation in
+/// this app arrives as a stored constant — so the bold markers were being
+/// printed as asterisks in every popover.
+struct Markdown: View {
+    let text: String
+    var body: some View {
+        Text(attributed)
+    }
+    private var attributed: AttributedString {
+        (try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+}
+
 struct InfoButton: View {
     let text: String
     var title: String? = nil
@@ -470,7 +489,7 @@ struct InfoButton: View {
         .popover(isPresented: $shown, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
                 if let title { Text(title).font(.headline) }
-                Text(text)
+                Markdown(text: text)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -1,0 +1,42 @@
+name: Something in Decanter is broken
+description: The app or the CLI itself misbehaves — not a game compatibility problem
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a game that will not run, use **A game does not work** instead — it
+        collects the diagnostic that makes those solvable.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What went wrong
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Decanter version
+      description: "`decanter version`, or Decanter ▸ About Decanter."
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.5.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `decanter doctor`
+      render: text
+    validations:
+      required: false

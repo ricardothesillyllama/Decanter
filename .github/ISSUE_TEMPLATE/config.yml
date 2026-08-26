@@ -1,1 +1,11 @@
 blank_issues_enabled: true
+contact_links:
+  - name: Questions and general discussion
+    url: https://github.com/ricardothesillyllama/Decanter/discussions
+    about: Not sure it is a bug? Ask here.
+  - name: Troubleshooting guide
+    url: https://github.com/ricardothesillyllama/Decanter/blob/main/docs/TROUBLESHOOTING.md
+    about: Blank text, black screens, leftover processes, signing — start here.
+  - name: Getting the runtimes
+    url: https://github.com/ricardothesillyllama/Decanter/blob/main/docs/RUNTIMES.md
+    about: Where Wine, the Game Porting Toolkit and DXVK come from, and why Decanter does not fetch them.

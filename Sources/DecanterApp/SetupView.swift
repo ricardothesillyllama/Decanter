@@ -10,24 +10,54 @@ import UniformTypeIdentifiers
 /// repository is deleted — but "we don't fetch it for you" was never a reason
 /// to make people type. Every piece here can be dropped on the window.
 struct SetupView: View {
+    /// Numbers the outstanding items in the order they appear on screen.
+    ///
+    /// An earlier version numbered required items first, which is defensible
+    /// and completely unreadable: the rows ran 1, 3, 4, 2 down the page.
+    /// Numbers next to a list are read as its order, so they have to be it.
+    static func stepNumbers(_ r: Readiness) -> [String: Int] {
+        var out: [String: Int] = [:]
+        var n = 1
+        for piece in r.pieces where piece.state != .present {
+            out[piece.id] = n; n += 1
+        }
+        return out
+    }
+
     @EnvironmentObject var model: AppModel
     @State private var dropTargeted = false
-    @State private var showAdvanced = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                if let r = model.readiness {
-                    piecesCard(r)
-                    if !r.ready { nextStep(r) }
-                    advanced(r)
+        // Width is measured rather than inferred. ViewThatFits kept choosing the
+        // stacked layout in a window with room to spare, because the wide
+        // branch's ideal width is larger than what it would actually settle for.
+        GeometryReader { geo in
+            let wide = geo.size.width >= 880
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    // Two columns when there is room. This page has no
+                    // inspector, so the width was going to waste — and the
+                    // aside answers what someone asks next: "why do I have to
+                    // fetch these?" and "what does it already have?".
+                    if wide {
+                        HStack(alignment: .top, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 18) {
+                                if let r = model.readiness { piecesCard(r) }
+                                ActivityList()
+                            }
+                            aside.frame(width: 268)
+                        }
+                    } else {
+                        if let r = model.readiness { piecesCard(r) }
+                        aside
+                        ActivityList()
+                    }
                 }
-                ActivityList()
+                .padding(22)
+                .frame(maxWidth: 1100, alignment: .leading)
             }
-            .padding(22)
-            .frame(maxWidth: 760, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(dropTargeted ? Palette.accent(scheme).opacity(0.08) : Color.clear)
@@ -41,21 +71,35 @@ struct SetupView: View {
         }
     }
 
+    /// One header, two moods. On a Mac that cannot run anything yet this is the
+    /// first thing a new user sees, so it opens by saying what to do. Once
+    /// everything is present it becomes a status page and gets out of the way.
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Setup").font(.largeTitle).bold()
-            Text(model.readiness?.headline ?? "Checking…")
-                .font(.title3).foregroundStyle(model.readiness?.ready == true ? Palette.running : .secondary)
-            Text("Decanter never downloads any of this. You fetch it once, hand it over, and Decanter keeps its own copy — so nothing disappearing from the internet can break a game you have already set up.")
+            Text(firstRun ? "Welcome to Decanter" : "Setup")
+                .font(.largeTitle).bold()
+            if firstRun {
+                Text("Before Decanter can run a game, it needs a couple of free downloads. Get each one, then **drag the file onto this window** — Decanter takes it from there.")
+                    .font(.title3).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(model.readiness?.headline ?? "Checking…")
+                    .font(.title3)
+                    .foregroundStyle(model.readiness?.ready == true ? Palette.running : .secondary)
+            }
+            Text("Decanter never downloads anything by itself. That way nothing can vanish from the internet later and leave your games broken.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    private var firstRun: Bool { model.readiness?.ready == false && model.games.isEmpty }
+
     private func piecesCard(_ r: Readiness) -> some View {
-        VStack(spacing: 0) {
+        let steps = Self.stepNumbers(r)
+        return VStack(spacing: 0) {
             ForEach(r.pieces) { piece in
-                PieceRow(piece: piece)
+                PieceRow(piece: piece, step: steps[piece.id])
                 if piece.id != r.pieces.last?.id { Divider().padding(.leading, 40) }
             }
         }
@@ -63,53 +107,53 @@ struct SetupView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 
-    /// One instruction at a time. A list of five missing things is a wall; the
-    /// next single thing to do is an instruction.
-    @ViewBuilder private func nextStep(_ r: Readiness) -> some View {
-        if let next = r.missingRequired.first {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "arrow.right.circle.fill")
-                    .foregroundStyle(Palette.accent(scheme)).imageScale(.large)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Next: \(next.title)").font(.callout).bold()
-                    Text(next.detail ?? next.why).font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+    /// The column beside the steps: the question people ask next, then the
+    /// facts about this specific Mac.
+    private var aside: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            asideCard("Why do I fetch these myself?", icon: "questionmark.circle") {
+                Text("Decanter's predecessor, Whisky, downloaded them for you. When the place it downloaded from was deleted, every copy already installed stopped being able to finish setting itself up.")
+                Text("Fetching them once is more work. It also means nothing on the internet can reach into your Mac and break a game that already works.")
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Palette.accent(scheme).opacity(0.10)))
+            asideCard("On this Mac", icon: "desktopcomputer") {
+                if let h = model.health {
+                    if h.pinnedRuntimes.isEmpty {
+                        Text("Nothing copied in yet.")
+                    } else {
+                        ForEach(h.pinnedRuntimes) { rt in
+                            Markdown(text: "**\(rt.id)** — \(rt.supports32Bit ? "32-bit capable" : "64-bit only")\n\(rt.backends.map(Help.rawTechnicalName).joined(separator: ", "))")
+                        }
+                    }
+                    if !h.discovered.isEmpty {
+                        Divider()
+                        Text("Also installed elsewhere: " + h.discovered.map { "\($0.kind.rawValue) \($0.version)" }.joined(separator: ", "))
+                    }
+                    Divider()
+                    Text("macOS \(h.macOSMajor)")
+                    Button("Re-check This Mac") { model.pinDiscovered() }
+                        .controlSize(.small).disabled(model.busy != nil)
+                        .padding(.top, 2)
+                }
+            }
         }
     }
 
-    @ViewBuilder private func advanced(_ r: Readiness) -> some View {
-        DisclosureGroup(isExpanded: $showAdvanced) {
-            VStack(alignment: .leading, spacing: 10) {
-                if let h = model.health {
-                    ForEach(h.pinnedRuntimes) { rt in
-                        LabeledContent(rt.id) {
-                            Text("\(rt.version) · \(rt.supports32Bit ? "32-bit capable" : "64-bit only") · \(rt.backends.map(Help.rawTechnicalName).joined(separator: ", "))")
-                        }
-                    }
-                    if h.pinnedRuntimes.isEmpty { Text("No Wine builds copied yet.") }
-                    Divider()
-                    LabeledContent("macOS", value: "\(h.macOSMajor)")
-                    if !h.discovered.isEmpty {
-                        LabeledContent("Found on this Mac",
-                                       value: h.discovered.map { "\($0.kind.rawValue) \($0.version)" }
-                                        .joined(separator: ", "))
-                    }
-                }
-                Button("Re-check This Mac") { model.pinDiscovered() }
-                    .controlSize(.small).disabled(model.busy != nil)
-            }
-            .font(.evidence).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-        } label: {
-            Text("Advanced").font(.callout).foregroundStyle(.secondary)
+    private func asideCard<C: View>(_ title: String, icon: String,
+                                    @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(title, systemImage: icon)
+                .font(.callout).bold()
+            content()
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
+
 }
 
 /// One thing Decanter needs: whether it is there, what it is for, and the one
@@ -118,16 +162,35 @@ struct SetupView: View {
 struct PieceRow: View {
     @EnvironmentObject var model: AppModel
     let piece: Readiness.Piece
+    /// Position among the things still to do, if this is one of them. A list of
+    /// five items reads as a list; the outstanding ones numbered read as
+    /// instructions, which is what someone opening this actually wants.
+    var step: Int? = nil
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol)
-                .foregroundStyle(tint).imageScale(.large)
-                .frame(width: 20)
+            Group {
+                if let step, piece.state != .present {
+                    Text("\(step)")
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(tint))
+                } else {
+                    Image(systemName: symbol)
+                        .foregroundStyle(tint).imageScale(.large)
+                }
+            }
+            .frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(piece.title).font(.body)
+                    // Name, one reason, one button. Four stacked lines per row
+                    // — reason, instruction, exact versions — was a wall for
+                    // someone who only wants to know what to click, and the
+                    // rest is reference material you consult once.
+                    PieceInfoButton(piece: piece)
                     if !piece.required && piece.state != .present {
                         Text("Optional").font(.caption2)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -137,7 +200,11 @@ struct PieceRow: View {
                 }
                 Text(piece.why).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let d = piece.detail {
+                // Once a piece is present its detail reports the installed
+                // version rather than telling you what to do, which is worth a
+                // line. While it is missing, that line is an instruction the
+                // buttons beneath already give.
+                if let d = piece.detail, piece.state == .present {
                     Text(d).font(.caption).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -155,8 +222,12 @@ struct PieceRow: View {
                 Button("Install Rosetta 2") { model.installRosetta() }
                     .disabled(model.busy != nil)
             case "template":
-                Button("Build It") { model.buildTemplate() }
-                    .buttonStyle(.borderedProminent).disabled(model.busy != nil)
+                // `accepts` is nil while there is nothing to build from, so the
+                // row explains itself rather than offering a button that fails.
+                if piece.accepts != nil {
+                    Button("Build It") { model.buildTemplate() }
+                        .buttonStyle(.borderedProminent).disabled(model.busy != nil)
+                }
             default:
                 if piece.state == .foundNotPinned {
                     Button("Use It") { model.pinDiscovered() }
@@ -173,7 +244,10 @@ struct PieceRow: View {
                             Label(label, systemImage: "arrow.up.forward.square")
                         }
                     }
-                    Button("Choose File…") { model.chooseSetupFile() }
+                    // "Choose File…" describes the dialog. This describes the
+                    // moment the person is in: they have just downloaded
+                    // something and want to give it to Decanter.
+                    Button("Add Downloaded File…") { model.chooseSetupFile() }
                         .disabled(model.busy != nil)
                 }
             }
@@ -199,71 +273,41 @@ struct PieceRow: View {
     }
 }
 
-/// First run only. Same rows as the Setup page, one screen, with the sentence
-/// that explains why any of this is being asked of you — which is the part a
-/// list of missing pieces cannot carry on its own.
-struct SetupWizard: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var dropTargeted = false
-    @Environment(\.colorScheme) private var scheme
+
+/// What this piece is, in full: the longer instruction, then the exact project
+/// and version for someone who already knows the words.
+///
+/// A popover rather than a hover tooltip, because a version string is the kind
+/// of thing people select and copy — and because this is how every other
+/// explanation in the app already works.
+struct PieceInfoButton: View {
+    let piece: Readiness.Piece
+    @State private var shown = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Welcome to Decanter").font(.title2).bold()
-                Text("Windows games need a few pieces of software that Decanter is not allowed to give you. Get them once — they are free — and drop them on this window. Decanter keeps its own copy of each, so nothing can take them away again later.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let r = model.readiness {
-                VStack(spacing: 0) {
-                    ForEach(r.pieces) { piece in
-                        PieceRow(piece: piece)
-                        if piece.id != r.pieces.last?.id { Divider().padding(.leading, 40) }
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-                .overlay(RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(dropTargeted ? Palette.accent(scheme) : Palette.hairline,
-                                  lineWidth: dropTargeted ? 2 : 1))
-
-                Text(r.ready
-                     ? "You are ready. Add a game whenever you like."
-                     : "Drop a file anywhere on this window.")
-                    .font(.callout)
-                    .foregroundStyle(r.ready ? Palette.running : .secondary)
-            }
-
-            if let e = model.lastError {
-                Label(e, systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(Palette.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                if let busy = model.busy {
-                    ProgressView().controlSize(.small)
-                    Text(busy).font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-                // Always dismissable. Someone who wants to look around before
-                // installing anything should be able to, and a modal you cannot
-                // leave is how an app gets deleted instead of set up.
-                Button(model.readiness?.ready == true ? "Done" : "Later") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-            }
+        Button { shown.toggle() } label: {
+            Image(systemName: "questionmark.circle")
+                .imageScale(.small).foregroundStyle(.tertiary)
         }
-        .padding(24)
-        .frame(width: 560)
-        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-            for p in providers {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { Task { @MainActor in model.accept(path: url) } }
+        .buttonStyle(.plain)
+        .help(piece.spec ?? piece.why)
+        .popover(isPresented: $shown, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 9) {
+                Text(piece.title).font(.headline)
+                Markdown(text: piece.why).font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let d = piece.detail {
+                    Markdown(text: d).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let spec = piece.spec {
+                    Divider()
+                    Text(spec).font(.evidence).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            return true
+            .padding(15).frame(width: 330)
         }
     }
 }

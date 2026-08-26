@@ -1,0 +1,62 @@
+name: A game does not work
+description: A game fails to launch, crashes, or renders incorrectly
+labels: ["game-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **You never have to name the game.** Rename or redact it — the report is
+        still useful without a title, and Decanter itself never records game
+        names outside your own library.
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Problem report
+      description: |
+        Press **Report a Problem** on the game page, or run `decanter report <game>`.
+        It lands on your clipboard and contains everything needed: the machine, the
+        runtime and graphics layer *actually* in use, the DXVK build actually
+        installed, font mapping status, detection evidence, an automatic diagnosis,
+        and the relevant log lines.
+      render: text
+      placeholder: Paste here — home directory paths are already replaced with ~
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happens
+      options:
+        - Window flashes and closes, or nothing happens at all
+        - Crashes partway through startup
+        - Black screen, or garbled 3D
+        - Text is missing — blank buttons and menus
+        - Runs, but cutscenes or videos fail
+        - Runs, but far too slowly
+        - Hangs and will not quit
+        - Something else
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tried-recommend
+    attributes:
+      label: Have you applied Decanter's own recommendation?
+      description: It resolves a surprising share of reports, and costs nothing to try.
+      options:
+        - "Yes — still broken"
+        - "No, not yet"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        If the fault is visual, drag a screenshot in — Command-Shift-4, Space, click
+        the window. Decanter never captures the screen itself.
+    validations:
+      required: false

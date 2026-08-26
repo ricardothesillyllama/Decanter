@@ -1,0 +1,16 @@
+# Groups the auto-generated notes GitHub offers alongside the hand-written ones.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Games that now work
+      labels: ["game-report"]
+    - title: Fixes
+      labels: ["bug"]
+    - title: New
+      labels: ["enhancement"]
+    - title: Documentation
+      labels: ["documentation"]
+    - title: Everything else
+      labels: ["*"]

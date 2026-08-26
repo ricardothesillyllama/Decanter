@@ -46,14 +46,24 @@ struct RootView: View {
                 Button { addGame() } label: { Label("Add Game", systemImage: "plus") }
                     .help(Help.addGame)
             }
+            // Only a game has evidence to inspect. On Setup, Saves and
+            // Windows Environments the button toggled an empty panel, which
+            // reads as something being broken.
             ToolbarItem {
-                Button { showInspector.toggle() } label: {
-                    Label("Details", systemImage: "sidebar.trailing")
-                }.help(Help.inspectorToggle)
+                if case .game = selection {
+                    Button { showInspector.toggle() } label: {
+                        Label("Details", systemImage: "sidebar.trailing")
+                    }.help(Help.inspectorToggle)
+                }
             }
         }
         .overlay(alignment: .bottom) { BusyBar() }
-        .sheet(isPresented: $model.showWizard) { SetupWizard() }
+        // First run lands on the Setup page rather than raising a sheet over
+        // it. A sheet taller than the window spills past its edges, and it put
+        // the same content in two places — the page has to exist anyway,
+        // because "what am I missing?" is asked again every time a game
+        // misbehaves.
+        .onAppear { if model.setupNeeded && selection == nil { selection = .setup } }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             for p in providers {
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
@@ -92,6 +102,11 @@ struct Sidebar: View {
     private var setupTint: Color {
         guard let r = model.readiness, !r.ready else { return .secondary }
         return Palette.danger
+    }
+    private func footerTint(_ h: Engine.Health) -> Color {
+        guard let r = model.readiness else { return h.rosetta ? Palette.running : Palette.danger }
+        if !r.ready { return Palette.danger }
+        return r.missingOptional.isEmpty ? Palette.running : Palette.caution
     }
     @State private var pendingRemoval: Game?
     @State private var keepSaves = true
@@ -173,7 +188,10 @@ struct Sidebar: View {
         .safeAreaInset(edge: .bottom) {
             if let h = model.health {
                 HStack(spacing: 6) {
-                    StatusDot(color: h.rosetta ? Palette.running : Palette.danger)
+                    // The dot and the words beside it are one signal, so they
+                    // have to agree. It used to report Rosetta alone, which
+                    // showed a green dot next to "Not ready yet".
+                    StatusDot(color: footerTint(h))
                         .help(h.rosetta
                               ? "Rosetta 2 is present. Wine is an x86_64 program, so nothing here runs without it."
                               : "Rosetta 2 is missing — Wine cannot run at all until it is installed.")
@@ -279,10 +297,8 @@ struct ModsCard: View {
     var body: some View {
         let st = model.mods[game.id] ?? ModInspector.Status()
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text("Mods").font(.headline)
-                InfoButton(text: Help.mods, title: "BepInEx and mod loaders")
-            }
+            // No title here: this card is always inside a section already
+            // called Mods, and the word appeared twice, four lines apart.
             HStack(spacing: 6) {
                 Image(systemName: st.loaderRan ? "checkmark.seal" : "clock")
                 Text("BepInEx\(st.loaderVersion.map { " \($0)" } ?? "")")
@@ -581,7 +597,7 @@ struct UnsupportedCard: View {
                     .foregroundStyle(Palette.caution)
                 Text("This game is not known to run here").font(.headline)
             }
-            Text(text)
+            Markdown(text: text)
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
@@ -819,7 +835,18 @@ struct GameDetail: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 8)
                 } label: {
-                    Text("Advanced").font(.callout).foregroundStyle(.secondary)
+                    // Same weight as every other section header. It was set in
+                    // small secondary text, which read as a footnote rather
+                    // than as a place to go — hiding the one control someone
+                    // who does know Wine actually came for.
+                    HStack(spacing: 8) {
+                        Image(systemName: "slider.horizontal.3")
+                            .imageScale(.medium).foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text("Advanced").font(.headline)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
                 }
             }
         }

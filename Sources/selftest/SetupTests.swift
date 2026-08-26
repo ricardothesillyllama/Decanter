@@ -160,14 +160,79 @@ func runReadinessTests(_ t: Harness) {
     }
 
     // The copy is the feature here: this page exists for people who do not
-    // know the words, so the words must not appear on it.
+    // know the words, so the words must not appear in the one-line reason.
+    // Real product names are allowed in `detail`, where they name a thing the
+    // person is about to download — but never in the sentence explaining why
+    // they would want it.
     let plain = r.pieces.map { $0.title + " " + $0.why }.joined(separator: " ")
-    for jargon in ["prefix", "bottle", "runtime", "backend", "WoW64", "D3D"] {
+    for jargon in ["prefix", "bottle", "runtime", "backend", "WoW64", "D3D",
+                   "Wine", "DXVK", "Vulkan", "translation layer", "x86", "binary",
+                   "Apple Silicon", "emulat"] {
         t.expect(!plain.contains(jargon),
-                 "the plain-language summary avoids \"\(jargon)\"")
+                 "the one-line reason avoids \"\(jargon)\"")
     }
+
+    // Every reason has to be a sentence someone can act on, not a fragment.
+    for piece in r.pieces {
+        t.expect(piece.why.hasSuffix("."), "\(piece.id)'s reason is a full sentence")
+        t.expect(piece.why.split(separator: " ").count <= 26,
+                 "\(piece.id)'s reason stays short enough to read (\(piece.why.split(separator: " ").count) words)")
+    }
+
+    // Two audiences, two lines. The plain sentence must stay jargon-free, and
+    // the technical line must actually be specific enough to act on — a version
+    // or a project name, not a restatement of the title.
+    for piece in r.pieces {
+        guard let spec = piece.spec else {
+            t.expect(false, "\(piece.id) has a technical line"); continue
+        }
+        t.expect(spec.contains("·"),
+                 "\(piece.id)'s technical line gives more than one fact")
+        t.expect(spec.rangeOfCharacter(from: .decimalDigits) != nil,
+                 "\(piece.id)'s technical line names a version or a number")
+        t.expect(spec.lowercased() != piece.title.lowercased(),
+                 "\(piece.id)'s technical line is not just the title again")
+    }
+    // The version that works is a measured fact, not a preference, so it has to
+    // be on screen rather than buried in a document nobody opens.
+    t.expect(r.pieces.first { $0.id == "dxvk" }?.spec?.contains("1.10.3") == true,
+             "the DXVK row names the version that actually works on macOS")
 
     t.equal(Engine.ageLabel(3_600 * 5), "5 hours", "template age reads in hours")
     t.equal(Engine.ageLabel(86_400 * 2), "2 days", "template age reads in days")
     t.equal(Engine.ageLabel(60), "less than an hour", "a fresh template does not read as 0 days")
+}
+
+/// The wizard offers one action per missing piece. An action whose only
+/// possible outcome is an error message is worse than no action, so the
+/// offers have to depend on what is actually possible yet.
+func runSetupOrderTests(_ t: Harness) {
+    t.suite("setup only offers what can actually be done")
+
+    let tmp = FileManager.default.temporaryDirectory
+        .appending(path: "decanter-order-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    guard let e = try? Engine(paths: Paths(root: tmp)) else {
+        t.expect(false, "could not open an engine on an empty root"); return
+    }
+
+    let r = e.readiness()
+    let template = r.pieces.first { $0.id == "template" }
+    // Building the golden template clones a pinned runtime. With none pinned
+    // there is nothing to clone, so the button would only ever produce an
+    // error — the row says what it is waiting for instead.
+    t.expect(template?.accepts == nil,
+             "with no Wine build present, the template offers no button")
+    t.expect(template?.detail?.contains("Waiting for") == true,
+             "and says what it is waiting for")
+
+    // Required pieces come before optional ones, because the page is read top
+    // to bottom and the first thing you cannot skip should be the first thing
+    // you see. The step numbers then follow that same order — numbering by
+    // priority instead produced rows reading 1, 3, 4, 2 down the page.
+    let ids = r.pieces.map(\.id)
+    t.equal(ids.first, "rosetta", "Rosetta is first — nothing runs without it")
+    t.equal(ids.last, "template", "the thing Decanter does for you is last")
+    t.expect(ids.firstIndex(of: "wine")! < ids.firstIndex(of: "gptk")!,
+             "the required Wine build is listed before the optional Apple graphics")
 }

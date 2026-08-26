@@ -25,11 +25,14 @@ if wantAll || args.contains("docs")    { runHygieneTests(t) }
 if wantAll || args.contains("docs")    { runClassificationTests(t) }
 if wantAll || args.contains("docs")    { runSurfacingTests(t) }
 if wantAll || args.contains("docs")    { runRealLogTests(t) }
+if wantAll || args.contains("docs")    { runCLIDocsTests(t) }
+if wantAll || args.contains("docs")    { runMarkdownTests(t) }
 if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("exes")    { runExecutableStateTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
 if wantAll || args.contains("setup")   { runAcquisitionTests(t) }
 if wantAll || args.contains("setup")   { runDiskImageParseTests(t) }
 if wantAll || args.contains("setup")   { runReadinessTests(t) }
+if wantAll || args.contains("setup")   { runSetupOrderTests(t) }
 
 exit(t.summary())

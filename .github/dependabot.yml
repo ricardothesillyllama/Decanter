@@ -1,0 +1,11 @@
+# Decanter has no package dependencies on purpose — every dependency is a future
+# 404, which is how Whisky died. The one thing that *does* pin external versions
+# is the CI workflow's actions, so that is all this watches.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"

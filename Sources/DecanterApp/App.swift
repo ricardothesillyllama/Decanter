@@ -8,9 +8,13 @@ struct DecanterApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
-                .frame(minWidth: 820, minHeight: 520)
+                // The first-run wizard is a tall sheet. A window shorter than
+                // this clips it, which is a bad first thing to see.
+                .frame(minWidth: 820, idealWidth: 1080,
+                       minHeight: 640, idealHeight: 760)
         }
         .windowToolbarStyle(.unified)
+        .defaultSize(width: 1080, height: 760)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.reload() }

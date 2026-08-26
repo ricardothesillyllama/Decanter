@@ -9,11 +9,7 @@ final class AppModel: ObservableObject {
     /// What Decanter has and what it is missing, in plain language. Drives the
     /// Setup page and the first-run wizard.
     @Published var readiness: Readiness?
-    /// Shown once, on a Mac that cannot run anything yet. Bound rather than
-    /// derived so dismissing it sticks — a modal that returns the moment you
-    /// close it is why people quit an app before their first game.
-    @Published var showWizard = false
-    private var wizardOffered = false
+
     @Published var busy: String?              // non-nil while a long task runs
     @Published var lastError: String?
 
@@ -67,10 +63,6 @@ final class AppModel: ObservableObject {
             bottles = e.store.state.bottles
             health = e.doctor()
             readiness = e.readiness()
-            if !wizardOffered, setupNeeded {
-                wizardOffered = true
-                showWizard = true
-            }
             var recs: [UUID: Engine.Recommendation] = [:]
             for g in games { recs[g.id] = e.recommend(for: g) }
             recommendations = recs

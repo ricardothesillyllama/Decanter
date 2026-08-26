@@ -226,3 +226,89 @@ func runRealLogTests(_ t: Harness) {
     t.expect(has(fatal) { $0 == .videoNeedsMultithreadDevice },
              "an unrecovered video failure is still reported")
 }
+
+/// The command reference is a table a person reads instead of running
+/// `--help`, so it rots the moment a command is added. This makes that a test
+/// failure rather than a bad first impression.
+func runCLIDocsTests(_ t: Harness) {
+    t.suite("the command reference matches the CLI")
+
+    let root = URL(filePath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func read(_ name: String) -> String {
+        (try? String(contentsOf: root.appending(path: name), encoding: .utf8)) ?? ""
+    }
+    let main = read("Sources/decanter/main.swift")
+    let cli = read("docs/CLI.md")
+    guard !main.isEmpty, !cli.isEmpty else {
+        t.skip("CLI docs checks", "run from outside the source tree"); return
+    }
+
+    // Every `case "x":` in the dispatch switch is a verb a user can type.
+    // Aliases and the help verbs are excluded: they exist for convenience and
+    // documenting all of them would make the table worse, not better.
+    let excluded: Set<String> = ["help", "--help", "-h", "version", "--version", "-v",
+                                 "rm", "uninstall", "exes", "list", "show", "snapshot",
+                                 "snapshots", "restore", "search", "externalise",
+                                 "externalize", "gc", "locale", "import"]
+    var verbs: Set<String> = []
+    for line in main.split(separator: "\n") {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("case \"") , trimmed.hasSuffix(":") else { continue }
+        for part in trimmed.dropFirst(5).dropLast().components(separatedBy: ", ") {
+            let v = part.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+            if !v.isEmpty { verbs.insert(v) }
+        }
+    }
+    verbs.subtract(excluded)
+    t.expect(verbs.count > 20, "the dispatch table was actually parsed (found \(verbs.count))")
+
+    let undocumented = verbs.filter { !cli.contains("decanter \($0)") }.sorted()
+    t.expect(undocumented.isEmpty,
+             "every command appears in docs/CLI.md (missing: \(undocumented.joined(separator: ", ")))")
+
+    // The README must not carry a second, drifting copy of the same table.
+    let readme = read("README.md")
+    t.expect(readme.contains("docs/CLI.md"),
+             "the README points at the command reference rather than repeating it")
+}
+
+/// Markdown in stored copy renders only if the view asks for it.
+///
+/// `Text("**bold**")` parses Markdown because a string *literal* becomes a
+/// LocalizedStringKey. `Text(someStoredString)` does not — it printed the
+/// asterisks. Every explanation in this app is a stored constant, so any
+/// constant containing Markdown has to reach a view that parses it.
+func runMarkdownTests(_ t: Harness) {
+    t.suite("markdown in stored copy is actually rendered")
+
+    let root = URL(filePath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func read(_ name: String) -> String {
+        (try? String(contentsOf: root.appending(path: name), encoding: .utf8)) ?? ""
+    }
+    let app = ["Help.swift", "Views.swift", "SetupView.swift", "SavesView.swift"]
+        .map { read("Sources/DecanterApp/\($0)") }
+    guard app.allSatisfy({ !$0.isEmpty }) else {
+        t.skip("markdown checks", "run from outside the source tree"); return
+    }
+    let all = app.joined(separator: "\n")
+
+    // The parsing view must exist and use the Markdown initialiser.
+    t.expect(all.contains("struct Markdown: View"), "there is a view that parses stored Markdown")
+    t.expect(all.contains("AttributedString(\n            markdown: text"),
+             "and it parses rather than merely wrapping the string")
+
+    // Anything handing a stored string to a popover must go through it.
+    // Text(literal) is fine — SwiftUI parses those itself.
+    for (name, source) in zip(["Help.swift", "Views.swift", "SetupView.swift", "SavesView.swift"], app) {
+        for line in source.split(separator: "\n") {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            // A Text() whose argument is an identifier or interpolation, on a
+            // line that also carries Markdown emphasis.
+            guard l.contains("**") , l.hasPrefix("Text(") else { continue }
+            t.expect(l.contains("Text(\""),
+                     "\(name): Markdown reaches a parsing view, not Text(String) — \(l.prefix(60))")
+        }
+    }
+}

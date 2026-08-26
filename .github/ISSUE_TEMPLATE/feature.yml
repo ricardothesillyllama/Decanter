@@ -1,0 +1,20 @@
+name: Suggest something
+description: An idea for how Decanter should work
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is awkward today
+      description: |
+        The problem is more useful than the solution. What were you trying to do,
+        and where did Decanter get in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+    validations:
+      required: false

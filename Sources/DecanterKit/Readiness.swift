@@ -16,10 +16,17 @@ public struct Readiness: Sendable {
             case foundNotPinned
         }
         public var id: String
-        /// Plain language. The real name lives in `technical`, shown only
-        /// under Advanced, so a forum thread still maps onto this screen.
+        /// Plain language. The real name lives in `technical`.
         public var title: String
+        /// What is actually installed, once something is. Real names, because
+        /// this is the line a forum thread has to map onto.
         public var technical: String?
+        /// What to get, in the terms someone who already knows would use —
+        /// exact project, exact version, and the constraint that matters.
+        /// Always shown: a beginner can skip a greyed monospace line, and
+        /// someone who knows what Wine is should not have to guess which build
+        /// or which version this expects.
+        public var spec: String?
         /// One line, present tense, no jargon: what you lose without it.
         public var why: String
         public var state: State
@@ -34,10 +41,12 @@ public struct Readiness: Sendable {
         /// What to hand back afterwards, phrased as an instruction.
         public var accepts: String?
 
-        public init(id: String, title: String, technical: String? = nil, why: String,
+        public init(id: String, title: String, technical: String? = nil,
+                    spec: String? = nil, why: String,
                     state: State, required: Bool, detail: String? = nil,
                     source: URL? = nil, sourceLabel: String? = nil, accepts: String? = nil) {
-            self.id = id; self.title = title; self.technical = technical; self.why = why
+            self.id = id; self.title = title; self.technical = technical
+            self.spec = spec; self.why = why
             self.state = state; self.required = required; self.detail = detail
             self.source = source; self.sourceLabel = sourceLabel; self.accepts = accepts
         }
@@ -73,10 +82,11 @@ public extension Engine {
             id: "rosetta",
             title: "Rosetta 2",
             technical: "Apple's Intel translation",
-            why: "Windows games are Intel programs, so nothing runs at all without it.",
+            spec: "x86_64 translation · every Wine build here is an Intel binary",
+            why: "Lets your Mac run software built for older Intel chips. Every Windows game is.",
             state: h.rosetta ? .present : .missing,
             required: true,
-            detail: h.rosetta ? "Installed" : "macOS installs this the first time you open an Intel app, or you can install it now.",
+            detail: h.rosetta ? "Already on this Mac" : "One click, and macOS handles the rest.",
             accepts: h.rosetta ? nil : "Install Rosetta"))
 
         let pinnedWine = h.pinnedRuntimes.filter { $0.kind == .wine }
@@ -88,55 +98,73 @@ public extension Engine {
             id: "wine",
             title: "Windows support",
             technical: pinnedWine.map(\.id).joined(separator: ", "),
-            why: "The part that lets a Windows program run on your Mac at all.",
+            spec: pinnedWine.isEmpty
+                ? "Wine 10 or 11, arm64 macOS build · Gcenx's casks are the usual source"
+                : "Wine " + pinnedWine.map(\.version).joined(separator: ", ")
+                  + " · " + (pinnedWine.contains(where: \.supports32Bit) ? "32-bit capable" : "64-bit only"),
+            why: "Without this, a Windows game is just a file your Mac cannot open.",
             state: !pinnedWine.isEmpty ? .present : (!foundWine.isEmpty ? .foundNotPinned : .missing),
             required: true,
             detail: pinnedWine.isEmpty
                 ? (foundWine.isEmpty
-                   ? "Not set up. Download a Wine build for Apple Silicon, then drop it here."
-                   : "Found on this Mac — Decanter needs its own copy so an update can never break your games.")
+                   ? "Free. Download it, then drag the file onto this window."
+                   : "Already on this Mac. Decanter wants its own copy, so an update to it can never break your games.")
                 : pinnedWine.map(\.version).joined(separator: ", "),
-            source: Readiness.wineSource, sourceLabel: "Wine builds for Apple Silicon",
-            accepts: "Drop a Wine app or folder here"))
+            source: Readiness.wineSource, sourceLabel: "Download",
+            accepts: "Drag the app or folder onto this window"))
 
         r.pieces.append(.init(
             id: "gptk",
             title: "Apple graphics",
             technical: pinnedGPTK.map(\.id).joined(separator: ", "),
-            why: "Apple's own graphics translation. Usually the fastest option for 3D games — without it those games still run, just slower.",
+            spec: pinnedGPTK.isEmpty
+                ? "Game Porting Toolkit 2.1+ · provides D3DMetal, on a Wine 7.7 base"
+                : "Game Porting Toolkit " + pinnedGPTK.map(\.version).joined(separator: ", ")
+                  + " · D3DMetal available",
+            why: "Makes 3D games run much faster, using Apple's own graphics software. Games still work without it — just slower.",
             state: !pinnedGPTK.isEmpty ? .present : (!foundGPTK.isEmpty ? .foundNotPinned : .missing),
             required: false,
             detail: pinnedGPTK.isEmpty
-                ? "Apple gives this away; a free Apple ID is enough. It arrives as a disk image — drop the whole .dmg here and Decanter will take what it needs."
+                ? "Free from Apple — an ordinary Apple ID is enough. It downloads as one big file ending in .dmg. Drag that whole file here; Decanter takes only the part it needs."
                 : pinnedGPTK.map(\.version).joined(separator: ", "),
-            source: Readiness.gptkSource, sourceLabel: "Apple Developer downloads",
-            accepts: "Drop the disk image here"))
+            source: Readiness.gptkSource, sourceLabel: "Download from Apple",
+            accepts: "Drag the .dmg onto this window"))
 
         let staged = dxvk.stagedVersions()
         r.pieces.append(.init(
             id: "dxvk",
-            title: "Vulkan graphics",
+            title: "Alternative graphics",
             technical: staged.isEmpty ? nil : "DXVK " + staged.joined(separator: ", "),
-            why: "A second way to draw a game's graphics. Games that will not start one way often start the other.",
+            spec: staged.isEmpty
+                ? "DXVK 1.10.3 · targets Vulkan 1.1. 2.x/3.x need Vulkan 1.3, which MoltenVK does not fully implement"
+                : "DXVK " + staged.joined(separator: ", ")
+                  + (staged.contains("1.10.3") ? "" : " · 1.10.3 is the one that works here"),
+            why: "A different way of drawing a game. Some games only run with this one, so it is worth having both.",
             state: staged.isEmpty ? .missing : .present,
             required: false,
             detail: staged.isEmpty
-                ? "Get version 1.10.3, not the newest — later versions need a Vulkan feature macOS does not have, and fail in ways that look like the game's fault."
+                ? "Take version 1.10.3, even though newer ones exist — the newer ones do not work on any Mac. The link goes straight to the right one."
                 : staged.joined(separator: ", "),
-            source: Readiness.dxvkSource, sourceLabel: "DXVK 1.10.3",
+            source: Readiness.dxvkSource, sourceLabel: "Download 1.10.3",
             accepts: "Drop the .tar.gz here"))
 
+        // Decanter makes this one itself — but only once it has something to
+        // make it *with*. Offering the button before a runtime exists is an
+        // action whose only possible outcome is an error message.
+        let canBuild = !h.pinnedRuntimes.isEmpty
         r.pieces.append(.init(
             id: "template",
             title: "Clean Windows environment",
             technical: "golden prefix",
-            why: "Built once, then copied instantly for every game you add. Decanter makes this itself.",
+            spec: "golden WoW64 prefix per runtime · APFS-cloned per game, with wine-mono and DXVK baked in",
+            why: "A blank Windows setup that each game gets its own private copy of. Nothing to download — Decanter builds this one.",
             state: h.templateBuilt ? .present : .missing,
             required: true,
             detail: h.templateBuilt
                 ? (h.templateAge.map { "Built \(Self.ageLabel($0)) ago" } ?? "Built")
-                : "Takes a minute or two, once.",
-            accepts: h.templateBuilt ? nil : "Build it"))
+                : (canBuild ? "Takes a minute or two, and only happens once."
+                            : "Waiting for the step above. Decanter can build this as soon as it has something to build it from."),
+            accepts: h.templateBuilt ? nil : (canBuild ? "Build it" : nil)))
 
         return r
     }

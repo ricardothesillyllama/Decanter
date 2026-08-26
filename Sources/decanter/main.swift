@@ -53,7 +53,8 @@ func usage() -> Never {
       decanter exe <game>             list executables; pick one, or run one once
       decanter list                   list games
       decanter info <game>            show detection evidence and settings
-      decanter run <game>             launch it\n      decanter check <game>           dry-run: verify it WOULD launch, without starting it
+      decanter run <game>             launch it
+      decanter check <game>           dry-run: verify it WOULD launch, without starting it
       decanter redetect [game]        re-inspect with the current rules (all games if omitted)
       decanter args <game> [flags]    engine switches like -force-d3d12 (no args = show suggestions)
       decanter env <game> [japanese]  environment/locale overrides for CJK games
@@ -85,7 +86,8 @@ func usage() -> Never {
       decanter saves gc               prune old snapshots
 
     BOTTLES
-      decanter bottles                list prefixes, runtime, backend, health\n      decanter gc                     delete prefixes no game points at
+      decanter bottles                list prefixes, runtime, backend, health
+      decanter gc                     delete prefixes no game points at
       decanter backend <game> <dxvk|d3dmetal|wined3d>
 
     Add --verbose for detail.
@@ -201,7 +203,13 @@ case "setup":
         }
         out("  \(mark) \(piece.title)\(piece.required ? "" : "  (optional)")")
         out("      \(piece.why)")
-        if let d = piece.detail { out("      \(d)") }
+        // The technical line, always — this surface's audience already knows
+        // the words, and it carries the exact version constraints.
+        if let spec = piece.spec { out("      \(spec)") }
+        // `detail` is the GUI's next action ("drag the file onto this window"),
+        // which is nonsense in a terminal. Only shown once a piece is present,
+        // where it reports what is installed rather than what to do.
+        if piece.state == .present, let d = piece.detail { out("      \(d)") }
         if piece.state != .present, let src = piece.source {
             out("      get it: \(src.absoluteString)")
             out("      then:   decanter use <the file you downloaded>")
