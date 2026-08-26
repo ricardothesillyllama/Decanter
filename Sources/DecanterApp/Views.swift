@@ -534,6 +534,37 @@ struct ComponentsCard: View {
     }
 }
 
+
+/// A game the pinned runtimes are not known to run.
+///
+/// Detection has recorded this since the beginning and the CLI printed it, but
+/// the app showed it nowhere — so a Unity 6 game looked entirely normal, said
+/// "Ready to play", and simply failed. Telling someone after they have spent an
+/// hour on it is worse than not detecting it at all.
+struct UnsupportedCard: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.octagon.fill")
+                    .foregroundStyle(Palette.caution)
+                Text("This game is not known to run here").font(.headline)
+            }
+            Text(text)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(Palette.caution.opacity(0.35), lineWidth: 0.5))
+    }
+}
+
 // MARK: - Game detail
 
 struct GameDetail: View {
@@ -553,6 +584,9 @@ struct GameDetail: View {
                 header
 
                 // Problems surface themselves. Everything else waits to be asked.
+                if let blocker = game.detection.knownUnsupported {
+                    UnsupportedCard(text: blocker)
+                }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
                 if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
                 if !model.isOnRecommended(game) { recommendationBanner }
@@ -618,10 +652,12 @@ struct GameDetail: View {
             // One sentence saying where this game stands, before any control.
             HStack(spacing: 7) {
                 StatusDot(color: isRunning ? Palette.running
+                            : game.detection.knownUnsupported != nil ? Palette.caution
                             : problem ? Palette.danger
                             : onRec ? Palette.running : Palette.caution,
                           pulsing: isRunning)
-                Text(Help.status(running: isRunning, onRecommended: onRec, hasProblem: problem))
+                Text(Help.status(running: isRunning, onRecommended: onRec, hasProblem: problem,
+                                 knownUnsupported: game.detection.knownUnsupported != nil))
                     .font(.title3)
                 if let d = game.lastPlayed, !isRunning {
                     Text("· last played \(d.formatted(date: .abbreviated, time: .omitted))")

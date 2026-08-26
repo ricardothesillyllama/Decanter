@@ -251,6 +251,6 @@ public enum DecanterError: LocalizedError {
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
     public static let version = "0.2.0"
-    public static let commit = "d4272d4"
+    public static let commit = "30dad37"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

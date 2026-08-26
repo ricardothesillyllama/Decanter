@@ -85,8 +85,10 @@ enum Help {
     }
 
     /// A plain-language state for the top of the game page.
-    static func status(running: Bool, onRecommended: Bool, hasProblem: Bool) -> String {
+    static func status(running: Bool, onRecommended: Bool, hasProblem: Bool,
+                       knownUnsupported: Bool = false) -> String {
         if running { return "Running" }
+        if knownUnsupported { return "Not known to run here" }
         if hasProblem { return "Last run had a problem" }
         if onRecommended { return "Ready to play" }
         return "Ready to play — a better setup is available"

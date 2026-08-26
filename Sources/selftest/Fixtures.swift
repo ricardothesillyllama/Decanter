@@ -33,11 +33,18 @@ enum Fixture {
     }
 
     static func unity(name: String = "TestGame", machine: UInt16 = 0x8664,
-                      modded: Bool = false, warmCache: Bool = false, d3d12: Bool = true) -> URL {
+                      modded: Bool = false, warmCache: Bool = false, d3d12: Bool = true,
+                      unityVersion: String? = nil) -> URL {
         let d = dir("unity")
         write(d, "\(name).exe", pe(machine: machine))
+
         var apis = ["d3d11.dll", "dxgi.dll", "d3d9.dll"]
         if d3d12 { apis.append("d3d12.dll") }
+        // The version is read out of UnityPlayer.dll, so that is where the
+        // fixture has to put it. Unity also leaves 2018.3.0a1 in every build,
+        // which is why the scan takes the most frequent match, not the first —
+        // include the decoy so the fixture exercises that.
+        if let v = unityVersion { apis += ["2018.3.0a1", v, v, v] }
         write(d, "UnityPlayer.dll", pe(machine: machine, strings: apis))
         write(d, "GameAssembly.dll", pe(machine: machine))
         write(d, "\(name)_Data/app.info")

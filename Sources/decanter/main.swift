@@ -265,6 +265,10 @@ case "info":
     }
     out("  evidence:")
     for s in g.detection.signals { out("    [\(String(format: "%.2f", s.weight))] \(s.rule)") }
+    if let blocker = g.detection.knownUnsupported {
+        out("")
+        warn(blocker.replacingOccurrences(of: "\n", with: " "))
+    }
 
 case "run":
     let (e, g) = requireGame(rest.first)

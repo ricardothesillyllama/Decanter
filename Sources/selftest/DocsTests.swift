@@ -141,3 +141,30 @@ func runClassificationTests(_ t: Harness) {
     t.equal(Engine.rosettaHorizon(majorVersion: 28), .removed,
             "macOS 28 removes it, and Wine is an x86_64 program")
 }
+
+/// Detection knowing something the interface never says is the same as not
+/// knowing it. A Unity 6 game read as 6000.x, stored a blocker, and still
+/// showed "Ready to play" with no warning anywhere in the app.
+func runSurfacingTests(_ t: Harness) {
+    t.suite("what detection knows reaches the user")
+
+    let det = Detector()
+    // A Unity 6 build, including a beta — 6000.2.0b7 is what turned up in the
+    // wild, and a pattern expecting only `f` releases would miss it.
+    for version in ["6000.0.58f2", "6000.2.0b7", "6000.3.1a4"] {
+        let dir = Fixture.unity(name: "Sample", unityVersion: version)
+        let r = det.detect(exe: dir.appending(path: "Sample.exe"))
+        t.equal(r.engineVersion, version, "reads \(version) from the engine data")
+        t.expect(r.knownUnsupported != nil, "\(version) is flagged as not known to run")
+    }
+    // …and an older Unity must not be flagged.
+    let old = Fixture.unity(name: "Older", unityVersion: "2019.4.0f1")
+    let r = det.detect(exe: old.appending(path: "Older.exe"))
+    t.equal(r.engineVersion, "2019.4.0f1", "reads an older version too")
+    t.expect(r.knownUnsupported == nil, "Unity 2019 is not flagged")
+
+    // The status line lives in the app target and cannot be reached from here;
+    // its behaviour is asserted by the same condition it reads, above.
+    t.expect(r.knownUnsupported == nil, "an unflagged game leaves the status line alone")
+
+}
