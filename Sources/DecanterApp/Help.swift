@@ -10,35 +10,73 @@ enum Help {
 
     /// What to call a backend when the reader has never heard of Vulkan.
     ///
-    /// The real names are kept as secondary text rather than dropped: someone
+    /// Each name says what the thing *is*, never how well it works. The names
+    /// used to be Apple / Standard / Compatibility, and both of the last two
+    /// were quiet promises: "Compatibility" reads as the safe choice a stuck
+    /// person should move to, when WineD3D is the slow fallback and a modern
+    /// game may well do better on Apple's. Compatibility is not a slider with
+    /// one backend at the top — it is per-game, which is the whole reason
+    /// Decanter recommends rather than ranks.
+    ///
+    /// So the recommendation is shown *beside* these names instead of being
+    /// baked into them, and the real names are kept as secondary text: someone
     /// following a forum thread needs to recognise "DXVK", and hiding it would
     /// make this app harder to get help with, not easier.
     static func plainName(_ b: GraphicsBackend) -> String {
         switch b {
         case .d3dmetal: "Apple"
-        case .dxvk:     "Standard"
-        case .wined3d:  "Compatibility"
+        case .dxvk:     "Vulkan"
+        case .wined3d:  "Wine"
         }
     }
 
-    /// One line. Anything longer belongs behind the info button.
+    /// The symbol beside each name. SF Symbols rather than emoji: emoji do not
+    /// tint with the control and render differently in menus.
+    static func symbol(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "apple.logo"
+        case .dxvk:     "bolt.fill"
+        case .wined3d:  "wrench.and.screwdriver.fill"
+        }
+    }
+
+    /// One line, describing the thing rather than grading it. Anything longer
+    /// belongs behind the info button.
     static func oneLiner(_ b: GraphicsBackend) -> String {
         switch b {
-        case .d3dmetal: "Fastest. Best for modern 3D games."
-        case .dxvk:     "Works with the widest range of games."
-        case .wined3d:  "Slowest, but the most reliable. Try this if the others fail."
+        case .d3dmetal: "Apple's own graphics translation. Only available on Apple's engine."
+        case .dxvk:     "Draws the game through Vulkan. Available on either engine."
+        case .wined3d:  "Wine's built-in graphics. Needs nothing extra installed."
         }
     }
 
-    /// What the runtime choice actually means, in one line each.
+    /// When to reach for one, phrased as a next move rather than a verdict.
+    /// Only shown for the options Decanter did *not* pick.
+    static func whenToTry(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "Try if the game runs but feels slow."
+        case .dxvk:     "Try if the game will not start, or draws nothing."
+        case .wined3d:  "Try if neither of the others will run it, or if videos do not play."
+        }
+    }
+
+    /// What to call the thing a game runs on.
     ///
-    /// It was labelled "Windows version", which is simply wrong — both run the
-    /// same Windows API level. The difference is how old the Wine underneath
-    /// is, and whether Apple's graphics translation is available at all.
+    /// Not "Windows version" — that is simply wrong, both provide the same
+    /// Windows API level — and not "Engine", which this app already uses for
+    /// Unity and Unreal. The control is labelled "Runs on" and the options are
+    /// named, so no category noun has to be invented at all.
+    static func runtimePlainName(_ kind: RuntimeKind) -> String {
+        switch kind {
+        case .gptk: "Apple's engine"
+        case .wine: "Wine"
+        }
+    }
+
     static func runtimeOneLiner(_ kind: RuntimeKind) -> String {
         switch kind {
-        case .gptk: "Apple's build. The only one with Apple graphics, and usually the fastest. Based on an older Wine, so a few newer games refuse it."
-        case .wine: "The current Wine. Better with recent games and with older 32-bit ones, but no Apple graphics — use Standard or Compatibility with it."
+        case .gptk: "Apple's build. The only one that can use Apple graphics. Built on an older Wine, so a few newer games refuse it."
+        case .wine: "The current Wine. Better with recent games and with older 32-bit ones. No Apple graphics — pair it with Vulkan or Wine graphics."
         }
     }
 
@@ -53,7 +91,7 @@ enum Help {
 
     **Wine 11** is current. Reach for it when a game will not start on Apple's \
     build, when the game is 32-bit, or when it is recent. It has no Apple \
-    graphics, so pair it with Standard or Compatibility.
+    graphics, so pair it with Vulkan or Wine graphics.
 
     Changing this rebuilds the game's Windows environment, which takes about \
     half a second. Saves are kept.
@@ -62,17 +100,28 @@ enum Help {
     /// Swaps backend names for the words the controls use.
     ///
     /// The engine writes "switch to WineD3D" because the CLI should say that.
-    /// In the app the control beside it says "Compatibility", and one warning
-    /// naming a setting that appears nowhere on screen is worse than none.
-    /// Only applied to text on the primary path — the Why section and Advanced
-    /// keep the real names, because the people reading those want them.
+    /// In the app the control beside it says "Wine", and one warning naming a
+    /// setting that appears nowhere on screen is worse than none. Only applied
+    /// to text on the primary path — the Why section and Advanced keep the
+    /// real names, because the people reading those want them.
     static func plainify(_ text: String) -> String {
         var out = text
-        for (technical, plain) in [("D3DMetal", "Apple"), ("DXVK", "Standard"),
-                                   ("WineD3D", "Compatibility")] {
-            out = out.replacingOccurrences(of: technical, with: plain + " graphics")
+        for b in GraphicsBackend.allCases {
+            out = out.replacingOccurrences(of: backendTechnicalName(b),
+                                           with: plainName(b) + " graphics")
+            out = out.replacingOccurrences(of: rawTechnicalName(b),
+                                           with: plainName(b) + " graphics")
         }
         return out
+    }
+
+    /// Just the product name, with no parenthetical.
+    static func rawTechnicalName(_ b: GraphicsBackend) -> String {
+        switch b {
+        case .d3dmetal: "D3DMetal"
+        case .dxvk:     "DXVK"
+        case .wined3d:  "WineD3D"
+        }
     }
 
     /// The name people will meet in forum threads and bug reports.
@@ -114,21 +163,43 @@ enum Help {
     }
 
     static let backendPicker = """
-    Which layer translates the game's DirectX calls to Metal.
+    Which piece of software turns the game's drawing instructions into \
+    something your Mac's graphics chip understands.
 
-    Rule of thumb: leave it on DXVK. If the game crashes at startup or shows a black \
-    screen, try WineD3D. If it is a modern DirectX 12 title that runs badly, move it to \
-    the Game Porting Toolkit runtime and choose D3DMetal.
+    There is no option here that is best for every game — if there were, \
+    Decanter would just use it. Which one wins depends on the game, which is \
+    why Decanter marks the one it expects to work and leaves the rest \
+    available.
 
-    Only backends the game's current runtime can actually provide are listed.
+    **Apple** (D3DMetal) is Apple's own translation, and normally the fastest \
+    for modern 3D games. It cannot play video, and it only exists on Apple's \
+    engine.
+
+    **Vulkan** (DXVK) goes through Vulkan and works on either engine. It is \
+    the most common choice, not because it is universally better, but because \
+    it is available in the most situations.
+
+    **Wine** (WineD3D) is Wine's own, and needs nothing installed. It is the \
+    slowest, and the one to try when the others will not run at all.
+
+    Only the options this game's engine can actually provide are listed.
+    """
+
+    static let setupPage = """
+    What Decanter needs, what it has, and where to get the rest.
+
+    Decanter never downloads any of it. That is the point: Whisky's installed \
+    copies stopped working when the runtime it fetched was deleted upstream. \
+    You fetch each piece once and hand it over — drop it anywhere on the \
+    window — and Decanter keeps its own copy from then on.
     """
 
     static let runtimePicker = """
     Which Wine build runs this game.
 
     Wine 11 is modern and has the newer WoW64, so it is the safer choice for 32-bit and \
-    indie games. The Game Porting Toolkit is based on Wine 7.7 from 2022, but it is the \
-    only runtime that offers D3DMetal.
+    indie games. Apple's engine is based on Wine 7.7 from 2022, but it is the only one \
+    that offers Apple graphics.
 
     Switching keeps the prefix and your saves. Moving to an older runtime can make the \
     prefix complain — run a preflight check afterwards.

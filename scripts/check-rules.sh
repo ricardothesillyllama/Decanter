@@ -36,7 +36,21 @@ if grep -rn 'dosdevices/z:' Sources/DecanterKit/Prefix.swift 2>/dev/null | grep 
   note "prefix construction appears to create a z: mapping"
 fi
 
-# 5. Persisted types decode by hand. Synthesised Decodable requires every
+# 5. Decanter must never fetch anything. This is the project's central claim:
+#    Whisky's installed copies broke when the runtime it downloaded was deleted
+#    upstream, and "we don't download" is only true if nothing here can. The
+#    Setup page points at download pages, which the *user's browser* opens —
+#    NSWorkspace.open is allowed, URLSession and friends are not.
+if grep -rnE 'URLSession|NSURLConnection|CFNetwork|Network\.framework|import Network\b' \
+     Sources/DecanterKit/ Sources/decanter/ Sources/DecanterApp/ 2>/dev/null \
+   | grep -vE '^\s*//' >/dev/null 2>&1; then
+  note "networking API found — Decanter downloads nothing, by design"
+fi
+if grep -rnE 'Shell\.run\(URL\(filePath: "/usr/bin/(curl|wget)"' Sources/ >/dev/null 2>&1; then
+  note "curl or wget is being invoked — Decanter downloads nothing, by design"
+fi
+
+# 6. Persisted types decode by hand. Synthesised Decodable requires every
 #    non-optional key and has wiped the library twice.
 for type in "struct DecanterState" "struct Game" "struct Bottle" "struct DetectionResult"; do
   f=$(grep -rln "$type" Sources/DecanterKit/ 2>/dev/null | head -1)

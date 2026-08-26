@@ -28,5 +28,8 @@ if wantAll || args.contains("docs")    { runRealLogTests(t) }
 if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("exes")    { runExecutableStateTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
+if wantAll || args.contains("setup")   { runAcquisitionTests(t) }
+if wantAll || args.contains("setup")   { runDiskImageParseTests(t) }
+if wantAll || args.contains("setup")   { runReadinessTests(t) }
 
 exit(t.summary())

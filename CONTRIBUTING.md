@@ -42,11 +42,12 @@ broke:
     swift run selftest metal               # can a Wine build host DXMT
     swift run selftest fwd                 # state survives an older binary
     swift run selftest docs                # documentation matches the code, report redaction
+    swift run selftest setup               # what a dropped file is, and what setup says is missing
     swift run selftest launch              # real Windows executables, 32- and 64-bit
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **386 checks.**
+the no-dependency rule. **420 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry
@@ -120,10 +121,17 @@ real failure:
 - **Do not widen a game's filesystem access.** No `z: -> /`, and no mapping
   Wine's user folders at the real home directory. `sandboxUserFolders` closes
   seventeen escape routes and preflight verifies them.
-- **Nothing is downloaded at runtime**, with one stated exception: the Windows
+- **Nothing is downloaded at runtime**, and `check-rules.sh` fails the build if
+  any networking API appears in the sources. One stated exception: the Windows
   Components feature runs winetricks, which fetches redistributables from their
-  publishers. Users supply Wine, GPTK and DXVK themselves; Decanter takes its
+  publishers — that is winetricks reaching out, not Decanter, and it is opt-in
+  per component. Users supply Wine, GPTK and DXVK themselves; Decanter takes its
   own copy and manages it.
+
+  This rule is about *servers*, not about typing. A file the user already has is
+  not a dependency, so Setup accepts drops, opens download pages in the user's
+  browser, and mounts a disk image they hand over. Making people use Terminal
+  was never what kept the guarantee.
 - **Never build a command as a string.** `Shell.run` takes an argv array for a
   reason — a verb interpolated into `sh -c` was a command-injection bug.
 

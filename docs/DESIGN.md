@@ -29,3 +29,21 @@ fall for that.
 **Backends are clamped to what the runtime can provide.** D3DMetal only exists inside
 GPTK; storing it against a Wine runtime would silently mean no acceleration at all.
 
+
+**Decanter downloads nothing, but that never meant "use Terminal".** The rule is that
+no installed copy may depend on a server still existing — Whisky's copies broke when the
+runtime repository it fetched from was deleted. A file the user already has on disk is
+not such a dependency. So Setup accepts anything dropped on the window, identifies it by
+content rather than by filename, and mounts a disk image the user hands over; the links
+it shows open in the user's own browser. `check-rules.sh` fails the build if a
+networking API appears anywhere in the sources, so the claim is enforced rather than
+remembered.
+
+**Names say what a thing is; the recommendation is separate.** The graphics options were
+once Apple, Standard and Compatibility. Both of the latter smuggled a claim: a stuck user
+reads "Compatibility" as the safe option to move to, when WineD3D is the slow fallback
+and a modern game may do better on Apple's. Compatibility is per-game, not a ranking —
+which is the whole reason Decanter recommends rather than sorts. So the options are named
+for what they are, the real names sit beside them for forum threads, and Decanter's pick
+is a badge that can land on a different row for the next game without implying any row is
+worse.

@@ -6,6 +6,7 @@ enum Selection: Hashable {
     case game(UUID)
     case saves
     case storage
+    case setup
 }
 
 struct RootView: View {
@@ -30,6 +31,8 @@ struct RootView: View {
                     } else { EmptyState() }
                 case .storage:
                     StorageView()
+                case .setup:
+                    SetupView()
                 case .saves:
                     SavesView()
                 case nil:
@@ -50,7 +53,7 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottom) { BusyBar() }
-        .sheet(isPresented: .constant(model.setupNeeded && model.busy == nil)) { SetupSheet() }
+        .sheet(isPresented: $model.showWizard) { SetupWizard() }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             for p in providers {
                 _ = p.loadObject(ofClass: URL.self) { url, _ in
@@ -77,6 +80,19 @@ struct RootView: View {
 struct Sidebar: View {
     @EnvironmentObject var model: AppModel
     @Binding var selection: Selection?
+
+    /// The sidebar carries the only always-visible signal that something is
+    /// missing, so it has to distinguish "not ready" from "works, but a game
+    /// could be faster".
+    private var setupSymbol: String {
+        guard let r = model.readiness else { return "gearshape" }
+        if !r.ready { return "exclamationmark.circle.fill" }
+        return r.missingOptional.isEmpty ? "gearshape" : "gearshape.fill"
+    }
+    private var setupTint: Color {
+        guard let r = model.readiness, !r.ready else { return .secondary }
+        return Palette.danger
+    }
     @State private var pendingRemoval: Game?
     @State private var keepSaves = true
 
@@ -123,6 +139,18 @@ struct Sidebar: View {
                 Label("Windows Environments", systemImage: "internaldrive")
                     .tag(Selection.storage)
                     .help(Help.bottlesSection)
+
+                // Permanent, not a one-time modal. "What is installed and what
+                // is missing" is a question people ask again every time a game
+                // misbehaves, and a wizard you cannot reopen cannot answer it.
+                Label {
+                    Text("Setup")
+                } icon: {
+                    Image(systemName: setupSymbol)
+                        .foregroundStyle(setupTint)
+                }
+                .tag(Selection.setup)
+                .help(Help.setupPage)
             }
         }
         .listStyle(.sidebar)
@@ -149,12 +177,14 @@ struct Sidebar: View {
                         .help(h.rosetta
                               ? "Rosetta 2 is present. Wine is an x86_64 program, so nothing here runs without it."
                               : "Rosetta 2 is missing — Wine cannot run at all until it is installed.")
-                    Text(h.pinnedRuntimes.isEmpty
-                         ? "Not set up yet"
-                         : "Ready · \(h.pinnedRuntimes.count) engine\(h.pinnedRuntimes.count == 1 ? "" : "s")")
+                    Text(model.readiness?.headline
+                         ?? (h.pinnedRuntimes.isEmpty ? "Not set up yet" : "Ready"))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.tail)
                         .help(Help.runtimePinned)
-                    Spacer()
+                    Spacer(minLength: 0)
+                    Button("Setup") { selection = .setup }
+                        .buttonStyle(.link).font(.caption)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(.ultraThinMaterial)
@@ -707,28 +737,37 @@ struct GameDetail: View {
     private var graphics: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let b = bottle {
-                // Plain names in the control, real names underneath. Someone
-                // following a forum thread still needs to recognise "DXVK";
-                // someone who has never heard of Vulkan should not have to.
-                Picker("", selection: Binding(get: { b.backend },
-                                              set: { model.setBackend(game, $0) })) {
+                // A row per option rather than a segmented control, because
+                // the recommendation is no longer part of the name. The old
+                // labels — Standard, Compatibility — each smuggled a claim
+                // about which works with more games, and "Compatibility" sent
+                // stuck people to the slowest one. Compatibility is per-game,
+                // so the recommendation is a badge beside the name and the
+                // name only says what the thing is.
+                VStack(spacing: 0) {
                     ForEach(availableBackends, id: \.self) { bk in
-                        Text(Help.plainName(bk) + (bk == model.recommendation(for: game)?.backend ? " ★" : ""))
-                            .tag(bk)
+                        BackendRow(backend: bk,
+                                   selected: b.backend == bk,
+                                   recommended: bk == model.recommendation(for: game)?.backend,
+                                   disabled: model.busy != nil) {
+                            model.setBackend(game, bk)
+                        }
+                        if bk != availableBackends.last { Divider().padding(.leading, 38) }
                     }
                 }
-                .labelsHidden().pickerStyle(.segmented).frame(width: 300)
-                .disabled(model.busy != nil)
+                .background(RoundedRectangle(cornerRadius: 9).fill(Palette.card))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairline))
+                .frame(maxWidth: 460)
 
                 HStack(spacing: 6) {
-                    Text(Help.oneLiner(b.backend))
-                        .font(.callout).foregroundStyle(.secondary)
-                    InfoButton(text: Help.backendPicker, title: "Graphics modes explained")
+                    Text("Decanter marks the option it expects to work. There is no setting here that is best for every game.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    InfoButton(text: Help.backendPicker, title: "Graphics explained")
                 }
-                .animation(.easeInOut(duration: 0.15), value: b.backend)
 
                 if b.backend == .dxvk && !dxvkReallyPresent {
-                    Label("This game is set to Standard, but its Windows environment has Wine's built-in graphics instead. Rebuild it under Saves & Maintenance.",
+                    Label("This game is set to Vulkan graphics, but its Windows environment has Wine's built-in graphics instead. Rebuild it under Saves & Maintenance.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
                         .fixedSize(horizontal: false, vertical: true)
@@ -745,7 +784,11 @@ struct GameDetail: View {
                     VStack(alignment: .leading, spacing: 10) {
                         if model.pinnedRuntimes.count > 1 {
                             HStack(spacing: 6) {
-                                Text("Engine").font(.callout)
+                                // "Runs on", not "Engine" — this app already
+                                // uses Engine for Unity and Unreal, and using
+                                // one word for two things in one window is how
+                                // a picker gets misread as a game setting.
+                                Text("Runs on").font(.callout)
                                 Picker("", selection: Binding(get: { b.runtimeID },
                                                               set: { model.setRuntime(game, $0) })) {
                                     ForEach(model.pinnedRuntimes) { rt in
@@ -754,7 +797,7 @@ struct GameDetail: View {
                                 }
                                 .labelsHidden().frame(width: 240)
                                 .disabled(model.busy != nil)
-                                InfoButton(text: Help.runtimeWhich, title: "Which engine?")
+                                InfoButton(text: Help.runtimeWhich, title: "What does it run on?")
                             }
                             if let rt = model.pinnedRuntimes.first(where: { $0.id == b.runtimeID }) {
                                 Text(Help.runtimeOneLiner(rt.kind))
@@ -765,7 +808,7 @@ struct GameDetail: View {
                         }
                         VStack(alignment: .leading, spacing: 6) {
                             LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
-                            LabeledContent("Engine build", value: b.runtimeID)
+                            LabeledContent("Runs on", value: b.runtimeID)
                             LabeledContent("Prefix", value: b.prefixPath.lastPathComponent)
                                 .textSelection(.enabled)
                             Button("Reveal in Finder") { model.revealPrefix(game) }
@@ -1326,36 +1369,5 @@ struct BusyBar: View {
         .padding(.bottom, 14)
         .animation(.easeInOut(duration: 0.18), value: model.busy)
         .animation(.easeInOut(duration: 0.18), value: model.lastError)
-    }
-}
-
-struct SetupSheet: View {
-    @EnvironmentObject var model: AppModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Set up Decanter").font(.title2).bold()
-            Text("Decanter takes its own pinned copy of every Wine build on this Mac, then builds one golden prefix that every game clones from. Pinning matters: Whisky stopped working because the runtime it downloaded disappeared.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let h = model.health {
-                VStack(alignment: .leading, spacing: 5) {
-                    Label(h.rosetta ? "Rosetta 2 present" : "Rosetta 2 missing",
-                          systemImage: h.rosetta ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(h.rosetta ? Palette.running : Palette.danger)
-                    ForEach(Array(h.discovered.enumerated()), id: \.offset) { _, c in
-                        Label("\(c.kind.rawValue) \(c.version)\(c.supports32Bit ? " · 32-bit capable" : "")",
-                              systemImage: "shippingbox")
-                    }
-                }
-                .font(.callout)
-            }
-            HStack {
-                Spacer()
-                Button("Set Up") { model.runSetup() }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(model.busy != nil)
-            }
-        }
-        .padding(26)
-        .frame(width: 460)
     }
 }

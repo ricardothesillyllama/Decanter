@@ -55,22 +55,30 @@ back in, so starting a game over cannot lose progress.
 
 ## Quick start
 
-Download the [latest release](https://github.com/ricardothesillyllama/Decanter/releases/latest),
-drag Decanter into Applications, and drop a game folder onto it.
+1. Download the [latest release](https://github.com/ricardothesillyllama/Decanter/releases/latest)
+   and drag Decanter into Applications.
+2. Open it. **Setup** lists what it needs, what it already found, and where each
+   missing piece comes from.
+3. Fetch those (they are free), **drop them on the window**, and press Play.
 
-Or from source, if you prefer the CLI:
+No Terminal at any point. Decanter still downloads nothing itself — see
+[Getting the pieces](#getting-the-pieces) for why that matters — but "we don't
+fetch it for you" was never a reason to make you type. Anything you can hand it,
+you can drag onto it: a Wine app or folder, Apple's toolkit as a `.dmg`, a DXVK
+`.tar.gz`.
+
+<details>
+<summary>Or from the CLI, if you prefer</summary>
 
 ```sh
 git clone https://github.com/ricardothesillyllama/Decanter.git
 cd Decanter && ./install.sh
-decanter pin && decanter template build     # one-time setup
+decanter setup                              # what is missing, and where it comes from
+decanter use ~/Downloads/dxvk-1.10.3.tar.gz # same for a Wine folder or a .dmg
 decanter add ~/Games/SomeGame
 decanter run SomeGame
 ```
-
-You will need a Wine build and, ideally, Apple's Game Porting Toolkit — see
-[Getting the pieces](#getting-the-pieces). Decanter does not download them for
-you, on purpose.
+</details>
 
 > The screenshots above are Decanter running against a throwaway demo library.
 > `./scripts/make-demo.sh` builds it, if you want the same starting point.
@@ -213,27 +221,29 @@ themselves up.
 
 ## Getting the pieces
 
+Open **Setup** in the app and it tells you which of these you are missing, what
+each one is for, and links to where it comes from. Then drop the file on the
+window — Decanter works out what it is by looking inside, so the exact path and
+the exact filename do not matter.
+
 **Game Porting Toolkit (GPTK)** gives you D3DMetal, Apple's Direct3D-to-Metal
 translation, which is the fastest option for modern 3D games. Apple distributes
 it from the [developer downloads](https://developer.apple.com/download/all/)
-page (search "Game Porting Toolkit"; a free Apple ID is enough). It ships as a
-disk image containing a Wine tree — point Decanter at it:
-
-    decanter runtime add /path/to/Game\ Porting\ Toolkit/wine
+page (search "Game Porting Toolkit"; a free Apple ID is enough). It arrives as a
+disk image — **drop the whole `.dmg` on the window.** Decanter mounts it, takes
+the Wine tree out, and ejects it.
 
 **A mainline Wine build** covers everything GPTK cannot. GPTK is based on
 Wine 7.7 from 2022, so newer titles often need something current. Any Apple
 Silicon Wine build works — for example the casks published by
-[Gcenx](https://github.com/Gcenx/homebrew-wine). Once installed anywhere on the
-system:
+[Gcenx](https://github.com/Gcenx/homebrew-wine). Drop the app or its folder on
+the window; if it is already in `/Applications`, Setup will have found it and
+offers a **Use It** button instead.
 
-    decanter pin        # finds every Wine build present and copies each into Decanter's store
-
-**DXVK** translates Direct3D to Vulkan and is what most games want. Download a
-release tarball from [doitsujin/dxvk](https://github.com/doitsujin/dxvk/releases)
-and stage it:
-
-    decanter dxvk stage ~/Downloads/dxvk-1.10.3.tar.gz
+**DXVK** translates Direct3D to Vulkan, and is a second way to draw a game that
+often works when Apple's does not. Download a release tarball from
+[doitsujin/dxvk](https://github.com/doitsujin/dxvk/releases) and drop it on the
+window.
 
 > **Get 1.10.3, not the newest.** DXVK 2.x and 3.x require Vulkan 1.3 features
 > MoltenVK does not fully implement, so they fail on macOS in ways that look
@@ -266,9 +276,12 @@ the Command Line Tools already.
 
 ## Setup
 
-    decanter pin                       # take our own copy of every Wine build found
-    decanter runtime add <wine-root>   # pin a GPTK build from anywhere
-    decanter dxvk stage dxvk-1.10.3.tar.gz
+In the app, everything below happens on the **Setup** page — it is listed here
+because the CLI is a first-class surface, not because you need it.
+
+    decanter setup                     # what is present, what is missing, where it comes from
+    decanter use <file>                # a Wine folder, a .app, a GPTK .dmg, or dxvk-*.tar.gz
+    decanter pin                       # take our own copy of every Wine build already installed
     decanter template build            # golden template, with DXVK baked in
 
 ## Use
@@ -293,8 +306,8 @@ surprising share of them.
 |---|---|---|
 | Window flashes and closes, or nothing happens | Wrong runtime or graphics backend | `decanter recommend <game> --apply`, then run it again |
 | Text is missing — buttons and menus are blank but correctly sized | The game asks for a Windows-only font that macOS does not have | `decanter fonts` |
-| Game runs, but cutscenes or videos fail | D3DMetal has no `ID3D11Multithread`, so video cannot play on it | Switch the backend to **WineD3D** |
-| Black screen, or garbled 3D | Backend mismatch | Try **DXVK 1.10.3** first, then **WineD3D** |
+| Game runs, but cutscenes or videos fail | D3DMetal has no `ID3D11Multithread`, so video cannot play on it | Switch graphics to **Wine** (WineD3D) |
+| Black screen, or garbled 3D | Wrong graphics option for this game | Try **Vulkan** (DXVK 1.10.3) first, then **Wine** (WineD3D) |
 | Crash naming a plugin, or a mod loader error | A BepInEx plugin threw | Check **Mods** in the app, or `decanter mods <game>` |
 | `Failed to load il2cpp` | Usually Unity 6, which does not work on any current runtime | `decanter info <game>` will say if it is Unity 6 |
 | `Failed to open descriptor file '../../X.uproject'` | The wrong executable is being launched | Pick the launcher beside `Engine/` in the executable picker |
@@ -367,7 +380,7 @@ The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
 Swift with no external dependencies — every dependency is a future 404.
-**386 checks** run in a hand-rolled harness; see
+**420 checks** run in a hand-rolled harness; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing

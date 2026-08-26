@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.3.0 — 2026-08-26
+
+Setup used to take six Terminal commands. It now takes none — without Decanter
+downloading anything, which is the guarantee the whole project rests on.
+
+The rule was never "the user must type". It is "nothing here depends on a
+server still existing", because Whisky's installed copies broke when the
+runtime it fetched was deleted upstream. A file you already have on disk is not
+a dependency, so Decanter now accepts one however you hand it over.
+
+### Setup without Terminal
+
+- **A Setup page**, permanent in the sidebar rather than a modal you see once.
+  It lists every piece Decanter needs, whether it is present, what it is for in
+  one plain sentence, and where the missing ones come from.
+- **Drop anything on the window.** A Wine folder, a Wine `.app`, Apple's Game
+  Porting Toolkit as a `.dmg`, or a DXVK `.tar.gz`. Decanter identifies it by
+  looking inside — a Wine build is "a directory with a `bin/wine` in it",
+  whatever it has been named — mounts a disk image if it is one, takes what it
+  needs, and ejects it.
+- **A first-run wizard** with the same rows, and the sentence explaining why any
+  of this is being asked of you. Dismissable, and it does not come back.
+- **`decanter setup` and `decanter use <file>`** do the same from the CLI, from
+  the same code, so the two surfaces cannot disagree about whether this Mac is
+  ready. `decanter runtime add` now accepts a disk image too.
+- **Downloading nothing is now a rule the build enforces.** `check-rules.sh`
+  fails if any networking API appears in the sources. Links on the Setup page
+  open in your browser; Decanter itself makes no request.
+
+### Saying what things are, not how good they are
+
+- **Graphics options are Apple, Vulkan and Wine**, with `D3DMetal`, `DXVK` and
+  `WineD3D` beside them. They were Apple, Standard and Compatibility, and the
+  last two were quiet promises: "Compatibility" reads as the safe choice a
+  stuck person should move to, when WineD3D is the slow fallback and a modern
+  game may well do better on Apple's. Compatibility is not a slider with one
+  backend at the top — it is per-game, which is the entire reason Decanter
+  recommends instead of ranking.
+- **The recommendation is a badge beside the name**, never baked into it, so
+  Decanter can point at a different option per game without any name implying
+  it was second-best.
+- **Each option says when you would reach for it** — "Try if the game will not
+  start, or draws nothing" — rather than claiming a rank.
+- **"Engine" now means Unity and Unreal only.** It was also the label on the
+  Wine runtime picker, in the same window. That control is "Runs on", and names
+  the builds directly rather than inventing a category word. It was nearly
+  "Windows version", which is simply false: both provide the same Windows APIs.
+
 ## v0.2.0 — 2026-08-25
 
 First public release. The app was rebuilt around one idea: the page should read

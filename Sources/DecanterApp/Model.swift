@@ -6,6 +6,14 @@ final class AppModel: ObservableObject {
     @Published var games: [Game] = []
     @Published var bottles: [Bottle] = []
     @Published var health: Engine.Health?
+    /// What Decanter has and what it is missing, in plain language. Drives the
+    /// Setup page and the first-run wizard.
+    @Published var readiness: Readiness?
+    /// Shown once, on a Mac that cannot run anything yet. Bound rather than
+    /// derived so dismissing it sticks — a modal that returns the moment you
+    /// close it is why people quit an app before their first game.
+    @Published var showWizard = false
+    private var wizardOffered = false
     @Published var busy: String?              // non-nil while a long task runs
     @Published var lastError: String?
 
@@ -42,9 +50,13 @@ final class AppModel: ObservableObject {
 
     init() { reload() }
 
+    /// Whether the first-run wizard should appear. Deliberately *not* "is
+    /// anything missing" — Apple graphics and Vulkan graphics are optional, and
+    /// a modal that keeps reappearing because an optional piece is absent is a
+    /// nag, not a wizard.
     var setupNeeded: Bool {
-        guard let h = health else { return true }
-        return h.pinnedRuntimes.isEmpty || !h.templateBuilt
+        guard let r = readiness else { return true }
+        return !r.ready
     }
 
     func reload() {
@@ -54,6 +66,11 @@ final class AppModel: ObservableObject {
             games = e.store.state.games.sorted { $0.name < $1.name }
             bottles = e.store.state.bottles
             health = e.doctor()
+            readiness = e.readiness()
+            if !wizardOffered, setupNeeded {
+                wizardOffered = true
+                showWizard = true
+            }
             var recs: [UUID: Engine.Recommendation] = [:]
             for g in games { recs[g.id] = e.recommend(for: g) }
             recommendations = recs
@@ -109,6 +126,52 @@ final class AppModel: ObservableObject {
             return "Set up \(plural(pinned.count, "engine")) and prepared a clean Windows environment"
         }
     }
+
+    /// Takes Decanter's own copy of everything already installed on this Mac.
+    /// Separate from `runSetup` so the Setup page can offer it on its own —
+    /// someone who has just installed Wine should not have to rebuild the
+    /// template to pick it up.
+    func pinDiscovered() {
+        perform("Taking a copy of the Wine builds on this Mac…", key: "pin") { e in
+            let pinned = try e.pinAll()
+            guard !pinned.isEmpty else { return "Nothing new found" }
+            return "Added " + pinned.map { Engine.friendly($0) }.joined(separator: ", ")
+        }
+    }
+
+    func buildTemplate() {
+        perform("Building a clean Windows environment…", key: "template") { e in
+            try e.buildTemplate()
+            return "Ready — new games clone this in under a second"
+        }
+    }
+
+    /// Everything a user can hand Decanter goes through one path, so a drop
+    /// and a file-picker choice cannot behave differently.
+    func accept(path: URL) {
+        perform("Reading \(path.lastPathComponent)…", key: "accept") { e in
+            try e.accept(droppedPath: path)
+        }
+    }
+
+    func chooseSetupFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a Wine build, a Game Porting Toolkit disk image, or a DXVK archive"
+        panel.prompt = "Use This"
+        if panel.runModal() == .OK, let url = panel.url { accept(path: url) }
+    }
+
+    func installRosetta() {
+        perform("Installing Rosetta 2…", key: "rosetta") { e in
+            try e.installRosetta()
+        }
+    }
+
+    /// The user goes and gets it; Decanter never fetches anything itself.
+    func openSource(_ url: URL) { NSWorkspace.shared.open(url) }
 
     func add(path: URL) {
         perform("Inspecting \(path.lastPathComponent)…", key: "add") { e in

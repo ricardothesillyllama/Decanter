@@ -36,10 +36,15 @@ func usage() -> Never {
     decanter — run Windows games on macOS
 
     SETUP
+      decanter setup                  what Decanter has, what it needs, where to get it
+      decanter use <file>             hand over a Wine build, a GPTK disk image, or DXVK
       decanter doctor                 check the stack (Rosetta, runtimes, template)
-      decanter pin                    take Decanter's own copy of every Wine build found\n      decanter runtime add <root>     pin a Wine/GPTK build from any location\n      decanter runtime list           show pinned runtimes\n      decanter runtime set <game> <id>  move a game to another runtime
+      decanter pin                    take Decanter's own copy of every Wine build found
+      decanter runtime list           show pinned runtimes
+      decanter runtime set <game> <id>  move a game to another runtime
       decanter template build [rt]    build the golden template for a runtime
-      decanter template list          which runtimes have a template\n      decanter dxvk stage <tar.gz>    bake DXVK into future templates\n      decanter dxvk list              staged versions and what each game uses
+      decanter template list          which runtimes have a template
+      decanter dxvk list              staged versions and what each game uses
       decanter dxvk use <game> <ver>  switch a game to a specific DXVK version
       decanter dxvk prefer <ver>      which version new templates bake in
 
@@ -180,6 +185,48 @@ case "doctor":
     } else if strays.isEmpty {
         ok("no leftover Wine processes")
     }
+
+case "setup":
+    // The GUI's Setup page in text form, from the same Readiness the app uses,
+    // so the two can never disagree about whether this Mac is ready.
+    let e = engine()
+    let r = e.readiness()
+    out("Decanter setup — \(r.headline)")
+    out("")
+    for piece in r.pieces {
+        let mark = switch piece.state {
+        case .present: "\u{2713}"
+        case .foundNotPinned: "\u{2192}"
+        case .missing: piece.required ? "\u{2717}" : "\u{00b7}"
+        }
+        out("  \(mark) \(piece.title)\(piece.required ? "" : "  (optional)")")
+        out("      \(piece.why)")
+        if let d = piece.detail { out("      \(d)") }
+        if piece.state != .present, let src = piece.source {
+            out("      get it: \(src.absoluteString)")
+            out("      then:   decanter use <the file you downloaded>")
+        }
+    }
+    if !r.ready {
+        out("")
+        out("  Nothing is downloaded for you, on purpose: an installed Decanter")
+        out("  cannot be broken by something disappearing from the internet.")
+    }
+
+case "use":
+    // One command for every piece a person can be handed: a Wine folder, a
+    // Wine .app, a Game Porting Toolkit .dmg, or a DXVK tarball. Decanter
+    // works out which it is by looking inside, because the names differ
+    // between every source these come from.
+    guard let p = rest.first else {
+        die(DecanterError.notFound("usage: decanter use <wine folder | .app | .dmg | dxvk-*.tar.gz>"))
+    }
+    let e = engine()
+    do {
+        let summary = try e.accept(droppedPath: URL(filePath: (p as NSString).expandingTildeInPath),
+                                   progress: step)
+        ok(summary)
+    } catch { die(error) }
 
 case "pin":
     let e = engine()
@@ -412,13 +459,12 @@ case "dxvk":
 case "runtime":
     let e = engine()
     if rest.first == "add", rest.count > 1 {
+        // Same path as `decanter use` and as dropping the file on the app, so
+        // a disk image works here too rather than failing with "no wine binary".
         do {
-            let root = URL(filePath: (rest[1] as NSString).expandingTildeInPath)
-            let c = try e.runtimes.inspect(wineRoot: root)
-            step("found \(c.kind.rawValue) \(c.version) (32-bit: \(c.supports32Bit ? "yes" : "no"))")
-            let spec = try e.runtimes.pin(c, store: e.store)
-            ok("pinned \(spec.id) -> \(spec.root.path)")
-            out("    backends: \(spec.backends.map(\.label).joined(separator: ", "))")
+            let summary = try e.accept(droppedPath: URL(filePath: (rest[1] as NSString).expandingTildeInPath),
+                                       progress: step)
+            ok(summary)
         } catch { die(error) }
     } else if rest.first == "set", rest.count > 2 {
         let g = requireGame(rest[1]).1
