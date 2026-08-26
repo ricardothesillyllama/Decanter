@@ -119,7 +119,8 @@ public extension Engine {
             technical: pinnedGPTK.map(\.id).joined(separator: ", "),
             spec: pinnedGPTK.isEmpty
                 ? "Game Porting Toolkit 2.1+ · provides D3DMetal, on a Wine 7.7 base"
-                : "Game Porting Toolkit " + pinnedGPTK.map(\.version).joined(separator: ", ")
+                : "Game Porting Toolkit on Wine "
+                  + pinnedGPTK.map(\.version).joined(separator: ", ")
                   + " · D3DMetal available",
             why: "Makes 3D games run much faster, using Apple's own graphics software. Games still work without it — just slower.",
             state: !pinnedGPTK.isEmpty ? .present : (!foundGPTK.isEmpty ? .foundNotPinned : .missing),

@@ -79,6 +79,36 @@ func runDocsTests(_ t: Harness) {
     let orphans = shots.filter { $0.hasSuffix(".png") && !prose.contains($0) }.sorted()
     t.expect(orphans.isEmpty,
              "every screenshot is referenced by a document (unused: \(orphans.joined(separator: ", ")))")
+
+    // Moving sections between documents duplicates paragraphs, and the copies
+    // drift rather than staying identical — so exact matching misses them. Two
+    // near-identical paragraphs about Setup survived a move into
+    // docs/RUNTIMES.md, one directly under the other.
+    //
+    // One check per document, naming the worst pair: a check per paragraph
+    // *pair* is hundreds of assertions that say nothing.
+    func worstOverlap(_ doc: String) -> (Double, String) {
+        let paras = doc.components(separatedBy: "\n\n")
+            .map { Set($0.split(whereSeparator: \.isWhitespace).map(String.init)) }
+            .filter { $0.count > 18 }
+        var worst = (0.0, "")
+        for i in paras.indices {
+            for j in paras.indices where j > i {
+                let ratio = Double(paras[i].intersection(paras[j]).count)
+                    / Double(max(paras[i].count, paras[j].count))
+                if ratio > worst.0 {
+                    worst = (ratio, paras[i].sorted().prefix(6).joined(separator: " "))
+                }
+            }
+        }
+        return worst
+    }
+    for (name, doc) in [("README.md", readme), ("docs/RUNTIMES.md", read("docs/RUNTIMES.md")),
+                        ("docs/CLI.md", read("docs/CLI.md")), ("CONTRIBUTING.md", contributing)] {
+        let (ratio, sample) = worstOverlap(doc)
+        t.expect(ratio < 0.8,
+                 "\(name) has no paragraph said twice (worst overlap \(Int(ratio * 100))%: \(sample))")
+    }
 }
 
 /// Small guarantees that are cheap to state and were not being kept.

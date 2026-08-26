@@ -1086,7 +1086,7 @@ struct GameDetail: View {
     private func runtimeLabel(_ rt: RuntimeSpec) -> String {
         switch rt.kind {
         case .wine: "Wine \(rt.version) — newest"
-        case .gptk: "Game Porting Toolkit \(rt.version)"
+        case .gptk: "Game Porting Toolkit (Wine \(rt.version))"
         }
     }
 

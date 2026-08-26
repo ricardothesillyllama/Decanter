@@ -11,7 +11,7 @@ environment, and picks the graphics translation most likely to work —
 instead of leaving you to guess between five combinations and try each by hand.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=467%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=471%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -341,12 +341,18 @@ Screen Recording permission.
   whether yours could host it. Measured here: Gcenx's Wine 11.0 exports none,
   Apple's Game Porting Toolkit 7.7 exports several including a `WineMetalView`
   class — promising, but DXMT does not claim support for it.
-- Nothing is notarised; see above.
+- Nothing is notarised — see [Install](#install) for the one-time "Open Anyway".
 
 ## Status
 
-Verified working on an M2 MacBook Air, macOS 26.5.1, with Wine 11.0 and
-GPTK 3.0-3 pinned side by side.
+Tested by one person, on an M2 MacBook Air running macOS 26.5, with Wine 11.0
+and Apple's Game Porting Toolkit pinned side by side.
+
+Runtimes are pinned, every game gets its own copy-on-write environment, broken
+environments are replaced rather than repaired, and no game can see your files.
+Decanter is a CLI and a SwiftUI app over one engine, written in Swift with no
+external dependencies — every dependency is a future 404. **471 checks** run in
+a hand-rolled harness.
 
 ## Documentation
 
@@ -356,25 +362,17 @@ GPTK 3.0-3 pinned side by side.
 | **[Command reference](docs/CLI.md)** | Every `decanter` command, grouped by what you are trying to do |
 | **[Troubleshooting](docs/TROUBLESHOOTING.md)** | Choosing a graphics mode, blank text, missing Windows files, leftover processes, signing |
 | **[Design notes](docs/DESIGN.md)** | Why each decision was made, and what failed before it |
-| **[Contributing](CONTRIBUTING.md)** | The rules this codebase holds to, and how to run the tests |
-
-## How it works
-
-Runtimes are pinned, every game gets its own copy-on-write environment, broken
-environments are replaced rather than repaired, and no game can see your files.
-The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
-
-Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
-Swift with no external dependencies — every dependency is a future 404.
-**467 checks** run in a hand-rolled harness; see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+| **[Getting help](SUPPORT.md)** | Where to start when a game will not run |
 
 ## Contributing
 
-Bug reports for games that do not work are the most useful contribution, and
-they need no code — see [CONTRIBUTING.md](CONTRIBUTING.md). It also lists the
-handful of rules this codebase actually holds to, each of which exists because
-breaking it caused a real failure.
+**Bug reports for games that do not work are the most useful contribution, and
+they need no code.** Press *Report a Problem* on the game page and open an issue
+— you never have to name the game.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the rest: how to run the suite, and the
+handful of rules this codebase holds to, each of which exists because breaking
+it caused a real failure.
 
 ## License
 

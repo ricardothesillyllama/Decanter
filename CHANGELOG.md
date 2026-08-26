@@ -12,6 +12,18 @@
   constant in `Model.swift` from it.
 - Plugins with no bytes rendered as "Zero KB", which reads as a bug rather than
   as a fact about the file.
+- **Decanter no longer claims a Game Porting Toolkit version Apple never
+  shipped.** `wine --version` reports `wine-7.7 (Game Porting Toolkit 1.1)`, and
+  only the leading token is safe in a directory name — so the number Decanter
+  records is the *Wine* version inside the toolkit. It now reads "Game Porting
+  Toolkit (Wine 7.7)" rather than "Game Porting Toolkit 7.7".
+- **Documentation fixes found by reading it rather than writing it.** Moving
+  sections into `docs/` left two near-identical paragraphs about Setup one under
+  the other, a second copy of the "downloads nothing" paragraph, a "(see below)"
+  pointing at material now above it, and a Rosetta note splitting a bullet list
+  in half. `docs/RUNTIMES.md` is rewritten as one document. A test now fails on
+  any two paragraphs in a document that overlap by more than 80%, which catches
+  reworded copies that exact matching misses.
 
 ## v0.3.0 — 2026-08-26
 

@@ -193,7 +193,7 @@ public extension Engine {
     /// named to a person rather than to a log.
     static func friendly(_ spec: RuntimeSpec) -> String {
         switch spec.kind {
-        case .gptk: "Apple graphics support (Game Porting Toolkit \(spec.version))"
+        case .gptk: "Apple graphics support (Game Porting Toolkit, Wine \(spec.version))"
         case .wine: "Windows support (Wine \(spec.version))"
         }
     }
