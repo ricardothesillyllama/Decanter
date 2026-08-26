@@ -458,7 +458,8 @@ public final class Engine: @unchecked Sendable {
     /// prefix complain — `preflight` will say so, and `rederive` fixes it at
     /// the cost of the prefix contents.
     @discardableResult
-    public func setRuntime(_ game: Game, to runtimeID: String) throws -> GraphicsBackend {
+    public func setRuntime(_ game: Game, to runtimeID: String,
+                           progress: (String) -> Void = { _ in }) throws -> GraphicsBackend {
         guard let rt = store.runtime(runtimeID) else { throw DecanterError.noRuntime(runtimeID) }
         guard let bottle = store.bottle(game.bottleID) else { throw DecanterError.notFound("bottle") }
         if game.detection.bitness == .x86 && !rt.supports32Bit {
@@ -466,21 +467,37 @@ public final class Engine: @unchecked Sendable {
         }
         _ = try? saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
                                 note: "taken automatically before switching engine")
-        // A prefix built by one Wine generation is not safe under another.
-        if let old = store.runtime(bottle.runtimeID), old.kind != rt.kind {
-            guard FileManager.default.fileExists(atPath: paths.template(for: rt.id).path) else {
-                throw DecanterError.noTemplate(rt.id)
+        let backend = rt.backends.contains(bottle.backend) ? bottle.backend : (rt.backends.first ?? .wined3d)
+
+        // A prefix built by one Wine generation is not safe under another —
+        // this function said so and then did not act on it. It checked the
+        // template existed, rewrote the runtime id, and left the old prefix in
+        // place, so the new Wine met a stranger's registry and a graphics stack
+        // installed for a different engine. That surfaced as a Wine Mono
+        // Installer prompt and then "InitializeEngineGraphics failed", neither
+        // of which names the actual cause.
+        guard FileManager.default.fileExists(atPath: paths.template(for: rt.id).path) else {
+            throw DecanterError.noTemplate(rt.id)
+        }
+        progress("re-deriving the Windows environment for \(rt.id)")
+        var fresh = try prefixes.derive(bottleID: bottle.id, runtime: rt, backend: backend)
+        fresh.generation = bottle.generation + 1
+        fresh.appliedRecipes = bottle.appliedRecipes
+        fresh.dxvkVersion = bottle.dxvkVersion
+        if backend == .dxvk, let v = bottle.dxvkVersion {
+            let dx = DXVKInstaller(paths: paths)
+            if dx.installedVersion(in: fresh.prefixPath) != v {
+                _ = try? dx.install(into: fresh.prefixPath, runtime: rt, version: v, progress: progress)
             }
         }
-        let backend = rt.backends.contains(bottle.backend) ? bottle.backend : (rt.backends.first ?? .wined3d)
+        try prefixes.applyScopes(prefix: fresh.prefixPath, scopes: game.scopes)
+        _ = try? saves.relink(game: game, prefix: fresh.prefixPath)
         try store.mutate { s in
-            if let i = s.bottles.firstIndex(where: { $0.id == bottle.id }) {
-                s.bottles[i].runtimeID = rt.id
-                s.bottles[i].backend = backend
-            }
+            s.bottles.removeAll { $0.id == bottle.id }
+            s.bottles.append(fresh)
             if let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = true }
         }
-        note(bottle.id, "runtime -> \(rt.id), backend -> \(backend.label)")
+        note(fresh.id, "runtime -> \(rt.id), backend -> \(backend.label), environment rebuilt")
         return backend
     }
 

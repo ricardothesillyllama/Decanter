@@ -45,6 +45,23 @@ public struct PrefixBuilder {
                            ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version",
                             "/d", "win10", "/f"], env: env, timeout: 120)
 
+        // Wine ships wine-mono but only offers to install it when something
+        // asks for .NET — as a modal dialog, mid-launch, that blocks the game
+        // behind a prompt nobody expects. Both templates had no mono at all.
+        // Putting it in the template means no prefix ever meets that dialog.
+        let monoSrc = runtime.root.appending(path: "share/wine/mono")
+        if let builds = try? fm.contentsOfDirectory(atPath: monoSrc.path),
+           let build = builds.first(where: { $0.hasPrefix("wine-mono") }) {
+            let dst = dst.appending(path: "drive_c/windows/mono")
+            try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
+            progress("installing \(build) into the template")
+            _ = try? Shell.run(URL(filePath: "/bin/cp"),
+                               ["-Rc", monoSrc.appending(path: build).path,
+                                dst.appending(path: build).path], timeout: 300)
+        } else {
+            progress("this runtime ships no wine-mono — .NET games may prompt")
+        }
+
         progress("removing full-filesystem drive mapping")
         try descope(prefix: dst)
 

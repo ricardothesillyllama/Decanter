@@ -28,6 +28,16 @@ public struct Diagnostics {
         /// The renderer could not create a D3D11 fence. Unity 6 treats this as
         /// fatal; no launch flag or backend toggle in Decanter changes it.
         case d3d11FenceUnsupported
+        /// Wine could not activate a WinRT class. Games reach these through
+        /// native plugins, so it surfaces as a DllNotFoundException on the
+        /// plugin rather than as anything mentioning WinRT.
+        case winrtClassUnavailable(String)
+        /// A native plugin the game ships failed to load.
+        case nativePluginMissing(String)
+        /// DXVK refused to start. 2.x and 3.x require Vulkan 1.3, which
+        /// MoltenVK does not fully implement, so they fail at initialisation
+        /// rather than rendering badly.
+        case dxvkNeedsNewerVulkan
         case needsVisualCppRuntime(String)
 
         public var summary: String {
@@ -45,6 +55,12 @@ public struct Diagnostics {
                 "The engine needs \(dll), which this Wine build does not implement"
             case .d3d11FenceUnsupported:
                 "The graphics layer could not create a Direct3D 11 fence, which this engine requires"
+            case .winrtClassUnavailable(let cls):
+                "This Wine build cannot provide \(cls), a Windows Runtime component the game asks for"
+            case .nativePluginMissing(let dll):
+                "The game's own plugin \(dll) could not be loaded"
+            case .dxvkNeedsNewerVulkan:
+                "This DXVK build needs Vulkan 1.3, which macOS does not fully provide"
             case .unknown(let s):           "Unrecognised failure: \(s)"
             case .featureLevelUnsupported(let l):
                 "The game requires Direct3D feature level \(l), which this backend cannot provide"
@@ -75,6 +91,12 @@ public struct Diagnostics {
                 "A newer Wine is the likely fix — this is a gap in the Windows API sets it implements, not a graphics problem. Switching graphics mode will not help."
             case .d3d11FenceUnsupported:
                 "No graphics mode available here provides it. A translation layer that implements the D3D11 fence interfaces, such as DXMT, is the shape of the answer."
+            case .winrtClassUnavailable:
+                "A gap in this Wine build's Windows Runtime support. A newer engine may cover it; changing graphics mode will not, because this is not a graphics problem."
+            case .dxvkNeedsNewerVulkan:
+                "Use DXVK 1.10.3 — it targets Vulkan 1.1 and is the build that works on macOS. `decanter dxvk use <game> 1.10.3`."
+            case .nativePluginMissing:
+                "Usually a knock-on effect: the plugin loads, then fails because something it needs is missing. Look for a Windows Runtime or API-set error above it."
             case .unknown:               "Run with --verbose and inspect the full log."
             case .featureLevelUnsupported:
                 "Switch this game to the Game Porting Toolkit runtime with the D3DMetal backend — DXVK on MoltenVK cannot offer 11_1."
@@ -121,9 +143,19 @@ public struct Diagnostics {
             // E_NOINTERFACE from the video path: the D3D11 device is missing
             // ID3D11Multithread. This is a backend limitation, not a codec
             // problem, and no amount of installing codecs will fix it.
+            // Unity prints this and then says "Will use software video
+            // decoding" — it degrades rather than dying. Reporting it as the
+            // failure sent people to change backends over a line the engine
+            // had already handled, while the real crash sat further down.
             if l.contains("multithread protection failed")
                 || (l.contains("windowsvideomedia error") && l.contains("0x80004002")) {
-                out.append(.videoNeedsMultithreadDevice)
+                let recovered = l.contains("software video decoding")
+                    || l.contains("will use software")
+                if !recovered { out.append(.videoNeedsMultithreadDevice) }
+            }
+            if l.contains("dllnotfoundexception"),
+               let plugin = Self.firstMatch(#"DllNotFoundException:\s*([A-Za-z0-9_.\-]+)"#, in: String(line)) {
+                out.append(.nativePluginMissing(plugin))
             }
             if l.contains("initializeenginegraphics failed") { out.append(.noGraphicsDevice) }
         }
@@ -139,6 +171,22 @@ public struct Diagnostics {
 
         for line in lines {
             let l = line.lowercased()
+            // Wine could not activate a Windows Runtime class. Wine reports
+            // this; Unity never mentions WinRT, it only reports the plugin that
+            // failed as a result — so the two halves come from two logs.
+            if l.contains("rogetactivationfactory"),
+               let cls = Self.firstMatch(#"L\"([A-Za-z0-9_.]+)\""#, in: String(line)) {
+                found.append(.winrtClassUnavailable(cls))
+            }
+            // DXVK announces this itself, and it is decisive: 2.x and 3.x
+            // require Vulkan 1.3 that MoltenVK does not fully implement, so
+            // they never get an adapter. Without this the log read as
+            // "nothing obviously wrong" while the game had no graphics at all.
+            if l.contains("failed to initialize dxvk")
+                || (l.contains("no adapters found") && l.contains("dxvk"))
+                || l.contains("vulkan 1.3 capable setup is required") {
+                found.append(.dxvkNeedsNewerVulkan)
+            }
             if l.contains("err:module:") || l.contains("failed to load") {
                 // Checked before the generic DLL case: an api-ms-win-* name is
                 // a Windows API set, and calling it a missing DLL sent people

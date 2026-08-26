@@ -168,3 +168,61 @@ func runSurfacingTests(_ t: Harness) {
     t.expect(r.knownUnsupported == nil, "an unflagged game leaves the status line alone")
 
 }
+
+/// Every one of these was a real log Decanter misread while testing a Unity 6
+/// game. Three different failures, three different answers, and two of them
+/// were being reported as something else entirely.
+func runRealLogTests(_ t: Harness) {
+    t.suite("logs from a real Unity 6 launch")
+
+    func findings(_ log: String) -> [Diagnostics.Finding] {
+        let u = FileManager.default.temporaryDirectory.appending(path: "d-\(UUID().uuidString).log")
+        try? log.write(to: u, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: u) }
+        return Diagnostics().analyse(logAt: u).findings
+    }
+    func has(_ fs: [Diagnostics.Finding], _ match: (Diagnostics.Finding) -> Bool) -> Bool {
+        fs.contains(where: match)
+    }
+
+    // The two halves come from two logs, which is the point: Wine reports the
+    // WinRT failure and never mentions the plugin; Unity reports the plugin and
+    // never mentions WinRT. A diagnosis that read only one would name a symptom.
+    let wine = findings("""
+    0024:err:combase:RoGetActivationFactory Failed to find library for L"Windows.UI.ViewManagement.AccessibilitySettings"
+    """)
+    t.expect(has(wine) { if case .winrtClassUnavailable = $0 { true } else { false } },
+             "Wine's log yields the WinRT activation failure")
+
+    let player = Diagnostics().analysePlayerLog("""
+    DllNotFoundException: AppUINativePlugin assembly:<unknown assembly>
+    """)
+    t.expect(has(player) { if case .nativePluginMissing = $0 { true } else { false } },
+             "Unity's log yields the plugin that failed because of it")
+
+    // Wine 11 + DXVK 3.0.2: DXVK will not start at all.
+    let newDxvk = findings("""
+    warn:  DXVK: No adapters found. Please check your device filter settings
+    warn:  and Vulkan drivers. A Vulkan 1.3 capable setup is required.
+    err:   Failed to initialize DXVK.
+    """)
+    t.expect(has(newDxvk) { $0 == .dxvkNeedsNewerVulkan },
+             "DXVK refusing to initialise is recognised, not read as 'nothing wrong'")
+    t.expect(Diagnostics.Finding.dxvkNeedsNewerVulkan.suggestion.contains("1.10.3"),
+             "…and the remedy names the build that works")
+
+    // Unity recovering from a degraded video path is not the failure.
+    let recovered = Diagnostics().analysePlayerLog("""
+    Dedicated video D3D11 device multithread protection failed (error: 0x80004002). Will use software video decoding.
+    DllNotFoundException: SomePlugin
+    """)
+    t.expect(!has(recovered) { $0 == .videoNeedsMultithreadDevice },
+             "a condition the engine recovered from is not reported as the failure")
+    t.expect(has(recovered) { if case .nativePluginMissing = $0 { true } else { false } },
+             "the real failure below it still is")
+
+    // …but an unrecovered one still counts.
+    let fatal = Diagnostics().analysePlayerLog("WindowsVideoMedia error 0x80004002 while reading video")
+    t.expect(has(fatal) { $0 == .videoNeedsMultithreadDevice },
+             "an unrecovered video failure is still reported")
+}
