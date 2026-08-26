@@ -132,6 +132,11 @@ real failure:
   not a dependency, so Setup accepts drops, opens download pages in the user's
   browser, and mounts a disk image they hand over. Making people use Terminal
   was never what kept the guarantee.
+- **A released version is immutable.** The remote refuses to move or delete a
+  `v*` tag, so anything committed at an already-tagged version is code the
+  published release does not contain — and the DMG people download stops
+  matching the tree they are reading. Change something under `Sources/`, run
+  `./scripts/bump.sh`. `check-rules.sh` fails if you forget.
 - **Never build a command as a string.** `Shell.run` takes an argv array for a
   reason — a verb interpolated into `sh -c` was a command-injection bug.
 

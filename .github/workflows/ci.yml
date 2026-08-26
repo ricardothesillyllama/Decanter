@@ -11,7 +11,12 @@ jobs:
     # reads Mach-O symbols.
     runs-on: macos-15
     steps:
+      # Tags, and enough history to diff against them: the version rule in
+      # check-rules.sh compares Sources/ against the tag for the current
+      # version, and a shallow clone has neither.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Show toolchain
         run: swift --version

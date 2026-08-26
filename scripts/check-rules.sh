@@ -58,5 +58,22 @@ for type in "struct DecanterState" "struct Game" "struct Bottle" "struct Detecti
   grep -q "init(from decoder" "$f" || note "$type has no hand-written init(from:) in $f"
 done
 
+# 7. A released version is immutable. The remote refuses to move or delete a
+#    v* tag, so any change to Sources/ at a version that is already tagged is
+#    code the published release does not contain — and the DMG people download
+#    stops matching the tree they read.
+if [ -f Resources/Info.plist ] && command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
+  VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist 2>/dev/null || true)
+  # Only meaningful with tags present; a shallow clone has none, and a missing
+  # tag simply means this version has not shipped yet.
+  if [ -n "$VERSION" ] && git rev-parse "v$VERSION" >/dev/null 2>&1; then
+    # Against the working tree, not HEAD: the point is to catch this while the
+    # change is still in your editor, not after it is committed.
+    if ! git diff --quiet "v$VERSION" -- Sources/ 2>/dev/null; then
+      note "Sources changed since v$VERSION was tagged — run ./scripts/bump.sh"
+    fi
+  fi
+fi
+
 [ "$fail" = 0 ] && echo "  ✓ all rules hold"
 exit "$fail"

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.1 — 2026-08-26
+
+- **A released version can no longer be quietly overwritten.** Rulesets on the
+  repository refuse to move or delete `main` or any `v*` tag, so a published
+  release is fixed. `check-rules.sh` now fails if anything under `Sources/`
+  differs from the tag for the version in `Info.plist` — otherwise the DMG
+  people download stops matching the tree they are reading.
+- **`./scripts/bump.sh`** moves the version on and opens a changelog entry.
+  `Info.plist` stays the single source of truth; `install.sh` rewrites the
+  constant in `Model.swift` from it.
+- Plugins with no bytes rendered as "Zero KB", which reads as a bug rather than
+  as a fact about the file.
+
 ## v0.3.0 — 2026-08-26
 
 Setup used to take six Terminal commands. It now takes none — without Decanter
