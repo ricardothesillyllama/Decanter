@@ -11,13 +11,14 @@ environment, and picks the graphics translation most likely to work —
 instead of leaving you to guess between five combinations and try each by hand.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=420%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=466%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
 </div>
 
 ![Decanter](Resources/screenshots/game.png)
+
 
 Decanter is a maintained alternative to [Whisky](https://github.com/Whisky-App/Whisky),
 which was archived in 2025. When Whisky's bundled Wine repository was deleted,
@@ -34,6 +35,12 @@ of every runtime it uses.**
 3. Fetch those — they are free — **drop them on the window**, and press Play.
 
 No Terminal at any point.
+
+![Setup](Resources/screenshots/setup.png)
+
+Decanter tells you what it needs in words that assume nothing, and links to
+where each piece comes from. The question mark beside each row carries the
+exact project and version, for when you already know what these are.
 
 > [!NOTE]
 > macOS will refuse to open it the first time, because releases are not
@@ -96,9 +103,17 @@ uses them.
 ### Saves that survive a rebuild
 
 Protected saves live outside the game's Windows environment and are linked back
-in, so starting a game over cannot lose progress.
+in, so starting a game over cannot lose progress. Decanter also snapshots by
+itself before anything destructive.
 
 ![Saves](Resources/screenshots/saves.png)
+
+### Mod failures in plain language
+
+BepInEx is detected and wired up automatically. When a plugin fails, the app
+says which one and why, with the exact log line underneath.
+
+![Mods](Resources/screenshots/mods.png)
 
 ## How this compares
 
@@ -351,7 +366,7 @@ The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
 Swift with no external dependencies — every dependency is a future 404.
-**465 checks** run in a hand-rolled harness; see
+**466 checks** run in a hand-rolled harness; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing

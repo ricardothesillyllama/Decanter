@@ -33,6 +33,18 @@ func runDocsTests(_ t: Harness) {
     t.expect(b != nil, "CONTRIBUTING states a check count")
     t.equal(a, b, "both documents state the same number — ./scripts/sync-docs.sh keeps them in step")
 
+    // The CI badge carries the same figure in its label. It was the one place
+    // the number was not generated, and it was the one place it was wrong.
+    if let r = readme.range(of: #"label=[0-9]+%20checks"#, options: .regularExpression) {
+        // Only the digits before the '%'. Filtering every digit out of the
+        // match swallows the 20 in "%20" and turns 466 into 46620 — which the
+        // test then reported as a mismatch for the wrong reason.
+        let digits = readme[r].dropFirst("label=".count).prefix { $0.isNumber }
+        t.equal(Int(digits), a, "the CI badge states the same count as the prose")
+    } else {
+        t.expect(false, "the CI badge states a check count")
+    }
+
     // Every suite the harness accepts must be listed for contributors to run.
     var registered: Set<String> = []
     for line in main.split(separator: "\n") where line.contains("args.contains(") {

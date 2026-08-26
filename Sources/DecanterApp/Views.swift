@@ -353,9 +353,15 @@ struct ModsCard: View {
                             HStack {
                                 Text(p.fileName).font(.system(.caption, design: .monospaced))
                                 Spacer()
-                                Text(ByteCountFormatter.string(fromByteCount: Int64(p.bytes),
-                                                               countStyle: .file))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                // ByteCountFormatter renders 0 as "Zero KB",
+                                // which reads as a bug rather than as a fact
+                                // about the file. An empty plugin is a real
+                                // thing to notice, so it says so.
+                                Text(p.bytes == 0 ? "empty"
+                                     : ByteCountFormatter.string(fromByteCount: Int64(p.bytes),
+                                                                 countStyle: .file))
+                                    .font(.caption)
+                                    .foregroundStyle(p.bytes == 0 ? Palette.caution : .secondary)
                             }
                         }
                     }

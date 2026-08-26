@@ -20,4 +20,9 @@ N=$(./.build/release/selftest 2>/dev/null | grep '^TOTAL_CHECKS=' | cut -d= -f2)
 for f in README.md CONTRIBUTING.md; do
   /usr/bin/sed -i '' -E "s/\*\*[0-9]+ checks\*\*/**$N checks**/g; s/\*\*[0-9]+ checks\.\*\*/**$N checks.**/g" "$f"
 done
+
+# The CI badge carries the same number in its label, and being the one place
+# the count was not generated is exactly how it went stale.
+/usr/bin/sed -i '' -E "s/label=[0-9]+%20checks/label=$N%20checks/g" README.md
+
 echo "docs report $N checks"
