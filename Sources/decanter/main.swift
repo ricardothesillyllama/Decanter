@@ -128,6 +128,11 @@ case "doctor":
     out("Decanter doctor")
     out("  root: \(e.paths.root.path)")
     print(h.rosetta ? "  \u{2713} Rosetta 2 present" : "  \u{2717} Rosetta 2 MISSING — Wine cannot run")
+    switch h.rosettaHorizon {
+    case .fine:                 out("  \u{00b7} \(h.rosettaHorizon.note)")
+    case .lastSupportedRelease: warn(h.rosettaHorizon.note)
+    case .removed:              warn(h.rosettaHorizon.note)
+    }
     // This scan looks for Wine installed *elsewhere* on the Mac, to import.
     // Decanter stages its own runtimes, so finding none is only a problem when
     // nothing is pinned yet — warning either way made a healthy install look

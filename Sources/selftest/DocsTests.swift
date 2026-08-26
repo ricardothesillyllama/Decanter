@@ -86,3 +86,58 @@ func runHygieneTests(_ t: Harness) {
             "text without paths is unchanged")
     t.equal(Reporter.redactHome(""), "", "empty input is fine")
 }
+
+/// Two failure modes that reach the user as the same string, and one dated
+/// assumption this codebase owns rather than inherits.
+func runClassificationTests(_ t: Harness) {
+    t.suite("failure classification")
+
+    func findings(_ log: String) -> [Diagnostics.Finding] {
+        let d = FileManager.default.temporaryDirectory
+            .appending(path: "diag-\(UUID().uuidString).log")
+        try? log.write(to: d, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: d) }
+        return Diagnostics().analyse(logAt: d).findings
+    }
+
+    // The loader failure: a Windows API set Wine does not implement. Nothing
+    // about graphics changes it.
+    let loader = findings("""
+    err:module:import_dll Library api-ms-win-core-winrt-robuffer-l1-1-0.dll not found
+    Failed to load il2cpp
+    """)
+    t.expect(loader.contains(where: { if case .missingAPISet = $0 { true } else { false } }),
+             "an api-ms-win-* import is classified as a missing API set")
+    t.expect(!loader.contains(where: { if case .missingDLL = $0 { true } else { false } }),
+             "…and not as an ordinary missing DLL, which sends people to install the wrong thing")
+
+    // The renderer failure, from the same engine, reported the same way.
+    let renderer = findings("""
+    d3d11: CreateFence failed, ID3D11Fence not available
+    Failed to load il2cpp
+    """)
+    t.expect(renderer.contains(where: { $0 == .d3d11FenceUnsupported }),
+             "a failed fence creation is classified as a renderer gap")
+    t.expect(!renderer.contains(where: { if case .missingAPISet = $0 { true } else { false } }),
+             "…and is not confused with the loader failure")
+
+    // An ordinary missing DLL must still be one.
+    let plain = findings("err:module:import_dll Library MSVCP140.dll not found")
+    t.expect(plain.contains(where: { if case .missingDLL = $0 { true } else { false } }),
+             "a real missing DLL is still reported as one")
+
+    // The remedies must differ, since that is the whole point of splitting them.
+    let a = Diagnostics.Finding.missingAPISet("api-ms-win-core-winrt-robuffer-l1-1-0.dll")
+    t.expect(a.suggestion.lowercased().contains("newer wine"), "the API-set remedy points at Wine")
+    t.expect(!a.suggestion.lowercased().contains("dxmt"), "…not at a graphics layer")
+    t.expect(Diagnostics.Finding.d3d11FenceUnsupported.suggestion.contains("DXMT"),
+             "the fence remedy names the shape of the answer")
+
+    // Rosetta: an assumption this codebase owns.
+    t.equal(Engine.rosettaHorizon(majorVersion: 26), .fine(untilMajor: 27),
+            "today's macOS is fine, with the horizon named")
+    t.equal(Engine.rosettaHorizon(majorVersion: 27), .lastSupportedRelease,
+            "macOS 27 is the last release with full Rosetta 2")
+    t.equal(Engine.rosettaHorizon(majorVersion: 28), .removed,
+            "macOS 28 removes it, and Wine is an x86_64 program")
+}

@@ -20,6 +20,14 @@ public struct Diagnostics {
         case exitedWithoutWindow
         case videoNeedsMultithreadDevice
         case unrealWrongExecutable(String)
+        /// A Windows API set the Wine build does not implement. Distinct from a
+        /// renderer failure and fixed by different things — a newer Wine, or an
+        /// override — but both used to surface to the user as the same
+        /// "Failed to load il2cpp".
+        case missingAPISet(String)
+        /// The renderer could not create a D3D11 fence. Unity 6 treats this as
+        /// fatal; no launch flag or backend toggle in Decanter changes it.
+        case d3d11FenceUnsupported
         case needsVisualCppRuntime(String)
 
         public var summary: String {
@@ -33,6 +41,10 @@ public struct Diagnostics {
             case .crashed(let s):           "Process crashed (\(s))"
             case .wineserverGone:           "wineserver exited unexpectedly"
             case .noGraphicsDevice:         "Game could not create a graphics device"
+            case .missingAPISet(let dll):
+                "The engine needs \(dll), which this Wine build does not implement"
+            case .d3d11FenceUnsupported:
+                "The graphics layer could not create a Direct3D 11 fence, which this engine requires"
             case .unknown(let s):           "Unrecognised failure: \(s)"
             case .featureLevelUnsupported(let l):
                 "The game requires Direct3D feature level \(l), which this backend cannot provide"
@@ -59,6 +71,10 @@ public struct Diagnostics {
             case .crashed:               "Try backend wined3d, then the other runtime."
             case .wineserverGone:        "Re-derive the prefix (decanter rederive <game>)."
             case .noGraphicsDevice:      "Try a different graphics backend."
+            case .missingAPISet:
+                "A newer Wine is the likely fix — this is a gap in the Windows API sets it implements, not a graphics problem. Switching graphics mode will not help."
+            case .d3d11FenceUnsupported:
+                "No graphics mode available here provides it. A translation layer that implements the D3D11 fence interfaces, such as DXMT, is the shape of the answer."
             case .unknown:               "Run with --verbose and inspect the full log."
             case .featureLevelUnsupported:
                 "Switch this game to the Game Porting Toolkit runtime with the D3DMetal backend — DXVK on MoltenVK cannot offer 11_1."
@@ -124,11 +140,23 @@ public struct Diagnostics {
         for line in lines {
             let l = line.lowercased()
             if l.contains("err:module:") || l.contains("failed to load") {
-                if let dll = Self.firstMatch(#"([A-Za-z0-9_\-\.]+\.dll)"#, in: line) {
+                // Checked before the generic DLL case: an api-ms-win-* name is
+                // a Windows API set, and calling it a missing DLL sent people
+                // off to install Visual C++ runtimes that were never involved.
+                if let apiSet = Self.apiSetImport(in: line) {
+                    found.append(.missingAPISet(apiSet))
+                } else if let dll = Self.firstMatch(#"([A-Za-z0-9_\-\.]+\.dll)"#, in: line) {
                     found.append(.missingDLL(dll))
                 } else if let m = Self.firstMatch(#"L\"([^\"]+)\""#, in: line) {
                     found.append(.moduleNotFound(m))
                 }
+            }
+            // Unity 6 treats a failed fence creation as fatal. It is a renderer
+            // gap, unrelated to the API-set case above, and both used to reach
+            // the user as the same "Failed to load il2cpp".
+            if l.contains("id3d11fence") || (l.contains("fence") && l.contains("createfence"))
+                || (l.contains("fence") && l.contains("e_notimpl")) {
+                found.append(.d3d11FenceUnsupported)
             }
             if l.contains("vulkan") && (l.contains("no device") || l.contains("failed")
                                         || l.contains("not available") || l.contains("cannot")) {
@@ -170,6 +198,15 @@ public struct Diagnostics {
         var seen = Set<String>()
         r.findings = found.filter { seen.insert($0.summary).inserted }
         return r
+    }
+
+    /// api-ms-win-* names are Windows API sets, not ordinary DLLs. A game
+    /// failing on one is a Wine coverage gap; reporting it as a generic
+    /// missing DLL sent people to reinstall runtimes that were never involved.
+    static func apiSetImport(in log: String) -> String? {
+        // The capture group is required: firstMatch returns group 1, and a
+        // pattern without one silently matches nothing.
+        firstMatch(#"(api-ms-win-[A-Za-z0-9\-]+\.dll)"#, in: log)
     }
 
     static func firstMatch(_ pattern: String, in s: String) -> String? {

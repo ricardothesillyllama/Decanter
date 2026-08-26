@@ -193,7 +193,16 @@ still useful without the title.
 
 - Apple Silicon Mac, macOS 14 or later
 - **Xcode Command Line Tools** — `xcode-select --install`. Full Xcode is not needed.
-- **Rosetta 2** — `softwareupdate --install-rosetta`. Wine's 32-bit support needs it.
+- **Rosetta 2** — `softwareupdate --install-rosetta`. Everything here is an
+  x86_64 program, so this is not optional.
+
+> **Rosetta has an end date.** Apple has said macOS 27 is the last release to
+> include it in full, and macOS 28 removes it, keeping only a subset aimed at
+> older unmaintained games. Wine is unlikely to fall under that carve-out.
+> `decanter doctor` reports where your Mac sits relative to that. There is no
+> fix in this project — an arm64-native Wine is upstream work — but it is an
+> assumption Decanter rests on, so it says so plainly rather than finding out
+> later.
 - At least one Wine build, and ideally two (see below)
 
 Decanter downloads nothing and bundles nothing. It never contacts the network at
@@ -328,8 +337,14 @@ Screen Recording permission.
 
 ## Known limitations
 
-- **Unity 6 (6000.x) does not work** on any runtime or backend currently
-  available. Decanter detects it and says so rather than letting you guess.
+- **Unity 6 (6000.x) is not known to work on the runtimes Decanter manages.**
+  Two unrelated things go wrong and both used to surface as the same
+  "Failed to load il2cpp": the renderer cannot create an `ID3D11Fence`, which
+  Unity 6 treats as fatal, and the loader hits Windows API sets Wine does not
+  implement. Decanter now tells them apart and names what would plausibly
+  change each. This is a claim about the runtimes you have pinned, not about
+  every Mac — CrossOver 26 shipped DXMT 0.72 in February 2026, so the ground
+  moves.
 - **DXMT** (Direct3D 11 straight to Metal) is not wired up yet. It needs a Wine
   whose `winemac.drv` symbols are exported rather than hidden; DXMT's own
   documentation names a FOSS CrossOver Wine 24+ built from source as sufficient.
@@ -352,7 +367,7 @@ The reasoning behind each of those is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Decanter is a `decanter` CLI and a SwiftUI app over one engine, written in
 Swift with no external dependencies — every dependency is a future 404.
-**359 checks** run in a hand-rolled harness; see
+**370 checks** run in a hand-rolled harness; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing

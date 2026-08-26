@@ -22,6 +22,7 @@ if wantAll || args.contains("metal")   { runMetalHostingTests(t) }
 if wantAll || args.contains("fwd")     { runForwardCompatTests(t) }
 if wantAll || args.contains("docs")    { runDocsTests(t) }
 if wantAll || args.contains("docs")    { runHygieneTests(t) }
+if wantAll || args.contains("docs")    { runClassificationTests(t) }
 if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("exes")    { runExecutableStateTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }

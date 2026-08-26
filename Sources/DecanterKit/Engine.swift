@@ -22,8 +22,45 @@ public final class Engine: @unchecked Sendable {
 
     // MARK: Setup
 
+    /// How much longer x86_64 Wine can run on this Mac.
+    ///
+    /// Everything Decanter manages is an x86_64 program executed through
+    /// Rosetta 2. Apple has said macOS 27 is the last release with full Rosetta
+    /// and that macOS 28 removes it, keeping only a subset aimed at older
+    /// unmaintained games — a carve-out Wine is unlikely to fall under.
+    ///
+    /// This is not a Unity 6 style problem that belongs upstream. It is an
+    /// assumption in this codebase, and the recommendation that routes 32-bit
+    /// games to mainline Wine rests on it.
+    public enum RosettaHorizon: Sendable, Equatable {
+        case fine(untilMajor: Int)
+        case lastSupportedRelease
+        case removed
+        public var note: String {
+            switch self {
+            case .fine(let m):
+                "Rosetta 2 is present. Apple has said macOS \(m) is the last release to include it in full."
+            case .lastSupportedRelease:
+                "This is the last macOS release with full Rosetta 2. The next one removes it, and Wine is an x86_64 program."
+            case .removed:
+                "This macOS no longer includes full Rosetta 2, which x86_64 Wine needs."
+            }
+        }
+    }
+
+    /// macOS 27 is the last release with full Rosetta 2; 28 removes it.
+    public static let lastRosettaMajorVersion = 27
+
+    public static func rosettaHorizon(majorVersion: Int) -> RosettaHorizon {
+        if majorVersion < lastRosettaMajorVersion { return .fine(untilMajor: lastRosettaMajorVersion) }
+        if majorVersion == lastRosettaMajorVersion { return .lastSupportedRelease }
+        return .removed
+    }
+
     public struct Health: Sendable {
         public var rosetta = false
+        public var rosettaHorizon: RosettaHorizon = .fine(untilMajor: 27)
+        public var macOSMajor = 0
         public var pinnedRuntimes: [RuntimeSpec] = []
         public var discovered: [RuntimeManager.Candidate] = []
         public var templateBuilt = false
@@ -34,6 +71,8 @@ public final class Engine: @unchecked Sendable {
     public func doctor() -> Health {
         var h = Health()
         h.rosetta = FileManager.default.fileExists(atPath: "/Library/Apple/usr/share/rosetta")
+        h.macOSMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        h.rosettaHorizon = Self.rosettaHorizon(majorVersion: h.macOSMajor)
         h.pinnedRuntimes = store.state.runtimes
         h.discovered = runtimes.discover()
         h.templateBuilt = FileManager.default.fileExists(atPath: paths.template.path)

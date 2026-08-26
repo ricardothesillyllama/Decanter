@@ -163,11 +163,16 @@ public struct Detector {
                 // requires; its D3D12 path needs D3D11On12, also missing;
                 // WineD3D cannot create the device at all; and Unity's Vulkan
                 // renderer only works if the game shipped Vulkan shaders.
+                // Scoped deliberately. "Does not work on any Mac" is a claim
+                // about the world that goes stale the moment upstream moves —
+                // and it has: CrossOver 26 shipped DXMT 0.72 in February 2026.
+                // What Decanter can honestly assert is what its own runtimes do.
                 r.knownUnsupported = """
-                Unity 6 (\(v)). No graphics backend available here provides what it needs: \
-                D3DMetal has no ID3D11Fence/ID3D11Multithread and no D3D11On12 for its D3D12 \
-                path, and WineD3D cannot create a D3D11 device for it. Unity 2022 and earlier \
-                are fine.
+                Unity 6 (\(v)) is not known to work on the runtimes pinned here. \
+                It needs ID3D11Fence and ID3D11Multithread, which D3DMetal does not provide, \
+                and D3D11On12 for its D3D12 path, which is also missing; WineD3D cannot create \
+                a D3D11 device for it. A translation layer implementing those interfaces, such \
+                as DXMT, would change the answer. Unity 2022 and earlier are fine.
                 """
             }
         }
