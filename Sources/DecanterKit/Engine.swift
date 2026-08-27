@@ -580,6 +580,18 @@ public final class Engine: @unchecked Sendable {
                 _ = try? dx.install(into: fresh.prefixPath, runtime: rt, version: v, progress: progress)
             }
         }
+        // DXMT lives in the runtime, so a rebuilt prefix carries only a marker
+        // saying which layer it is running. Without this the bottle recorded
+        // DXMT while the prefix had none, and `check` reported "Wine builtin
+        // D3D (DXMT missing!)" for a game the library insisted was on DXMT —
+        // the same "says one thing, runs another" the DXVK branch above exists
+        // to prevent.
+        let dxmt = DXMTInstaller(paths: paths)
+        if backend == .dxmt, let v = dxmt.defaultVersion {
+            dxmt.mark(v, in: fresh.prefixPath)
+        } else {
+            dxmt.clearMarker(in: fresh.prefixPath)
+        }
         try prefixes.applyScopes(prefix: fresh.prefixPath, scopes: game.scopes)
         _ = try? saves.relink(game: game, prefix: fresh.prefixPath)
         try store.mutate { s in

@@ -145,6 +145,33 @@ func runDXMTTests(_ t: Harness) {
     t.expect(RuntimeManager.backends(for: .gptk, root: bundle).contains(.d3dmetal),
              "…and is always offered on the Game Porting Toolkit")
 
+    // MARK: One order, everywhere
+    //
+    // Lists used to come out in whatever order the building code appended in,
+    // so the same options read "D3DMetal, DXVK, WineD3D" on one row and
+    // "WineD3D, DXMT" on the next — best option below worst. A menu whose order
+    // moves between rows is a menu people misread.
+    t.suite("backends are listed in one order wherever they appear")
+    let everything = fixtureRoot("winemac.so", machO(filetype: 6, trailing: metalAPI))
+    try? fm.createDirectory(at: everything.appending(path: "lib"), withIntermediateDirectories: true)
+    fm.createFile(atPath: everything.appending(path: "lib/libMoltenVK.dylib").path, contents: Data())
+    defer { try? fm.removeItem(at: everything) }
+    t.equal(RuntimeManager.backends(for: .gptk, root: everything),
+            [.d3dmetal, .dxmt, .dxvk, .wined3d],
+            "every backend at once comes out best-first")
+    t.equal(RuntimeManager.backends(for: .wine, root: everything),
+            [.dxmt, .dxvk, .wined3d],
+            "…and dropping one does not reshuffle the rest")
+    for (kind, root) in [(RuntimeKind.gptk, everything), (.wine, everything),
+                         (.wine, withVulkan), (.wine, noVulkan), (.gptk, bundle)] {
+        let got = RuntimeManager.backends(for: kind, root: root)
+        t.equal(got, got.inPreferenceOrder, "\(kind.rawValue) list is already in preference order")
+        t.equal(got.last, .wined3d, "…and ends on the fallback, never above it")
+    }
+    // Ranks must be distinct, or "sorted" is not an order.
+    t.equal(Set(GraphicsBackend.allCases.map(\.rank)).count, GraphicsBackend.allCases.count,
+            "no two backends share a rank")
+
     // MARK: Unity 6's verdict says what was measured
     //
     // DXMT is the only backend that runs Unity 6, and it was watched doing it:

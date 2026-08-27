@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.2 — 2026-08-28
+
+- **Backends are listed in one order everywhere.** Each list was built by
+  appending in whatever order the surrounding code happened to use, so the same
+  options read "D3DMetal, DXVK, WineD3D" beside one runtime and "WineD3D, DXMT"
+  beside the next — the best option printed below the worst. There is now a
+  single ranking, best first: the two that reach Metal directly, then Vulkan
+  through MoltenVK, then Wine's own translation, which is slow and always there.
+  Lists are sorted rather than carefully appended, so adding a backend later
+  cannot bring the inconsistency back.
+- **Moving a game to another runtime no longer loses DXMT.** DXMT lives in the
+  runtime and leaves only a marker in the prefix; `runtime set` rebuilt the
+  prefix, kept the recorded backend, and never wrote the marker. The bottle then
+  said DXMT while `check` said "Wine builtin D3D (DXMT missing!)" — the same
+  says-one-thing-runs-another the DXVK path already guarded against.
+
 ## v0.5.1 — 2026-08-28
 
 Everything here was found by using 0.5.0 rather than by reading it.

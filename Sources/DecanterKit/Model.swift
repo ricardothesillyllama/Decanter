@@ -21,6 +21,31 @@ public enum GraphicsBackend: String, Codable, Sendable, CaseIterable {
         case .dxmt: "DXMT"
         }
     }
+
+    /// One order for every list of backends, anywhere.
+    ///
+    /// Lists used to come out in whatever order the code that built them
+    /// happened to append in, so the same three options read "D3DMetal, DXVK,
+    /// WineD3D" beside one runtime and "DXVK, WineD3D" beside another, with
+    /// DXMT tacked on after WineD3D — the best option listed below the worst.
+    /// A menu whose order changes between rows is a menu people misread.
+    ///
+    /// Best first, and the ranking is the recommendation: the two that reach
+    /// Metal directly, then Vulkan through MoltenVK, then Wine's own
+    /// translation to OpenGL, which is slow and always available.
+    public var rank: Int {
+        switch self {
+        case .d3dmetal: 0
+        case .dxmt:     1
+        case .dxvk:     2
+        case .wined3d:  3
+        }
+    }
+}
+
+public extension Array where Element == GraphicsBackend {
+    /// Same order wherever backends are shown or stored.
+    var inPreferenceOrder: [GraphicsBackend] { sorted { $0.rank < $1.rank } }
 }
 
 /// A pinned, archived Wine build. Decanter keeps its own copy under
@@ -392,7 +417,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.5.1"
-    public static let commit = "1cffcb2"
+    public static let version = "0.5.2"
+    public static let commit = "fa34260"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

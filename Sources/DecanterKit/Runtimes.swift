@@ -329,9 +329,11 @@ public struct RuntimeManager {
 
     public static func backends(for kind: RuntimeKind, root: URL) -> [GraphicsBackend] {
         var out: [GraphicsBackend] = kind == .gptk ? [.d3dmetal, .wined3d] : [.wined3d]
-        if hasVulkan(root: root) { out.insert(.dxvk, at: out.count - 1) }
+        if hasVulkan(root: root) { out.append(.dxvk) }
         if metalHosting(root: root).looksCapable { out.append(.dxmt) }
-        return out
+        // Sorted rather than appended in a careful order, so adding a backend
+        // later cannot reintroduce the inconsistency this fixes.
+        return out.inPreferenceOrder
     }
 
     /// Picks the best pinned runtime for a detection result, honouring the
