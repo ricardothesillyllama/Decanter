@@ -253,14 +253,10 @@ final class AppModel: ObservableObject {
 
     func setBackend(_ game: Game, _ backend: GraphicsBackend) {
         perform("Switching \(game.name) to \(Help.plainName(backend)) graphics…", key: "backend") { e in
-            try e.store.mutate { s in
-                if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) {
-                    s.bottles[i].backend = backend
-                }
-                if let i = s.games.firstIndex(where: { $0.id == game.id }) {
-                    s.games[i].runtimeLocked = true
-                }
-            }
+            // Through the engine, not by setting the field: DXVK and DXMT are
+            // real DLLs in the prefix and swapping between them needs an
+            // install, not a relabel.
+            _ = try e.setBackend(game, backend)
             return "Graphics is now \(Help.plainName(backend))"
         }
     }

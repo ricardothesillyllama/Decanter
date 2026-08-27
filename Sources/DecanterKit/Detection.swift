@@ -167,12 +167,28 @@ public struct Detector {
                 // about the world that goes stale the moment upstream moves —
                 // and it has: CrossOver 26 shipped DXMT 0.72 in February 2026.
                 // What Decanter can honestly assert is what its own runtimes do.
+                // Measured on an M2, macOS 26, against a real Unity 6.2 build:
+                //  - DXVK 1.10.3 on MoltenVK fails D3D11 device creation at
+                //    every feature level, down to 10_0.
+                //  - D3DMetal lacks ID3D11Fence and ID3D11Multithread, and
+                //    D3D11On12 for the D3D12 path.
+                //  - DXMT 0.80 on mainline Wine 11 *does* create a device, at
+                //    feature level 11_1 — the only backend here that gets
+                //    that far — and then Unity dies in GpuFence::Create with
+                //    "Failed to create ID3D11Fence, error 0x80004005".
+                //
+                // So DXMT changes the answer without yet fixing it, and this
+                // stays a blocker rather than naming an escape hatch. Graphics
+                // jobs are what need the fence, so `-force-gfx-direct` is worth
+                // trying; that is a suggestion, not a claim, until it is seen
+                // to work.
                 r.knownUnsupported = """
-                Unity 6 (\(v)) is not known to work on the runtimes pinned here. \
-                It needs ID3D11Fence and ID3D11Multithread, which D3DMetal does not provide, \
-                and D3D11On12 for its D3D12 path, which is also missing; WineD3D cannot create \
-                a D3D11 device for it. A translation layer implementing those interfaces, such \
-                as DXMT, would change the answer. Unity 2022 and earlier are fine.
+                Unity 6 (\(v)) does not run on any graphics layer set up here. Apple graphics \
+                is missing ID3D11Fence and ID3D11Multithread, and D3D11On12 for its D3D12 path; \
+                Wine graphics cannot create a D3D11 device for it; and Vulkan graphics fails \
+                device creation at every feature level down to 10_0. Metal graphics (DXMT) gets \
+                furthest — a real device at feature level 11_1 — but Unity then fails to create \
+                an ID3D11Fence and stops. Unity 2022 and earlier are fine.
                 """
             }
         }
@@ -214,16 +230,27 @@ public struct Detector {
             r.recommendedBackend = .dxvk
         }
         // D3D12 alone is not evidence a game *uses* D3D12: Unity and Unreal
-        // both link it optionally and then render D3D11. Only prefer
-        // GPTK/D3DMetal when D3D12 is present AND the engine isn't one of the
-        // known optional-linkers.
+        // link it optionally and then render D3D11. Measured across the Unity
+        // builds available here, every 6000.x build imports d3d12.dll and no
+        // 2018/2019 build does — so the import dates the engine, it does not
+        // describe the renderer.
+        //
+        // The Agility SDK folder does describe the renderer: Unity only ships
+        // D3D12/D3D12Core.dll beside the executable when D3D12 is in the
+        // build's graphics API list. That is the evidence used here, and the
+        // import is kept only as a weaker fallback for engines that do not
+        // ship the SDK at all.
+        if fm.fileExists(atPath: dir.appending(path: "D3D12/D3D12Core.dll").path) {
+            r.shipsD3D12Runtime = true
+            r.signals.append(.init("DirectX 12 Agility SDK shipped beside the game -> D3D12 is really in the renderer list",
+                                   path: "D3D12/D3D12Core.dll", weight: 0.2))
+        }
         let optionalLinker = (r.engine == .unityIL2CPP || r.engine == .unityMono)
-        if r.graphicsAPIs.contains("d3d12.dll") {
+        if r.graphicsAPIs.contains("d3d12.dll") && (r.shipsD3D12Runtime || !optionalLinker) {
             r.recommendedRuntimeKind = .gptk
             r.recommendedBackend = .d3dmetal
-            r.signals.append(.init("D3D12 referenced -> only D3DMetal can translate it here", weight: 0.1))
+            r.signals.append(.init("D3D12 in the renderer list -> only D3DMetal can translate it here", weight: 0.1))
         }
-        _ = optionalLinker
         // Hard evidence beats inference: a warm cache means DXVK really ran.
         if r.hasWarmDXVKCache {
             // Noted, but not decisive: that cache usually comes from an older

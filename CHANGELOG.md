@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.4.0 — 2026-08-27
+
+### DXMT, and a much more honest answer about Unity 6
+
+- **Decanter can now use DXMT**, a fourth graphics layer that translates
+  Direct3D 11 straight to Metal. Hand it a DXMT build the way you hand it
+  DXVK — `decanter dxmt stage <archive>`, or drop it on the window.
+- **Which Wine builds can host it is measured, not assumed.** DXMT's Metal
+  bridge hard-links `@rpath/winemac.so` as a dylib. Mainline Wine 11 ships one;
+  the Game Porting Toolkit ships a Mach-O *bundle*, which macOS refuses to link
+  against at all. Decanter reads the file's type and only offers DXMT where it
+  can actually load — with the reason attached when it cannot.
+- **DXMT gets its own copy of the runtime.** It has to be installed as a Wine
+  builtin, which is global to a runtime, and `=b` is what WineD3D games use too
+  — so baking it into a shared runtime would silently switch them onto it. The
+  copy is an APFS clone: near-zero bytes, about a second.
+- **Unity 6 now says what actually happens.** Measured on an M2 against a real
+  6000.2 build: DXVK on MoltenVK fails device creation at *every* feature level
+  down to 10_0; WineD3D cannot create a device; D3DMetal has no ID3D11Fence,
+  no ID3D11Multithread and no D3D11On12. DXMT gets a real device at feature
+  level 11_1 — the only layer here that does — and Unity then fails
+  `GpuFence::Create` because DXMT has no ID3D11Fence either. **Unity 6 still
+  does not run.** It is closer, and Decanter can now tell you exactly how far
+  it gets and where it stops.
+- **D3D12 is inferred from what shipped, not from what linked.** Every Unity 6
+  build imports `d3d12.dll` whether or not it ever creates a D3D12 device, so
+  the import dates the engine rather than describing the renderer. Unity only
+  ships the DirectX 12 Agility SDK beside the game when D3D12 is really in the
+  renderer list, and that is what Decanter reads now.
+
+### The knowledge base keys on a situation, not a game
+
+- **What gets remembered is circumstances and outcomes**: engine and generation,
+  bitness, video, D3D12, chip family, macOS major — plus what was tried and what
+  happened. "Unity 6 on an M2 under Wine 11 with DXMT 0.80 fails to create an
+  ID3D11Fence" is complete and useful; the title of the game adds nothing you
+  can act on, so no title is recorded anywhere.
+- **That guarantee is now mechanical.** Every field of a situation is an enum, a
+  bool or a bounded integer, and `check-rules.sh` fails the build if a
+  free-form one appears — a field rich enough to distinguish a game *is* a name,
+  and one anybody with a copy could recompute.
+- **Answers say how closely they matched.** Adding machine detail makes exact
+  matches rare, so observations are stored at full specificity and *queried*
+  from most specific to least: this Mac, this chip, any Mac, games of this
+  shape, this engine generation, this engine. The level that answered is
+  reported, because a suggestion drawn from "this engine, any Mac" is a weaker
+  claim than one from an identical machine.
+- **Failures are knowledge too.** Decanter now records what did not work and why,
+  and a specific failure outranks a general success — which is what stops Unity 6
+  falling through to "Unity games work on D3DMetal", true in general and measured
+  to be false for Unity 6.
+- **`decanter knowledge export`** writes the observations out to hand over.
+  There is no option to include a game name, because there is no field for one.
+- **`decanter knowledge explain <game>`** shows the ladder for one game: what
+  matched at each level, what is recommended, and what is known to fail.
+- Knowledge written by earlier versions is carried across rather than discarded,
+  with the machine left unknown rather than invented.
+
+### Fixes
+
+- A runtime pinned before a backend existed kept claiming it could not do
+  something it could; capability is now re-read from the files on disk.
+- DXVK and DXMT both replace `d3d11.dll`, so a prefix could report the wrong
+  one. They are now told apart.
+- The CLI documentation check only looked for top-level verbs, so every
+  subcommand had to be excused by hand and two were passing by coincidence. It
+  now verifies words inside documented commands; the exclusion list went from
+  eighteen entries to five.
+
 ## v0.3.1 — 2026-08-26
 
 - **A released version can no longer be quietly overwritten.** Rulesets on the

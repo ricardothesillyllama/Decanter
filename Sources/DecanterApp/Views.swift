@@ -636,7 +636,7 @@ struct GameDetail: View {
                 header
 
                 // Problems surface themselves. Everything else waits to be asked.
-                if let blocker = game.detection.knownUnsupported {
+                if let blocker = game.detection.blocker(onBackend: model.bottle(for: game)?.backend) {
                     UnsupportedCard(text: blocker)
                 }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
@@ -703,13 +703,14 @@ struct GameDetail: View {
 
             // One sentence saying where this game stands, before any control.
             HStack(spacing: 7) {
+                let blocked = game.detection.blocker(onBackend: model.bottle(for: game)?.backend) != nil
                 StatusDot(color: isRunning ? Palette.running
-                            : game.detection.knownUnsupported != nil ? Palette.caution
+                            : blocked ? Palette.caution
                             : problem ? Palette.danger
                             : onRec ? Palette.running : Palette.caution,
                           pulsing: isRunning)
                 Text(Help.status(running: isRunning, onRecommended: onRec, hasProblem: problem,
-                                 knownUnsupported: game.detection.knownUnsupported != nil))
+                                 knownUnsupported: blocked))
                     .font(.title3)
                 if let d = game.lastPlayed, !isRunning {
                     Text("· last played \(d.formatted(date: .abbreviated, time: .omitted))")

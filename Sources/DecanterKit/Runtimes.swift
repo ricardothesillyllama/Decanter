@@ -36,35 +36,138 @@ public struct RuntimeManager {
         public var driverPath: URL?
         public var exportedSymbols: [String] = []
         /// The view accessors DXMT needs to hand Metal a surface to draw into.
-        public var hasCocoaViewAccess: Bool {
-            exportedSymbols.contains { $0.contains("macdrv_get_cocoa_view") }
-                || exportedSymbols.contains { $0.contains("macdrv_get_client_cocoa_view") }
+        public var hasCocoaViewAccess = false
+        public var hasMetalView = false
+
+        /// Whether the Mac driver is a Mach-O *dylib* rather than a *bundle*.
+        ///
+        /// This is the condition that actually decides it, and it was found by
+        /// trying: DXMT's `winemetal.so` carries a hard `LC_LOAD_DYLIB` on
+        /// `@rpath/winemac.so`, and dyld refuses with "cannot link against
+        /// bundle" when handed one. The Game Porting Toolkit builds its driver
+        /// as MH_BUNDLE; CrossOver-derived builds ship an MH_DYLIB named
+        /// `winemac.so`. No amount of renaming bridges that — the file type is
+        /// part of the binary.
+        public var driverIsLinkable = false
+
+        /// Linkability is the whole test.
+        ///
+        /// The symbol flags above are recorded, but deliberately *not* part of
+        /// this: they were a reverse-engineered guess and measurement showed
+        /// them to be backwards. DXMT's `winemetal.so` has no undefined
+        /// `macdrv_*` symbols at all — it resolves what it needs through the
+        /// Objective-C runtime — so all it requires is that the driver be a
+        /// dylib it can link against.
+        ///
+        /// Checked against both runtimes here, and the static test agrees with
+        /// a real `dlopen` on each: mainline Wine 11 ships `winemac.so` as a
+        /// dylib and loads, exporting none of those symbols; the Game Porting
+        /// Toolkit exports all of them and does not load, because its driver is
+        /// a bundle.
+        public var looksCapable: Bool { driverIsLinkable }
+
+        /// Why this build cannot host DXMT, in the terms the person asking
+        /// would use. `nil` when it can.
+        public var unavailableReason: String? {
+            if looksCapable { return nil }
+            if driverPath == nil {
+                return """
+                This Wine build has no Unix-side Mac driver, so there is nothing for DXMT \
+                to draw through. Mainline Wine builds its Mac driver as PE only.
+                """
+            }
+            return """
+            This Wine build's Mac driver is a Mach-O bundle, and DXMT's Metal bridge links \
+            against it as a dylib — macOS refuses that outright, with "cannot link against \
+            bundle". A build that ships the driver as a dylib is needed instead.
+            """
         }
-        public var hasMetalView: Bool {
-            exportedSymbols.contains { $0.contains("WineMetalView") }
-        }
-        public var looksCapable: Bool { hasCocoaViewAccess && hasMetalView }
     }
 
     public func metalHosting(of runtime: RuntimeSpec) -> MetalHosting {
+        Self.metalHosting(root: runtime.root)
+    }
+
+    /// Same test against a build that has not been pinned yet, so `pin` can
+    /// record what it is taking on, and `use` can say so before copying 2 GB.
+    /// Static because it reads a file and nothing else.
+    public static func metalHosting(root: URL) -> MetalHosting {
         var out = MetalHosting()
         let fm = FileManager.default
         for name in ["winemac.drv.so", "winemac.so"] {
-            let u = runtime.root.appending(path: "lib/wine/x86_64-unix/\(name)")
+            let u = root.appending(path: "lib/wine/x86_64-unix/\(name)")
             if fm.fileExists(atPath: u.path) { out.driverPath = u; break }
         }
-        guard let driver = out.driverPath else { return out }
-        // `nm -gU` lists external, defined symbols — exactly "what can another
-        // library link against".
-        guard let r = try? Shell.run(URL(filePath: "/usr/bin/nm"),
-                                     ["-gU", driver.path], timeout: 60) else { return out }
-        out.exportedSymbols = r.out.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: " ")
-            guard let last = parts.last else { return nil }
-            let name = String(last)
-            return name.contains("macdrv") || name.contains("WineMetalView") ? name : nil
+        guard let driver = out.driverPath,
+              let data = try? Data(contentsOf: driver, options: .mappedIfSafe) else { return out }
+
+        // The verdict comes from a byte scan of the symbol table, not from
+        // `nm`: the developer tools are not installed on every Mac, and a
+        // capability gate that answers "no" because a command is missing is
+        // worse than no gate at all. Mach-O keeps symbol names in the string
+        // table as plain ASCII, so the two agree — checked against both
+        // runtimes Decanter pins.
+        out.hasCocoaViewAccess = Self.contains(data, "_macdrv_get_client_cocoa_view")
+                              || Self.contains(data, "_macdrv_get_cocoa_view")
+        out.hasMetalView = Self.contains(data, "WineMetalView")
+        out.driverIsLinkable = Self.machOFileType(data) == Self.MH_DYLIB
+
+        // `nm -gU` lists external, defined symbols. Kept purely as detail for
+        // `doctor` output, and absent without the developer tools — which is
+        // exactly why the verdict above does not depend on it.
+        if let r = try? Shell.run(URL(filePath: "/usr/bin/nm"), ["-gU", driver.path], timeout: 60) {
+            out.exportedSymbols = r.out.split(separator: "\n").compactMap { line in
+                guard let last = line.split(separator: " ").last else { return nil }
+                let name = String(last)
+                return name.contains("macdrv") || name.contains("WineMetalView") ? name : nil
+            }
         }
         return out
+    }
+
+    static let MH_DYLIB: UInt32 = 6
+    static let MH_BUNDLE: UInt32 = 8
+
+    /// The Mach-O `filetype` field, or nil if this is not a thin Mach-O.
+    ///
+    /// Only thin images are read: Wine's Unix libraries are single-architecture
+    /// by construction, and guessing which slice of a fat file matters would be
+    /// inventing an answer.
+    static func machOFileType(_ data: Data) -> UInt32? {
+        guard data.count >= 16 else { return nil }
+        func u32(_ off: Int) -> UInt32 {
+            data.withUnsafeBytes { raw in
+                var v: UInt32 = 0
+                withUnsafeMutableBytes(of: &v) { $0.copyBytes(from: UnsafeRawBufferPointer(rebasing: raw[off..<off+4])) }
+                return v
+            }
+        }
+        let magic = u32(0)
+        // 64- and 32-bit, little-endian only: every Mac Decanter runs on is LE.
+        guard magic == 0xFEED_FACF || magic == 0xFEED_FACE else { return nil }
+        return u32(12)
+    }
+
+    /// Whole-file byte search. Explicit rather than `Data.range(of:)` so it is
+    /// obvious the entire file is scanned — a partial scan is how this project
+    /// has been wrong before.
+    static func contains(_ haystack: Data, _ needle: String) -> Bool {
+        let n = Array(needle.utf8)
+        guard !n.isEmpty, haystack.count >= n.count else { return false }
+        return haystack.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+            let last = raw.count - n.count
+            var i = 0
+            while i <= last {
+                if base[i] == n[0] {
+                    var k = 1
+                    while k < n.count, base[i + k] == n[k] { k += 1 }
+                    if k == n.count { return true }
+                }
+                i += 1
+            }
+            return false
+        }
     }
 
     public func discover() -> [Candidate] {
@@ -145,13 +248,24 @@ public struct RuntimeManager {
                                winePath: dest.appending(path: rel),
                                wineserverPath: dest.appending(path: "bin/wineserver"),
                                supports32Bit: c.supports32Bit,
-                               backends: c.kind == .gptk ? [.d3dmetal, .dxvk, .wined3d]
-                                                         : [.dxvk, .wined3d])
+                               backends: Self.backends(for: c.kind, root: dest))
         try store.mutate { s in
             s.runtimes.removeAll { $0.id == id }
             s.runtimes.append(spec)
         }
         return spec
+    }
+
+    /// What this build can actually offer, decided by inspecting it.
+    ///
+    /// D3DMetal ships inside the Game Porting Toolkit, so that one is a
+    /// property of the kind. DXMT is not: it needs a Mac driver that exposes a
+    /// Cocoa view to Unix libraries, which some builds have and some do not,
+    /// so it is tested for rather than inferred from a version number.
+    public static func backends(for kind: RuntimeKind, root: URL) -> [GraphicsBackend] {
+        var out: [GraphicsBackend] = kind == .gptk ? [.d3dmetal, .dxvk, .wined3d] : [.dxvk, .wined3d]
+        if metalHosting(root: root).looksCapable { out.append(.dxmt) }
+        return out
     }
 
     /// Picks the best pinned runtime for a detection result, honouring the

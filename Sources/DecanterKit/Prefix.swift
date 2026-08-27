@@ -232,6 +232,22 @@ public struct PrefixBuilder {
                     "WINEDLLOVERRIDES": "d3d9,d3d10core,d3d11,d3d12,d3d12core,dxgi=b"]
         case .wined3d:
             return ["WINEDLLOVERRIDES": "d3d11,d3d10core,dxgi,d3d9=b"]
+        case .dxmt:
+            // DXMT ships Wine *builtin* DLLs, so they are selected with `=b`
+            // and found on WINEDLLPATH — not copied into the prefix as native
+            // ones. `=b` also matters for a second reason, the same one
+            // D3DMetal has: a prefix that already contains DXVK's native DLLs
+            // would otherwise quietly run DXVK instead.
+            //
+            // WINEDLLPATH is *replaced* by what is returned here, so the
+            // runtime's own directory is carried along rather than dropped.
+            // Builtin, not native: DXMT's DLLs *are* this runtime's builtins,
+            // and only a builtin gets its unixlib — DXMT's Metal bridge —
+            // bound to it. `=b` also stops a prefix that still has DXVK's
+            // native DLLs in system32 from quietly running DXVK instead, the
+            // same trap D3DMetal has.
+            return ["DXMT_LOG_LEVEL": "none",
+                    "WINEDLLOVERRIDES": "d3d10core,d3d11,dxgi,winemetal=b"]
         }
     }
 }

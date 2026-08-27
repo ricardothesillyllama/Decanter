@@ -22,6 +22,7 @@ public struct Acquisition {
         case wineRoot(URL)
         case diskImage(URL)
         case dxvkArchive(URL)
+        case dxmtArchive(URL)
         case unrecognised(String)
 
         public var summary: String {
@@ -29,6 +30,7 @@ public struct Acquisition {
             case .wineRoot(let u): "a Wine build at \(u.lastPathComponent)"
             case .diskImage(let u): "the disk image \(u.lastPathComponent)"
             case .dxvkArchive(let u): "the DXVK archive \(u.lastPathComponent)"
+            case .dxmtArchive(let u): "the DXMT archive \(u.lastPathComponent)"
             case .unrecognised(let why): why
             }
         }
@@ -82,12 +84,22 @@ public struct Acquisition {
         return n.contains("dxvk") && (n.hasSuffix(".tar.gz") || n.hasSuffix(".tgz"))
     }
 
+    /// DXMT ships its releases under more suffixes than DXVK does, so the set
+    /// is named once rather than repeated at each test.
+    static let archiveSuffixes = [".tar.gz", ".tgz", ".tar.zst", ".zip"]
+
+    public func looksLikeDXMT(_ u: URL) -> Bool {
+        let n = u.lastPathComponent.lowercased()
+        return n.contains("dxmt") && Self.archiveSuffixes.contains { n.hasSuffix($0) }
+    }
+
     public func classify(_ url: URL) -> Piece {
         let n = url.lastPathComponent.lowercased()
         if n.hasSuffix(".dmg") { return .diskImage(canonical(url)) }
         if looksLikeDXVK(url) { return .dxvkArchive(canonical(url)) }
-        if n.hasSuffix(".tar.gz") || n.hasSuffix(".tgz") {
-            return .unrecognised("\(url.lastPathComponent) is an archive, but not a DXVK one — DXVK releases are named dxvk-<version>.tar.gz")
+        if looksLikeDXMT(url) { return .dxmtArchive(canonical(url)) }
+        if Self.archiveSuffixes.contains(where: { n.hasSuffix($0) }) {
+            return .unrecognised("\(url.lastPathComponent) is an archive, but not one Decanter recognises — DXVK releases are named dxvk-<version>.tar.gz, DXMT releases dxmt-<version>.tar.gz")
         }
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
@@ -183,6 +195,20 @@ public extension Engine {
         case .dxvkArchive(let tarball):
             let v = try DXVKInstaller(paths: paths).stage(tarball: tarball, progress: progress)
             return "Added Vulkan graphics (DXVK \(v))"
+
+        case .dxmtArchive(let archive):
+            let v = try DXMTInstaller(paths: paths).stage(archive: archive, progress: progress)
+            // Staging is not the same as being able to use it, and saying so
+            // here saves someone switching a game over and hitting a wall.
+            let hosts = store.state.runtimes.filter {
+                RuntimeManager.metalHosting(root: $0.root).looksCapable
+            }
+            if hosts.isEmpty {
+                return "Added Metal graphics (DXMT \(v)) — but no runtime here can host it yet. "
+                     + "It needs a Wine whose Mac driver exposes a Cocoa view; the Game Porting Toolkit's Wine does."
+            }
+            return "Added Metal graphics (DXMT \(v)) — usable on "
+                 + hosts.map(\.id).joined(separator: ", ")
 
         case .unrecognised(let why):
             throw DecanterError.notFound(why)

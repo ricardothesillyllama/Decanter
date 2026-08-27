@@ -18,6 +18,30 @@ public final class Engine: @unchecked Sendable {
         self.runtimes = RuntimeManager(paths: paths)
         self.prefixes = PrefixBuilder(paths: paths)
         self.launcher = Launcher(paths: paths)
+        refreshRuntimeCapabilities()
+    }
+
+    /// Re-derives what each pinned runtime can offer, from the files on disk.
+    ///
+    /// `backends` is recorded at pin time, so a runtime pinned before a backend
+    /// existed keeps claiming it cannot do something it can. That is not a
+    /// hypothetical: every runtime pinned before DXMT support was added said
+    /// "DXMT is not provided by this runtime" while sitting on a Wine that
+    /// hosts it perfectly well. Capability is a property of the bytes, so it is
+    /// re-read rather than trusted.
+    func refreshRuntimeCapabilities() {
+        // Only capabilities are re-derived here. Dropping specs whose files are
+        // missing was tried and is wrong: a runtime on an unmounted external
+        // drive is absent, not gone, and deleting the user's registration for
+        // it because a volume was not plugged in is unrecoverable. Callers that
+        // need a runtime to actually exist check for themselves.
+        let fresh = store.state.runtimes.map { rt -> RuntimeSpec in
+            var r = rt
+            r.backends = RuntimeManager.backends(for: rt.kind, root: rt.root)
+            return r
+        }
+        guard fresh.map(\.backends) != store.state.runtimes.map(\.backends) else { return }
+        try? store.mutate { $0.runtimes = fresh }
     }
 
     // MARK: Setup
@@ -243,6 +267,15 @@ public final class Engine: @unchecked Sendable {
         if bottle.backend == .dxvk && !DXVKInstaller(paths: paths).isInstalled(in: bottle.prefixPath) {
             rep.problems.append("backend is DXVK but this prefix has Wine's builtin D3D")
         }
+        if bottle.backend == .dxmt {
+            if !DXMTInstaller(paths: paths).isInstalled(in: bottle.prefixPath) {
+                rep.problems.append("backend is DXMT but this prefix is not marked for it")
+            }
+            if !FileManager.default.fileExists(
+                atPath: rt.root.appending(path: "lib/wine/x86_64-unix/winemetal.so").path) {
+                rep.problems.append("\(rt.id) does not carry DXMT's Metal bridge")
+            }
+        }
         rep.dxvkPresent = DXVKInstaller(paths: paths).isInstalled(in: bottle.prefixPath)
         rep.effectiveD3D = switch bottle.backend {
             case .dxvk:
@@ -251,6 +284,10 @@ public final class Engine: @unchecked Sendable {
                     : "Wine builtin D3D (DXVK missing!)"
             case .d3dmetal: "Apple D3DMetal (builtin, via \(rt.id))"
             case .wined3d:  "Wine builtin D3D on OpenGL"
+            case .dxmt:
+                DXMTInstaller(paths: paths).isInstalled(in: bottle.prefixPath)
+                    ? "DXMT \(DXMTInstaller(paths: paths).installedVersion(in: bottle.prefixPath) ?? "(version unknown)") (builtin, via \(rt.id))"
+                    : "Wine builtin D3D (DXMT missing!)"
         }
 
         let plan = try launcher.plan(game: game, bottle: bottle, runtime: rt)
@@ -501,6 +538,45 @@ public final class Engine: @unchecked Sendable {
         return backend
     }
 
+    /// Moves a game to a backend, doing whatever the prefix needs for it.
+    ///
+    /// Setting the field alone is not enough for the two backends that are
+    /// real DLLs in the prefix: DXVK and DXMT overwrite the same files, so
+    /// switching between them has to reinstall rather than just relabel. The
+    /// UI and the CLI both go through here so they cannot drift.
+    @discardableResult
+    public func setBackend(_ game: Game, _ backend: GraphicsBackend,
+                           lockRuntime: Bool = true,
+                           progress: (String) -> Void = { _ in }) throws -> GraphicsBackend {
+        guard let bottle = store.bottle(game.bottleID) else { throw DecanterError.notFound("bottle") }
+        guard let rt = store.runtime(bottle.runtimeID) else { throw DecanterError.noRuntime(bottle.runtimeID) }
+
+        let dxmt = DXMTInstaller(paths: paths)
+        switch backend {
+        case .dxmt:
+            guard let v = dxmt.defaultVersion else {
+                throw DecanterError.notFound("DXMT is not staged — hand Decanter a DXMT build first")
+            }
+            // DXMT lives in a runtime, not in a prefix, so switching to it can
+            // mean moving the game to the runtime that carries it.
+            let host = try dxmt.hostRuntime(basedOn: rt, version: v, store: store, progress: progress)
+            if host.id != rt.id {
+                _ = try setRuntime(game, to: host.id, progress: progress)
+            }
+            if let b = store.bottle(game.bottleID) { dxmt.mark(v, in: b.prefixPath) }
+        default:
+            // A prefix that still claims DXMT while running something else is
+            // how a report ends up describing the wrong graphics layer.
+            dxmt.clearMarker(in: bottle.prefixPath)
+        }
+        try store.mutate { s in
+            if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) { s.bottles[i].backend = backend }
+            if lockRuntime, let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = true }
+        }
+        note(game.bottleID, "backend -> \(backend.label)")
+        return backend
+    }
+
     /// Switches a game to a specific staged DXVK version.
     @discardableResult
     public func setDXVK(_ game: Game, version: String,
@@ -685,32 +761,89 @@ public final class Engine: @unchecked Sendable {
     ///    refuse to create a device at all.
     ///  - WineD3D is a complete D3D11 implementation (multithread included) on
     ///    OpenGL: slower, but it is the only one that plays Unity video here.
+    /// A pinned runtime that can actually run `backend`, with the component
+    /// it needs staged. `nil` when either half is missing.
+    func hostFor(_ backend: GraphicsBackend) -> RuntimeSpec? {
+        switch backend {
+        case .dxmt:
+            guard DXMTInstaller(paths: paths).isStaged else { return nil }
+            return store.state.runtimes.first { RuntimeManager.metalHosting(root: $0.root).looksCapable }
+        default:
+            return store.state.runtimes.first { $0.backends.contains(backend) }
+        }
+    }
+
+    /// Which half is missing, said plainly enough to act on.
+    func missingPieceFor(_ backend: GraphicsBackend) -> String {
+        guard backend == .dxmt else {
+            return "\(backend.label) is not available on any runtime Decanter has pinned."
+        }
+        let staged = DXMTInstaller(paths: paths).isStaged
+        let host = store.state.runtimes.contains { RuntimeManager.metalHosting(root: $0.root).looksCapable }
+        switch (staged, host) {
+        case (false, false):
+            return "This needs DXMT, and a Wine that can host it — the Game Porting Toolkit's Wine can, mainline Wine cannot. Neither is set up yet."
+        case (false, true):
+            return "This needs a DXMT build. Hand one to Decanter and it will stage it; a pinned runtime here can already host it."
+        case (true, false):
+            return "DXMT is staged, but no pinned runtime can host it: its Mac driver has to hand out a Cocoa view, which the Game Porting Toolkit's Wine does and mainline Wine does not."
+        case (true, true):
+            return "DXMT is staged and hostable — this should have been recommended, which is a bug worth reporting."
+        }
+    }
+
     public func recommend(for game: Game) -> Recommendation {
         let d = game.detection
 
         // Say plainly when nothing will work. Knowing a game cannot run is far
         // more useful than being invited to try five configurations that fail.
         if let blocker = d.knownUnsupported {
+            // There is one honest exception to "nothing will work": a backend
+            // that implements the missing interfaces, staged, on a runtime that
+            // can host it. All three have to be true, so all three are checked
+            // rather than assumed from the backend existing in the enum.
+            if let escape = d.unsupportedUnless, let host = hostFor(escape) {
+                var r = Recommendation(runtimeKind: host.kind, backend: escape)
+                r.confidence = "untested"
+                r.reasons.append("Only \(escape.label) implements the interfaces this game needs.")
+                r.reasons.append(blocker.replacingOccurrences(of: "\n", with: " "))
+                r.caveats.append("Decanter has not seen this combination succeed. It is the only one that can work, not one that is known to.")
+                return r
+            }
             var r = Recommendation(runtimeKind: .gptk, backend: .d3dmetal)
             r.confidence = "known limitation"
-            r.reasons.append("This game will not run on any available setup.")
+            r.reasons.append("This game will not run on any setup Decanter currently has.")
             r.reasons.append(blocker.replacingOccurrences(of: "\n", with: " "))
-            r.caveats.append("Nothing to try here — it needs a newer D3DMetal, or a translation layer such as DXMT that implements the missing interfaces.")
+            if let escape = d.unsupportedUnless {
+                r.caveats.append(missingPieceFor(escape))
+            } else {
+                r.caveats.append("Nothing to try here — it needs a translation layer that implements the missing interfaces.")
+            }
             return r
         }
 
-        // What has actually worked before beats any static rule.
+        // What has actually worked before beats any static rule — but how
+        // closely it matched is part of the answer, not a detail. A setup drawn
+        // from "this engine, any Mac" is a weaker claim than one drawn from an
+        // identical machine, and saying so is the difference between a
+        // recommendation and a guess wearing one's clothes.
         let sig = Knowledge.Signature(d)
-        if let known = knowledge.lookup(sig), known.confirmations > 0 {
-            var r = Recommendation(runtimeKind: known.runtimeKind, backend: known.backend)
-            let others = known.confirmedGames.subtracting([game.id]).count
-            r.reasons.append("this worked for \(known.confirmations) game(s) with the same profile (\(sig.label))")
-            if others > 0 {
-                r.reasons.append("\(others) of them other than this one")
-            }
+        if let known = knowledge.best(for: sig, excluding: game.id) {
+            var r = Recommendation(runtimeKind: known.setup.runtimeKind, backend: known.setup.backend)
+            r.reasons.append("this worked for \(known.provenance)")
             if let n = known.note { r.reasons.append(n) }
-            r.confidence = known.confirmations >= 2 ? "high" : "medium"
-            return r
+            r.confidence = switch (known.level, known.confirmations) {
+                case (.thisMac, 2...), (.thisChip, 2...): "high"
+                case (_, 1...):                           "medium"
+                default:                                  "low"
+            }
+            // Anything already known to break for this situation is worth
+            // stating outright — knowing what not to try saves more time than
+            // knowing what to.
+            for bad in knowledge.knownBad(for: sig).prefix(3) where bad.setup != known.setup {
+                r.caveats.append("\(bad.setup.label): \(bad.failure.label)")
+            }
+            if known.confirmations > 0 || !known.seeded { return r }
         }
 
         var r = Recommendation(runtimeKind: .gptk, backend: .d3dmetal)
@@ -765,14 +898,29 @@ public final class Engine: @unchecked Sendable {
     public func rememberWorking(_ game: Game) throws {
         guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return }
         knowledge.recordSuccess(signature: Knowledge.Signature(game.detection),
-                                gameID: game.id, runtimeKind: rt.kind, backend: b.backend)
+                                gameID: game.id, setup: setup(for: b, runtime: rt))
         try knowledge.save(to: paths.knowledgePath)
         note(b.id, "confirmed working: \(rt.id) + \(b.backend.label)")
     }
 
-    public func rememberFailed(_ game: Game) throws {
-        knowledge.recordFailure(signature: Knowledge.Signature(game.detection), gameID: game.id)
+    public func rememberFailed(_ game: Game, failure: Knowledge.Failure = .unspecified) throws {
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return }
+        knowledge.recordFailure(signature: Knowledge.Signature(game.detection),
+                                gameID: game.id, setup: setup(for: b, runtime: rt),
+                                failure: failure)
         try knowledge.save(to: paths.knowledgePath)
+    }
+
+    /// The setup a bottle is actually running, including the graphics layer's
+    /// version — DXVK 1.10.3 and DXVK 2.x are different answers, and recording
+    /// them as one is how a knowledge base learns something untrue.
+    func setup(for bottle: Bottle, runtime: RuntimeSpec) -> Knowledge.Setup {
+        let version: String? = switch bottle.backend {
+            case .dxvk: DXVKInstaller(paths: paths).installedVersion(in: bottle.prefixPath)
+            case .dxmt: DXMTInstaller(paths: paths).installedVersion(in: bottle.prefixPath)
+            default:    nil
+        }
+        return .init(runtimeKind: runtime.kind, backend: bottle.backend, layerVersion: version)
     }
 
     // MARK: - Auto-configuration

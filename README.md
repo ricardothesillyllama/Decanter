@@ -11,7 +11,7 @@ environment, and picks the graphics translation most likely to work —
 instead of leaving you to guess between five combinations and try each by hand.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=471%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=565%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -285,7 +285,7 @@ surprising share of them.
 | Game runs, but cutscenes or videos fail | D3DMetal has no `ID3D11Multithread`, so video cannot play on it | Switch graphics to **Wine** (WineD3D) |
 | Black screen, or garbled 3D | Wrong graphics option for this game | Try **Vulkan** (DXVK 1.10.3) first, then **Wine** (WineD3D) |
 | Crash naming a plugin, or a mod loader error | A BepInEx plugin threw | Check **Mods** in the app, or `decanter mods <game>` |
-| `Failed to load il2cpp` | Usually Unity 6, which does not work on any current runtime | `decanter info <game>` will say if it is Unity 6 |
+| `Failed to load il2cpp` | Usually Unity 6, which no graphics layer here can run yet | `decanter knowledge explain <game>` shows how far each one gets |
 | `Failed to open descriptor file '../../X.uproject'` | The wrong executable is being launched | Pick the launcher beside `Engine/` in the executable picker |
 | Fans spin up and macOS blames Decanter while it is closed | Wine processes left running by an earlier session | `decanter reap` |
 | The app forgets granted permissions after every rebuild | Ad-hoc signing — see [Signing](docs/TROUBLESHOOTING.md#signing-and-why-permissions-reset) | Create a `Decanter Dev` certificate once |
@@ -326,21 +326,24 @@ Screen Recording permission.
 
 ## Known limitations
 
-- **Unity 6 (6000.x) is not known to work on the runtimes Decanter manages.**
-  Two unrelated things go wrong and both used to surface as the same
-  "Failed to load il2cpp": the renderer cannot create an `ID3D11Fence`, which
-  Unity 6 treats as fatal, and the loader hits Windows API sets Wine does not
-  implement. Decanter now tells them apart and names what would plausibly
-  change each. This is a claim about the runtimes you have pinned, not about
-  every Mac — CrossOver 26 shipped DXMT 0.72 in February 2026, so the ground
-  moves.
-- **DXMT** (Direct3D 11 straight to Metal) is not wired up yet. It needs a Wine
-  whose `winemac.drv` symbols are exported rather than hidden; DXMT's own
-  documentation names a FOSS CrossOver Wine 24+ built from source as sufficient.
-  `decanter doctor` now measures this for each pinned runtime, so you can see
-  whether yours could host it. Measured here: Gcenx's Wine 11.0 exports none,
-  Apple's Game Porting Toolkit 7.7 exports several including a `WineMetalView`
-  class — promising, but DXMT does not claim support for it.
+- **Unity 6 (6000.x) still does not run, but Decanter now knows exactly why.**
+  Measured on an M2 against a real 6000.2 build: DXVK on MoltenVK fails D3D11
+  device creation at *every* feature level, down to 10_0; WineD3D cannot create
+  a device either; D3DMetal has no `ID3D11Fence`, no `ID3D11Multithread` and no
+  `D3D11On12`. **DXMT gets furthest** — a real device at feature level 11_1, the
+  only layer here that manages it — and Unity then dies in `GpuFence::Create`
+  because DXMT has no `ID3D11Fence` either. `-force-gfx-direct` does not avoid
+  it; Unity creates the fence at device init regardless. A DXMT release
+  implementing that interface would change the answer, and Decanter is set up to
+  notice when one does.
+- **DXMT needs mainline Wine, not the Game Porting Toolkit** — which is the
+  opposite of what this file claimed until 0.4.0. DXMT's Metal bridge hard-links
+  `@rpath/winemac.so` as a dylib. Wine 11 ships one; the Game Porting Toolkit
+  ships `winemac.drv.so` as a Mach-O *bundle*, and macOS refuses to link against
+  a bundle at all. The `macdrv_*` symbol test that suggested otherwise was a
+  reverse-engineered guess and was backwards: Wine 11 exports none of those
+  symbols and hosts DXMT fine, because the bridge resolves what it needs through
+  the Objective-C runtime. `decanter dxmt list` reports the real test per runtime.
 - Nothing is notarised — see [Install](#install) for the one-time "Open Anyway".
 
 ## Status
@@ -351,7 +354,7 @@ and Apple's Game Porting Toolkit pinned side by side.
 Runtimes are pinned, every game gets its own copy-on-write environment, broken
 environments are replaced rather than repaired, and no game can see your files.
 Decanter is a CLI and a SwiftUI app over one engine, written in Swift with no
-external dependencies — every dependency is a future 404. **471 checks** run in
+external dependencies — every dependency is a future 404. **565 checks** run in
 a hand-rolled harness.
 
 ## Documentation

@@ -34,7 +34,7 @@ enum Fixture {
 
     static func unity(name: String = "TestGame", machine: UInt16 = 0x8664,
                       modded: Bool = false, warmCache: Bool = false, d3d12: Bool = true,
-                      unityVersion: String? = nil) -> URL {
+                      unityVersion: String? = nil, agilitySDK: Bool = false) -> URL {
         let d = dir("unity")
         write(d, "\(name).exe", pe(machine: machine))
 
@@ -50,6 +50,10 @@ enum Fixture {
         write(d, "\(name)_Data/app.info")
         if modded { write(d, "doorstop_config.ini", Data("[General]\nenabled=true".utf8)) }
         if warmCache { write(d, "\(name).dxvk-cache", Data("DXVK".utf8)) }
+        // Unity ships the DirectX 12 Agility SDK beside the executable only
+        // when D3D12 is in the build's renderer list — unlike the d3d12.dll
+        // import, which every Unity 6 build carries regardless.
+        if agilitySDK { write(d, "D3D12/D3D12Core.dll", pe(machine: machine)) }
         return d
     }
 

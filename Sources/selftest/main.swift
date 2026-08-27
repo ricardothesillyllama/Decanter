@@ -10,6 +10,7 @@ if wantAll || args.contains("abuse")   { runAbuseTests(t) }
 if wantAll || args.contains("stress")  { runStressTests(t) }
 if wantAll || args.contains("saves")   { runSavesTests(t) }
 if wantAll || args.contains("schema")  { runSchemaTests(t) }
+if wantAll || args.contains("kb")      { runKnowledgeTests(t) }
 if wantAll || args.contains("fonts")   { runFontTests(t) }
 if wantAll || args.contains("reap")    { runReaperTests(t) }
 if wantAll || args.contains("dxvk")    { runDXVKTests(t) }
@@ -18,7 +19,7 @@ if wantAll || args.contains("stop")    { runStopScopeTests(t) }
 if wantAll || args.contains("noise")   { runSaveNoiseTests(t) }
 if wantAll || args.contains("explain") { runModExplainTests(t) }
 if wantAll || args.contains("verbs")   { runRecipeVerbTests(t) }
-if wantAll || args.contains("metal")   { runMetalHostingTests(t) }
+if wantAll || args.contains("metal")   { runMetalHostingTests(t); runDXMTTests(t); runD3D12EvidenceTests(t) }
 if wantAll || args.contains("fwd")     { runForwardCompatTests(t) }
 if wantAll || args.contains("docs")    { runDocsTests(t) }
 if wantAll || args.contains("docs")    { runHygieneTests(t) }

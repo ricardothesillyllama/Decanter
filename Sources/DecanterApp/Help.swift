@@ -27,8 +27,14 @@ enum Help {
         case .d3dmetal: "Apple"
         case .dxvk:     "Vulkan"
         case .wined3d:  "Wine"
+        case .dxmt:     "Metal"
         }
     }
+
+    /// Whether a backend is still proving itself. Kept apart from the name for
+    /// the same reason the recommendation is: a name should say what a thing
+    /// is, and every caveat that gets folded into a name stops being read.
+    static func isExperimental(_ b: GraphicsBackend) -> Bool { b == .dxmt }
 
     /// The symbol beside each name. SF Symbols rather than emoji: emoji do not
     /// tint with the control and render differently in menus.
@@ -37,6 +43,7 @@ enum Help {
         case .d3dmetal: "apple.logo"
         case .dxvk:     "bolt.fill"
         case .wined3d:  "wrench.and.screwdriver.fill"
+        case .dxmt:     "cube.transparent.fill"
         }
     }
 
@@ -47,6 +54,7 @@ enum Help {
         case .d3dmetal: "Apple's own graphics translation. Only available on Apple's engine."
         case .dxvk:     "Draws the game through Vulkan. Available on either engine."
         case .wined3d:  "Wine's built-in graphics. Needs nothing extra installed."
+        case .dxmt:     "Draws through Metal directly. Community-made, and needs a runtime that can host it."
         }
     }
 
@@ -57,6 +65,7 @@ enum Help {
         case .d3dmetal: "Try if the game runs but feels slow."
         case .dxvk:     "Try if the game will not start, or draws nothing."
         case .wined3d:  "Try if neither of the others will run it, or if videos do not play."
+        case .dxmt:     "Try for a Unity 6 game, which none of the others can start."
         }
     }
 
@@ -121,6 +130,7 @@ enum Help {
         case .d3dmetal: "D3DMetal"
         case .dxvk:     "DXVK"
         case .wined3d:  "WineD3D"
+        case .dxmt:     "DXMT"
         }
     }
 
@@ -130,6 +140,7 @@ enum Help {
         case .d3dmetal: "D3DMetal (Direct3D to Metal)"
         case .dxvk:     "DXVK (Direct3D to Vulkan)"
         case .wined3d:  "WineD3D (Direct3D to OpenGL)"
+        case .dxmt:     "DXMT (Direct3D 11 to Metal)"
         }
     }
 
@@ -151,6 +162,8 @@ enum Help {
             "Apple's own translation — Direct3D 11/12 straight to Metal, no Vulkan in between. Usually the fastest for demanding DirectX 12 titles, but it only exists inside the Game Porting Toolkit runtime, which is built on an older Wine."
         case .wined3d:
             "Wine's built-in Direct3D, running on OpenGL. Slowest for 3D, but it needs no Vulkan and has the fewest moving parts. The right choice for 2D games and the thing to try when the others crash or show a black screen."
+        case .dxmt:
+            "Direct3D 11 straight to Metal, from the DXMT project rather than from Apple. It implements the interfaces Unity 6 asks for and the other layers here do not. It is young, it covers Direct3D 11 only, and it loads solely on a Wine whose Mac driver hands out a Cocoa view — so Decanter offers it only where that is true."
         }
     }
 
@@ -159,6 +172,7 @@ enum Help {
         case .dxvk:     "Best for: Unity, Godot, Unreal, and anything that already ran under Whisky, Proton or Steam Deck."
         case .d3dmetal: "Best for: modern DirectX 12 games that DXVK renders badly or refuses to start."
         case .wined3d:  "Best for: Ren'Py, RPG Maker and other 2D games — and as the fallback when a game shows a black screen."
+        case .dxmt:     "Best for: Unity 6 games, which need Direct3D 11 interfaces no other layer here provides."
         }
     }
 

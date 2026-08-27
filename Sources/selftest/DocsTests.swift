@@ -301,9 +301,7 @@ func runCLIDocsTests(_ t: Harness) {
     // Aliases and the help verbs are excluded: they exist for convenience and
     // documenting all of them would make the table worse, not better.
     let excluded: Set<String> = ["help", "--help", "-h", "version", "--version", "-v",
-                                 "rm", "uninstall", "exes", "list", "show", "snapshot",
-                                 "snapshots", "restore", "search", "externalise",
-                                 "externalize", "gc", "locale", "import"]
+                                 "rm", "uninstall", "exes", "externalize", "locale"]
     var verbs: Set<String> = []
     for line in main.split(separator: "\n") {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -316,7 +314,23 @@ func runCLIDocsTests(_ t: Harness) {
     verbs.subtract(excluded)
     t.expect(verbs.count > 20, "the dispatch table was actually parsed (found \(verbs.count))")
 
-    let undocumented = verbs.filter { !cli.contains("decanter \($0)") }.sorted()
+    // A verb counts as documented if it appears as a word inside some
+    // `decanter ...` command in the table — which covers subcommands like
+    // `decanter knowledge export` as well as top-level ones.
+    //
+    // The earlier check only looked for "decanter <verb>", so every nested verb
+    // had to be excluded by hand, and a new one counted as documented the
+    // moment somebody remembered to add it to that list. Several were also
+    // passing by coincidence, because an unrelated top-level command happened
+    // to share the name.
+    var documentedWords = Set<String>()
+    for span in cli.components(separatedBy: "`decanter ").dropFirst() {
+        let command = span.components(separatedBy: "`").first ?? ""
+        for word in command.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+            documentedWords.insert(String(word))
+        }
+    }
+    let undocumented = verbs.filter { !documentedWords.contains($0) }.sorted()
     t.expect(undocumented.isEmpty,
              "every command appears in docs/CLI.md (missing: \(undocumented.joined(separator: ", ")))")
 

@@ -10,12 +10,15 @@ public enum GraphicsBackend: String, Codable, Sendable, CaseIterable {
     case dxvk        // D3D9/10/11 -> Vulkan -> MoltenVK -> Metal
     case d3dmetal    // Apple D3DMetal, D3D11/12 -> Metal directly (GPTK only)
     case wined3d     // Wine's own D3D -> OpenGL. Slow, but the safety net.
+    case dxmt        // DXMT, D3D11 -> Metal directly. Needs a host Wine that
+                     // can hand out a Cocoa view; see RuntimeManager.metalHosting.
 
     public var label: String {
         switch self {
         case .dxvk: "DXVK"
         case .d3dmetal: "D3DMetal"
         case .wined3d: "WineD3D"
+        case .dxmt: "DXMT"
         }
     }
 }
@@ -89,12 +92,31 @@ public struct DetectionResult: Codable, Sendable {
     /// futile hunt through backend combinations.
     public var engineVersion: String?
     public var knownUnsupported: String?
+    /// The one backend that lifts `knownUnsupported`, when there is one.
+    ///
+    /// A flat "does not run here" was accurate on the runtimes Decanter shipped
+    /// with and became a lie the moment a layer appeared that handles the case.
+    /// Naming the escape hatch keeps the warning true in both worlds.
+    public var unsupportedUnless: GraphicsBackend?
+    /// True when the build ships the DirectX 12 Agility SDK beside the game —
+    /// the only evidence here that D3D12 is in the build's renderer list
+    /// rather than merely linked. Every Unity 6 build imports d3d12.dll
+    /// whether or not it ever creates a D3D12 device.
+    public var shipsD3D12Runtime: Bool = false
     public var confidence: Double = 0
     public var signals: [DetectionSignal] = []
     public var recommendedRuntimeKind: RuntimeKind = .wine
     public var recommendedBackend: GraphicsBackend = .dxvk
     public var recipes: [String] = []
     public init() {}
+
+    /// The blocker as it applies to a particular backend. `nil` when the game
+    /// is on the backend that lifts it.
+    public func blocker(onBackend b: GraphicsBackend?) -> String? {
+        guard let k = knownUnsupported else { return nil }
+        if let escape = unsupportedUnless, b == escape { return nil }
+        return k
+    }
 
     // Hand-written for the same reason DecanterState is: Swift's synthesised
     // Decodable requires every non-optional key even when the property has a
@@ -103,7 +125,7 @@ public struct DetectionResult: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case engine, bitness, graphicsAPIs, modded, hasWarmDXVKCache, usesVideo
         case confidence, signals, recommendedRuntimeKind, recommendedBackend, recipes
-        case engineVersion, knownUnsupported
+        case engineVersion, knownUnsupported, unsupportedUnless, shipsD3D12Runtime
     }
 
     public init(from decoder: Decoder) throws {
@@ -116,6 +138,8 @@ public struct DetectionResult: Codable, Sendable {
         usesVideo = (try? c.decode(Bool.self, forKey: .usesVideo)) ?? false
         engineVersion = try? c.decodeIfPresent(String.self, forKey: .engineVersion)
         knownUnsupported = try? c.decodeIfPresent(String.self, forKey: .knownUnsupported)
+        unsupportedUnless = try? c.decodeIfPresent(GraphicsBackend.self, forKey: .unsupportedUnless)
+        shipsD3D12Runtime = (try? c.decode(Bool.self, forKey: .shipsD3D12Runtime)) ?? false
         confidence = (try? c.decode(Double.self, forKey: .confidence)) ?? 0
         signals = (try? c.decode([DetectionSignal].self, forKey: .signals)) ?? []
         recommendedRuntimeKind = (try? c.decode(RuntimeKind.self, forKey: .recommendedRuntimeKind)) ?? .wine

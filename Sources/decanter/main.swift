@@ -47,6 +47,9 @@ func usage() -> Never {
       decanter dxvk list              staged versions and what each game uses
       decanter dxvk use <game> <ver>  switch a game to a specific DXVK version
       decanter dxvk prefer <ver>      which version new templates bake in
+      decanter dxmt list              staged DXMT, and which runtimes can host it
+      decanter dxmt stage <archive>   stage a DXMT build you supply
+      decanter dxmt use <game>        move a game to Metal graphics (Unity 6)
 
     GAMES
       decanter add <path> [--name N] [--exe NAME]   add a game; --exe picks which one
@@ -320,7 +323,7 @@ case "info":
     }
     out("  evidence:")
     for s in g.detection.signals { out("    [\(String(format: "%.2f", s.weight))] \(s.rule)") }
-    if let blocker = g.detection.knownUnsupported {
+    if let blocker = g.detection.blocker(onBackend: e.store.bottle(g.bottleID)?.backend) {
         out("")
         warn(blocker.replacingOccurrences(of: "\n", with: " "))
     }
@@ -410,14 +413,12 @@ case "bottles":
 
 case "backend":
     guard rest.count >= 2, let nb = GraphicsBackend(rawValue: rest[1].lowercased()) else {
-        die(DecanterError.notFound("usage: decanter backend <game> <dxvk|d3dmetal|wined3d>"))
+        die(DecanterError.notFound("usage: decanter backend <game> <"
+                                   + GraphicsBackend.allCases.map(\.rawValue).joined(separator: "|") + ">"))
     }
     let (e, g) = requireGame(rest[0])
     do {
-        try e.store.mutate { s in
-            if let i = s.bottles.firstIndex(where: { $0.id == g.bottleID }) { s.bottles[i].backend = nb }
-            if let i = s.games.firstIndex(where: { $0.id == g.id }) { s.games[i].runtimeLocked = true }
-        }
+        try e.setBackend(g, nb, progress: step)
         ok("\(g.name) now uses \(nb.label) (choice locked against auto-detection)")
     } catch { die(error) }
 
@@ -462,6 +463,47 @@ case "dxvk":
         } catch { die(error) }
     } else {
         die(DecanterError.notFound("usage: decanter dxvk stage <tar.gz> | list | use <game> <version>"))
+    }
+
+case "dxmt":
+    let e = engine()
+    let inst = DXMTInstaller(paths: e.paths)
+    if rest.first == "stage", rest.count > 1 {
+        do {
+            let v = try inst.stage(archive: URL(filePath: (rest[1] as NSString).expandingTildeInPath), progress: step)
+            ok("DXMT \(v) staged")
+        } catch { die(error) }
+    } else if rest.first == "status" || rest.first == "list" || rest.isEmpty {
+        let versions = inst.stagedVersions()
+        out(versions.isEmpty ? "  ! no DXMT staged" : "  staged versions: \(versions.joined(separator: ", "))")
+        out("")
+        // Staged is only half the answer. Which runtimes can host it is the
+        // half people actually get stuck on, so it is stated without asking.
+        out("  which pinned runtimes can host it:")
+        if e.store.state.runtimes.isEmpty { out("    (no runtimes pinned yet)") }
+        for rt in e.store.state.runtimes {
+            let h = RuntimeManager.metalHosting(root: rt.root)
+            out("    \(rt.id): \(h.looksCapable ? "yes" : "no")"
+                + (h.looksCapable ? "" : " — \(h.unavailableReason?.replacingOccurrences(of: "\n", with: " ") ?? "")"))
+        }
+        out("")
+        for b in e.store.state.bottles where inst.isInstalled(in: b.prefixPath) {
+            let owner = e.store.state.games.first { $0.bottleID == b.id }?.name ?? "(orphan)"
+            out("  \(owner): DXMT \(inst.installedVersion(in: b.prefixPath) ?? "?")")
+        }
+        out("")
+        out("  DXMT translates Direct3D 11 straight to Metal. It is the only layer here")
+        out("  that implements the interfaces Unity 6 asks for. Decanter has not confirmed")
+        out("  a Unity 6 game running on it — if you get one working, say so on the issue tracker.")
+    } else if rest.first == "use", rest.count > 1 {
+        let g = requireGame(rest[1]).1
+        do {
+            _ = try e.setBackend(g, .dxmt, progress: step)
+            ok("\(g.name) now uses DXMT")
+            out("    run `decanter check \(g.name)` to confirm")
+        } catch { die(error) }
+    } else {
+        die(DecanterError.notFound("usage: decanter dxmt stage <archive> | list | use <game>"))
     }
 
 case "runtime":
@@ -538,20 +580,75 @@ case "worked":
 case "knowledge":
     let e2 = engine()
     let k = e2.knowledge
-    if rest.first == "forget" {
+    switch rest.first {
+    case "forget":
         try? FileManager.default.removeItem(at: e2.paths.knowledgePath)
         ok("forgot everything learned; back to the seeded defaults")
-    } else {
-        out("what Decanter has learned:")
-        let sorted = k.entries.sorted { ($0.value.confirmations, $0.key) > ($1.value.confirmations, $1.key) }
-        for (key, e3) in sorted {
-            let profile = Knowledge.label(forKey: key)
-            let setup = "\(e3.runtimeKind == .gptk ? "GPTK" : "Wine") + \(e3.backend.label)"
-            let confirmed = e3.confirmations == 0
-                ? "(seeded default)"
-                : "\u{2713} confirmed on \(e3.confirmations) of your game(s)"
-            out("  \(profile.padding(toLength: 40, withPad: " ", startingAt: 0)) \(setup.padding(toLength: 18, withPad: " ", startingAt: 0)) \(confirmed)")
+
+    case "export":
+        // The export carries situations and outcomes and nothing else. There is
+        // no flag to include game names because there is no field for one: a
+        // name is not withheld here, it was never recorded.
+        let dest = URL(filePath: ((rest.count > 1 ? rest[1] : "decanter-knowledge.json") as NSString)
+            .expandingTildeInPath)
+        do {
+            let n = try e2.exportKnowledge(to: dest)
+            ok("exported \(n) observation(s) to \(dest.path)")
+            out("    no game names, no paths, no machine identifiers — situations and outcomes only")
+            out("    open an issue on the tracker and attach it if you would like it merged")
+        } catch { die(error) }
+
+    case "explain":
+        let (_, g) = requireGame(rest.count > 1 ? rest[1] : nil)
+        let sig = Knowledge.Signature(g.detection)
+        out("situation: \(sig.engineLabel), \(sig.bitness.label)"
+            + (sig.usesVideo ? ", video" : "") + (sig.usesD3D12 ? ", D3D12" : "")
+            + " on \(MachineClass.current().label)")
+        out("")
+        for level in Knowledge.Level.allCases {
+            let here = k.observations(matching: sig, at: level)
+            guard !here.isEmpty else { continue }
+            let good = here.filter(\.worked).count, bad = here.count - good
+            out("  \(level.label.padding(toLength: 30, withPad: " ", startingAt: 0)) \(good) worked, \(bad) did not")
         }
+        out("")
+        if let a = k.best(for: sig, excluding: g.id) {
+            ok("best answer: \(a.setup.label) — \(a.provenance)")
+        } else {
+            warn("nothing here answers for this situation yet")
+        }
+        for bad in k.knownBad(for: sig).prefix(4) {
+            out("  ✗ \(bad.setup.label): \(bad.failure.label)")
+        }
+
+    default:
+        out("what Decanter has learned (\(k.observations.count) observations):")
+        out("")
+        // Grouped by situation so the listing reads as knowledge rather than
+        // as a log of everything that ever happened.
+        var bySituation: [Knowledge.Signature: [Knowledge.Observation]] = [:]
+        for o in k.observations { bySituation[o.signature, default: []].append(o) }
+        let rows = bySituation.sorted {
+            ($0.value.filter(\.worked).count, $0.key.engine.rawValue)
+                > ($1.value.filter(\.worked).count, $1.key.engine.rawValue)
+        }
+        for (sig, obs) in rows {
+            var profile = "\(sig.engineLabel), \(sig.bitness.label)"
+            if sig.usesVideo { profile += ", video" }
+            if sig.usesD3D12 { profile += ", D3D12" }
+            if sig.chip != .unknown { profile += " · \(sig.chip.label)" }
+            if let os = sig.macOSMajor { profile += " · macOS \(os)" }
+            out("  \(profile)")
+            for o in obs.sorted(by: { $0.worked && !$1.worked }) {
+                let mark = o.worked ? "✓" : "✗"
+                let how = o.seeded ? "(shipped)" : "(observed here)"
+                let why = o.worked ? "" : " — \(( o.failure ?? .unspecified).label)"
+                out("      \(mark) \(o.setup.label.padding(toLength: 24, withPad: " ", startingAt: 0)) \(how)\(why)")
+            }
+        }
+        out("")
+        out("  decanter knowledge explain <game>   what this says about one game")
+        out("  decanter knowledge export [file]    hand the observations over, names-free")
     }
 
 case "remove", "rm", "uninstall":
@@ -582,7 +679,7 @@ case "redetect":
         do {
             let d = try e2.redetect(g, progress: step)
             ok("\(g.name): \(d.engine.label), \(d.bitness.label)\(d.usesVideo ? ", plays video" : "")\(d.engineVersion.map { " — engine \($0)" } ?? " — engine version not found")")
-            if let blocker = d.knownUnsupported {
+            if let blocker = d.blocker(onBackend: e2.store.bottle(g.bottleID)?.backend) {
                 warn(blocker.replacingOccurrences(of: "\n", with: " "))
             }
         } catch { warn("\(g.name): \(error.localizedDescription)") }

@@ -10,7 +10,7 @@ does — plus a few diagnostics that only exist here.
 | Command | What it does |
 |---|---|
 | `decanter setup` | What Decanter has, what it needs, and where to get the rest |
-| `decanter use <file>` | Hand over a Wine build, a Wine `.app`, a Game Porting Toolkit `.dmg`, or `dxvk-*.tar.gz`. Decanter works out which it is |
+| `decanter use <file>` | Hand over a Wine build, a Wine `.app`, a Game Porting Toolkit `.dmg`, `dxvk-*.tar.gz` or `dxmt-*.tar.gz`. Decanter works out which it is |
 | `decanter doctor` | Check the stack — Rosetta, runtimes, template, and the Rosetta end-of-life horizon |
 | `decanter pin` | Take Decanter's own copy of every Wine build already installed on this Mac |
 | `decanter runtime list` | Pinned runtimes, their 32-bit capability, and what each can render with |
@@ -20,6 +20,9 @@ does — plus a few diagnostics that only exist here.
 | `decanter dxvk list` | Staged DXVK versions, and what each game actually has installed |
 | `decanter dxvk use <game> <ver>` | Switch one game to a specific DXVK version |
 | `decanter dxvk prefer <ver>` | Which version new templates bake in |
+| `decanter dxmt list` | Staged DXMT builds, and which pinned runtimes can host one |
+| `decanter dxmt stage <archive>` | Stage a DXMT build you supply |
+| `decanter dxmt use <game>` | Move one game to Metal graphics — the Unity 6 path |
 
 > **Get DXVK 1.10.3, not the newest.** 2.x and 3.x need Vulkan 1.3 features
 > MoltenVK does not fully implement, so they fail on macOS in ways that look
@@ -54,7 +57,10 @@ does — plus a few diagnostics that only exist here.
 | `decanter redetect [game]` | Re-inspect with the current rules. All games if omitted |
 | `decanter rederive <game>` | Throw the environment away and rebuild it. Saves are kept |
 | `decanter worked <game>` | Remember the current setup as working, for games of the same shape |
-| `decanter knowledge` | What Decanter has learned so far. Counts confirmations; never names games |
+| `decanter knowledge` | What Decanter has learned so far, grouped by situation. Never names games |
+| `decanter knowledge explain <game>` | What the knowledge base says about one game, and how closely it matched |
+| `decanter knowledge export [file]` | Write the observations out to hand over — situations and outcomes only |
+| `decanter knowledge forget` | Throw away everything learned, back to the shipped defaults |
 
 ## Saves
 
@@ -75,7 +81,7 @@ does — plus a few diagnostics that only exist here.
 | Command | What it does |
 |---|---|
 | `decanter bottles` | Every environment: runtime, graphics layer, health |
-| `decanter backend <game> <dxvk\|d3dmetal\|wined3d>` | Change the graphics layer directly |
+| `decanter backend <game> <dxvk\|d3dmetal\|wined3d\|dxmt>` | Change the graphics layer directly |
 | `decanter remove <game>` | Delete the game and its environment. Saves are kept unless you say otherwise |
 | `decanter gc` | Delete environments no game points at |
 

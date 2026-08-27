@@ -75,5 +75,26 @@ if [ -f Resources/Info.plist ] && command -v /usr/libexec/PlistBuddy >/dev/null 
   fi
 fi
 
+# 8. A shared signature can only hold closed vocabularies.
+#
+#    The knowledge base identifies a *situation*, never a game, and the
+#    guarantee is that no game name can leave this machine. That holds only as
+#    long as every field is an enum, a bool, or a bounded integer: one free-form
+#    String is enough for a title, a path or a build id to arrive without anyone
+#    deciding to let it in — and it would be a fingerprint anybody holding a
+#    copy of the game could recompute.
+SIG=$(/usr/bin/sed -n '/public struct Signature/,/^    }$/p' Sources/DecanterKit/Knowledge.swift)
+#    Stored fields only: a computed `var label: String` is a rendering of the
+#    situation, not a part of it, and flagging those made the rule cry wolf.
+if printf '%s' "$SIG" | grep -vE '\{\s*$' \
+   | grep -nE '^\s*public var [a-zA-Z]+: (String|URL|\[String\]|Set<String>)' >/dev/null 2>&1; then
+  note "Knowledge.Signature has a free-form field — situations must be closed vocabularies"
+fi
+#    The export must not carry the local game id either. It is a UUID that means
+#    nothing on another machine, but it is still an identifier.
+if grep -n 'gameID' Sources/DecanterKit/Knowledge.swift | grep -i 'export' >/dev/null 2>&1; then
+  note "the knowledge export references gameID — it must not leave this machine"
+fi
+
 [ "$fail" = 0 ] && echo "  ✓ all rules hold"
 exit "$fail"

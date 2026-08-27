@@ -93,11 +93,13 @@ func runMetalHostingTests(_ t: Harness) {
         let m = mgr.metalHosting(of: r)
         guard m.driverPath != nil else { continue }
         checked += 1
-        // Whatever the answer, it must be self-consistent.
-        t.expect(!m.looksCapable || m.hasCocoaViewAccess,
-                 "\(r.id): capable implies the cocoa view accessors are exported")
-        t.expect(!m.looksCapable || m.hasMetalView,
-                 "\(r.id): capable implies a WineMetalView class is exported")
+        // These two used to assert that capability implied the macdrv symbols.
+        // It does not, and asserting it made the suite agree with a wrong
+        // model: measured here, mainline Wine 11 hosts DXMT while exporting
+        // none of them, and the Game Porting Toolkit exports all of them and
+        // cannot host it. What must hold is that a capable driver is linkable.
+        t.expect(!m.looksCapable || m.driverIsLinkable,
+                 "\(r.id): capable implies the driver is a dylib, not a bundle")
         t.expect(m.exportedSymbols.allSatisfy { $0.contains("macdrv") || $0.contains("WineMetalView") },
                  "\(r.id): only relevant symbols are collected")
     }

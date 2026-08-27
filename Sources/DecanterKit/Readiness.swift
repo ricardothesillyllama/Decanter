@@ -68,6 +68,7 @@ public struct Readiness: Sendable {
     public static let gptkSource = URL(string: "https://developer.apple.com/download/all/?q=game%20porting%20toolkit")!
     public static let wineSource = URL(string: "https://github.com/Gcenx/homebrew-wine")!
     public static let dxvkSource = URL(string: "https://github.com/doitsujin/dxvk/releases/tag/v1.10.3")!
+    public static let dxmtSource = URL(string: "https://github.com/3Shain/dxmt/releases")!
 }
 
 public extension Engine {
@@ -148,6 +149,33 @@ public extension Engine {
                 : staged.joined(separator: ", "),
             source: Readiness.dxvkSource, sourceLabel: "Download 1.10.3",
             accepts: "Drop the .tar.gz here"))
+
+        // Only surfaced once a runtime that can host it is pinned. Listing a
+        // piece nobody here can use is the same mistake as offering a button
+        // whose only outcome is an error.
+        let dxmt = DXMTInstaller(paths: paths)
+        let dxmtStaged = dxmt.stagedVersions()
+        let dxmtHosts = h.pinnedRuntimes.filter { RuntimeManager.metalHosting(root: $0.root).looksCapable }
+        if !dxmtHosts.isEmpty || !dxmtStaged.isEmpty {
+            r.pieces.append(.init(
+                id: "dxmt",
+                title: "Unity 6 graphics",
+                technical: dxmtStaged.isEmpty ? nil : "DXMT " + dxmtStaged.joined(separator: ", "),
+                spec: dxmtStaged.isEmpty
+                    ? "DXMT · Direct3D 11 to Metal · needs a Wine whose Mac driver exposes a Cocoa view"
+                    : "DXMT " + dxmtStaged.joined(separator: ", ")
+                      + " · hosted by " + dxmtHosts.map(\.id).joined(separator: ", "),
+                why: "The only one here that can start a Unity 6 game. Skip it unless you have one.",
+                state: dxmtStaged.isEmpty ? .missing : .present,
+                required: false,
+                detail: dxmtStaged.isEmpty
+                    ? "Decanter has not confirmed a Unity 6 game running on this yet — it is the only option that can, not one that is known to."
+                    : (dxmtHosts.isEmpty
+                        ? "Staged, but no pinned runtime can host it yet."
+                        : dxmtStaged.joined(separator: ", ")),
+                source: Readiness.dxmtSource, sourceLabel: "Download from DXMT",
+                accepts: dxmtHosts.isEmpty ? nil : "Drop the archive here"))
+        }
 
         // Decanter makes this one itself — but only once it has something to
         // make it *with*. Offering the button before a runtime exists is an
