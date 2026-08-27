@@ -174,9 +174,10 @@ installed games keep working.
 
 Often, but nobody can promise it. Decanter is a manager for Wine, and Wine's
 compatibility is what it is. Small and mid-sized games usually work; anything
-with kernel-level anti-cheat does not, and never will. Unity 6 games do not
-work yet on any Mac. The fastest way to find out is to add the game and press
-Play — it costs a few seconds and nothing is modified outside Decanter.
+with kernel-level anti-cheat does not, and never will. Unity 6 games need
+Metal graphics (DXMT) and a Wine build that can host it — see
+[Known limitations](#known-limitations). The fastest way to find out is to add
+the game and press Play — it costs a few seconds and nothing is modified outside Decanter.
 
 </details>
 
@@ -285,7 +286,7 @@ surprising share of them.
 | Game runs, but cutscenes or videos fail | D3DMetal has no `ID3D11Multithread`, so video cannot play on it | Switch graphics to **Wine** (WineD3D) |
 | Black screen, or garbled 3D | Wrong graphics option for this game | Try **Vulkan** (DXVK 1.10.3) first, then **Wine** (WineD3D) |
 | Crash naming a plugin, or a mod loader error | A BepInEx plugin threw | Check **Mods** in the app, or `decanter mods <game>` |
-| `Failed to load il2cpp` | Usually Unity 6, which no graphics layer here can run yet | `decanter knowledge explain <game>` shows how far each one gets |
+| `Failed to load il2cpp` | Usually Unity 6, which only Metal graphics (DXMT) runs | `decanter knowledge explain <game>` shows how far each one gets |
 | `Failed to open descriptor file '../../X.uproject'` | The wrong executable is being launched | Pick the launcher beside `Engine/` in the executable picker |
 | Fans spin up and macOS blames Decanter while it is closed | Wine processes left running by an earlier session | `decanter reap` |
 | The app forgets granted permissions after every rebuild | Ad-hoc signing — see [Signing](docs/TROUBLESHOOTING.md#signing-and-why-permissions-reset) | Create a `Decanter Dev` certificate once |
@@ -326,24 +327,26 @@ Screen Recording permission.
 
 ## Known limitations
 
-- **Unity 6 (6000.x) still does not run, but Decanter now knows exactly why.**
-  Measured on an M2 against a real 6000.2 build: DXVK on MoltenVK fails D3D11
-  device creation at *every* feature level, down to 10_0; WineD3D cannot create
-  a device either; D3DMetal has no `ID3D11Fence`, no `ID3D11Multithread` and no
-  `D3D11On12`. **DXMT gets furthest** — a real device at feature level 11_1, the
-  only layer here that manages it — and Unity then dies in `GpuFence::Create`
-  because DXMT has no `ID3D11Fence` either. `-force-gfx-direct` does not avoid
-  it; Unity creates the fence at device init regardless. A DXMT release
-  implementing that interface would change the answer, and Decanter is set up to
-  notice when one does.
-- **DXMT needs mainline Wine, not the Game Porting Toolkit** — which is the
-  opposite of what this file claimed until 0.4.0. DXMT's Metal bridge hard-links
-  `@rpath/winemac.so` as a dylib. Wine 11 ships one; the Game Porting Toolkit
-  ships `winemac.drv.so` as a Mach-O *bundle*, and macOS refuses to link against
-  a bundle at all. The `macdrv_*` symbol test that suggested otherwise was a
-  reverse-engineered guess and was backwards: Wine 11 exports none of those
-  symbols and hosts DXMT fine, because the bridge resolves what it needs through
-  the Objective-C runtime. `decanter dxmt list` reports the real test per runtime.
+- **Unity 6 (6000.x) runs, on Metal graphics (DXMT) and nothing else.** Measured
+  on an M2 against a real 6000.2 build: DXVK on MoltenVK fails D3D11 device
+  creation at *every* feature level, down to 10_0; WineD3D cannot create a device
+  either; D3DMetal has no `ID3D11Fence`, no `ID3D11Multithread` and no
+  `D3D11On12`, and Unity stops at `InitializeEngineGraphics failed`. DXMT runs
+  it — `Direct3D 11.0 [level 11_1]`, `Renderer: Apple M2`, gameplay on screen.
+  Unity still logs `GpuFence::Create(): Failed to create ID3D11Fence` and carries
+  on regardless; that line looked like the blocker for a long time and never was.
+- **DXMT needs a Wine whose Mac driver is a dylib *and* exports
+  `macdrv_functions`.** Both, not either — which is why this file has now been
+  wrong about it twice. DXMT's Metal bridge hard-links `@rpath/winemac.so`, so a
+  Mach-O *bundle* is refused by macOS outright: that rules out the Game Porting
+  Toolkit, whose driver is a bundle. But linking is only the first gate. DXMT
+  then asks the driver for something to draw into, with `dlsym`, at the first
+  frame — so a build that links and exports nothing loads perfectly, reaches a
+  Direct3D 11 device, and dies with "your Wine has no exported symbols needed by
+  DXMT". Mainline Wine 11 is exactly that build, and 0.4.x offered DXMT on it.
+  Gcenx's **Sikarugir build of Wine 10** is a dylib that exports
+  `macdrv_functions`, and Unity 6 runs on it. `decanter doctor` reports which of
+  the two gates each pinned runtime fails.
 - Nothing is notarised — see [Install](#install) for the one-time "Open Anyway".
 
 ## Status

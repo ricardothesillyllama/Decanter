@@ -526,13 +526,15 @@ case "runtime":
             ok("\(g.name) now runs on \(rest[2]) with \(b.label)")
             out("    run `decanter check \(g.name)` to confirm the prefix is still happy")
         } catch { die(error) }
+    } else if rest.first == "remove", rest.count > 1 {
+        do { ok(try e.removeRuntime(rest[1], progress: step)) } catch { die(error) }
     } else if rest.first == "list" || rest.isEmpty {
         for r in e.store.state.runtimes {
             out("  \(r.id)  32-bit:\(r.supports32Bit ? "yes" : "no")  backends: \(r.backends.map(\.label).joined(separator: ", "))")
             out("      \(r.root.path)")
         }
     } else {
-        die(DecanterError.usage("usage: decanter runtime add <wine-root> | decanter runtime list"))
+        die(DecanterError.usage("usage: decanter runtime add <wine-root> | list | set <game> <id> | remove <id>"))
     }
 
 case "check":

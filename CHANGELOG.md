@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.5.1 — 2026-08-28
+
+Everything here was found by using 0.5.0 rather than by reading it.
+
+- **A crash-looping game can no longer wedge the Mac.** Wine launches
+  `winedbg --auto` on every unhandled exception, so a game crashing in a loop
+  spawns one debugger per crashing thread, each of which wants a console, fails
+  to find a font, and crashes in turn. Measured once here: **773 winedbg
+  processes**, two `conhost.exe` at 100% CPU, load average 38, and
+  `decanter doctor` timing out at 120 seconds. New environments disable Wine's
+  automatic debugger, so a crash nobody is attached to just ends.
+- **The reaper can see them.** `winedbg` appears in `ps` as a bare name with no
+  path and no drive letter, so neither of the tests that identify a Wine process
+  matched it — the storm above was invisible to `doctor` and to `decanter stop`
+  while it was happening. Bare Wine helpers now count as ours when their
+  `WINEPREFIX` is one of ours, which leaves a separate Wine install untouched.
+- **DXVK is not offered on a runtime that ships no MoltenVK.** DXVK needs Vulkan,
+  and on macOS the only Vulkan is MoltenVK, which Wine builds carry inside
+  themselves; `winevulkan.so` is the Wine half and is present either way. The
+  Sikarugir build of Wine 10 has no MoltenVK, and DXVK on it fails with
+  "Required Vulkan extension VK_KHR_surface not supported" — the same mistake as
+  offering DXMT on a Wine that cannot present, which 0.5.0 fixed.
+- **`decanter runtime remove <id>`** — there was no way to unpin a runtime.
+  Refused while a game still uses it, and it takes the runtime's DXMT clone with
+  it, which is what left two Wine 11s in the list with one of them unusable.
+- **A state-clobbering race.** `refreshRuntimeCapabilities` built its list from
+  the in-memory state *before* `mutate` took the lock and re-read from disk, then
+  assigned that snapshot back — silently reverting whatever another process had
+  written in between. The app runs it at launch, which is exactly when the CLI is
+  most likely to have moved something.
+- **Docs.** `README` said Unity 6 does not run, in three places. `docs/RUNTIMES.md`
+  had no DXMT section at all, so the one path to Unity 6 was undocumented: it now
+  names both conditions a Wine build must satisfy, the build that satisfies them,
+  and the fact that it is not self-contained.
+
 ## v0.5.0 — 2026-08-27
 
 ### Unity 6 runs

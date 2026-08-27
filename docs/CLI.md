@@ -15,6 +15,7 @@ does — plus a few diagnostics that only exist here.
 | `decanter pin` | Take Decanter's own copy of every Wine build already installed on this Mac |
 | `decanter runtime list` | Pinned runtimes, their 32-bit capability, and what each can render with |
 | `decanter runtime set <game> <id>` | Move a game to another runtime (rebuilds its environment; saves are kept) |
+| `decanter runtime remove <id>` | Forget a pinned runtime and delete Decanter's copy. Refused while a game still uses it; takes its DXMT clone with it |
 | `decanter template build [rt]` | Build the golden template a new game clones from |
 | `decanter template list` | Which runtimes have a template |
 | `decanter dxvk list` | Staged DXVK versions, and what each game actually has installed |

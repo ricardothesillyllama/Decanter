@@ -392,7 +392,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.5.0"
-    public static let commit = "7d61a60"
+    public static let version = "0.5.1"
+    public static let commit = "1cffcb2"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

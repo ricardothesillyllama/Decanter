@@ -111,6 +111,31 @@ func runDXMTTests(_ t: Harness) {
     t.suite("a runtime only offers backends it can deliver")
     t.expect(!RuntimeManager.backends(for: .wine, root: bundle).contains(.dxmt),
              "a Wine that cannot host DXMT does not offer it")
+    // Vulkan is the same rule as Metal: a backend is offered only if the
+    // runtime can actually deliver it. Sikarugir Wine 10 ships winevulkan.so
+    // and no MoltenVK, and DXVK on it fails with "Required Vulkan extension
+    // VK_KHR_surface not supported" — so shipping DXVK in its backend list was
+    // the same bug as offering DXMT on a Wine that cannot present.
+    let noVulkan = fixtureRoot("winemac.so", machO(filetype: 6, trailing: metalAPI))
+    let withVulkan = fixtureRoot("winemac.so", machO(filetype: 6, trailing: metalAPI))
+    try? fm.createDirectory(at: withVulkan.appending(path: "lib"), withIntermediateDirectories: true)
+    fm.createFile(atPath: withVulkan.appending(path: "lib/libMoltenVK.dylib").path, contents: Data())
+    defer { for u in [noVulkan, withVulkan] { try? fm.removeItem(at: u) } }
+    t.expect(!RuntimeManager.hasVulkan(root: noVulkan),
+             "a build with no MoltenVK cannot reach Vulkan")
+    t.expect(RuntimeManager.hasVulkan(root: withVulkan),
+             "…and one that ships it can")
+    t.expect(!RuntimeManager.backends(for: .wine, root: noVulkan).contains(.dxvk),
+             "so DXVK is not offered on a runtime that ships no MoltenVK")
+    t.expect(RuntimeManager.backends(for: .wine, root: withVulkan).contains(.dxvk),
+             "and is offered on one that does")
+    // WineD3D asks nothing of the runtime, so it must always survive gating —
+    // it is the fallback that makes the other refusals safe to make.
+    for root in [noVulkan, withVulkan, bundle, dylib] {
+        t.expect(RuntimeManager.backends(for: .wine, root: root).contains(.wined3d),
+                 "WineD3D is always offered — it is the floor")
+    }
+
     t.expect(!RuntimeManager.backends(for: .wine, root: dylib).contains(.dxmt),
              "…nor does one that would load and then fail at the first frame")
     t.expect(RuntimeManager.backends(for: .wine, root: capable).contains(.dxmt),

@@ -85,6 +85,20 @@ public struct PrefixBuilder {
             progress("DXVK not staged - template will use Wine's builtin D3D")
         }
 
+        // Wine launches `winedbg --auto` on every unhandled exception. A game
+        // that crashes in a loop therefore spawns one debugger per crashing
+        // thread, each of which wants a console, fails to find a font, and
+        // crashes in turn. Measured once here: 773 winedbg processes and two
+        // conhost.exe at 100% CPU, load average 38, with `decanter doctor`
+        // timing out at 120s. Nothing capped it because nothing was watching.
+        // An empty Debugger value means the process just dies, which is the
+        // correct outcome for a crash nobody is attached to.
+        progress("disabling Wine's automatic crash debugger")
+        try? PrefixRegistry().setValues(
+            ["Debugger": .string(""), "Auto": .string("0")],
+            section: "Software\\Microsoft\\Windows NT\\CurrentVersion\\AeDebug",
+            in: dst, file: "system.reg")
+
         progress("shutting down wineserver")
         if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
             _ = try? Shell.run(ws, ["-k"], env: env, timeout: 60)

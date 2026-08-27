@@ -82,6 +82,11 @@ public struct WineReaper {
     /// processes whose argv is a Windows path — that is how Wine relabels its
     /// own children, so `ps` shows `C:\windows\system32\services.exe` with no
     /// trace of which Mac installed it.
+    /// Wine helpers that appear in `ps` as a bare name with no path. Only
+    /// these are considered on a WINEPREFIX match; anything else must still
+    /// name our runtime directory or a Windows drive.
+    static let bareHelpers: Set<String> = ["winedbg", "wineserver", "wine", "wine64", "wineboot"]
+
     public func strays() -> [Stray] {
         guard let r = try? Shell.run(URL(filePath: "/bin/ps"),
                                      ["-Ao", "pid=,pcpu=,etime=,command="], timeout: 20)
@@ -96,7 +101,15 @@ public struct WineReaper {
             let command = String(cols[3])
             let fromUs = command.contains(runtimeRoot)
             let windowsy = command.hasPrefix("C:\\") || command.hasPrefix("Z:\\")
-            guard fromUs || windowsy else { continue }
+            // `winedbg --auto` is argv[0] with no path and no drive letter, so
+            // neither test above sees it — which is why a storm of 773 of them
+            // was invisible to `doctor` and to the reaper while it wedged the
+            // machine. Claimed only when its WINEPREFIX is one of ours, so a
+            // separate Wine install on the same Mac is never touched.
+            let helper = Self.bareHelpers.contains(t.split(separator: " ").first.map(String.init)?
+                .split(separator: "/").last.map(String.init)?.lowercased() ?? "")
+            let ours = helper && prefix(of: pid)?.path.hasPrefix(paths.bottles.path) == true
+            guard fromUs || windowsy || ours else { continue }
             // Never target ourselves or the process doing the scanning.
             guard pid != ProcessInfo.processInfo.processIdentifier else { continue }
             let exe = command.split(separator: "\\").last.map(String.init)?

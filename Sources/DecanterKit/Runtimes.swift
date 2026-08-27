@@ -303,8 +303,33 @@ public struct RuntimeManager {
     /// property of the kind. DXMT is not: it needs a Mac driver that exposes a
     /// Cocoa view to Unix libraries, which some builds have and some do not,
     /// so it is tested for rather than inferred from a version number.
+    /// Whether this build can reach Vulkan at all.
+    ///
+    /// DXVK talks to Vulkan, and on macOS the only Vulkan is MoltenVK, which
+    /// Wine builds ship inside themselves. `winevulkan.so` being present is not
+    /// enough — it is the Wine side of the bridge and exists either way.
+    ///
+    /// Measured: the Game Porting Toolkit and mainline Wine 11 both ship
+    /// `libMoltenVK.dylib` and run DXVK; Gcenx's Sikarugir build of Wine 10
+    /// ships `winevulkan.so` and no MoltenVK, and DXVK on it fails with
+    /// "Required Vulkan extension VK_KHR_surface not supported". Offering DXVK
+    /// there is the same mistake as offering DXMT on a Wine that cannot present
+    /// — a backend the runtime cannot deliver.
+    public static func hasVulkan(root: URL) -> Bool {
+        let fm = FileManager.default
+        for p in ["lib/libMoltenVK.dylib", "lib/wine/x86_64-unix/libMoltenVK.dylib"] {
+            if fm.fileExists(atPath: root.appending(path: p).path) { return true }
+        }
+        // Some builds tuck it into a Frameworks directory rather than lib/.
+        guard let walk = fm.enumerator(at: root.appending(path: "lib"),
+                                       includingPropertiesForKeys: nil) else { return false }
+        for case let u as URL in walk where u.lastPathComponent.hasPrefix("libMoltenVK") { return true }
+        return false
+    }
+
     public static func backends(for kind: RuntimeKind, root: URL) -> [GraphicsBackend] {
-        var out: [GraphicsBackend] = kind == .gptk ? [.d3dmetal, .dxvk, .wined3d] : [.dxvk, .wined3d]
+        var out: [GraphicsBackend] = kind == .gptk ? [.d3dmetal, .wined3d] : [.wined3d]
+        if hasVulkan(root: root) { out.insert(.dxvk, at: out.count - 1) }
         if metalHosting(root: root).looksCapable { out.append(.dxmt) }
         return out
     }

@@ -35,13 +35,66 @@ public final class Engine: @unchecked Sendable {
         // drive is absent, not gone, and deleting the user's registration for
         // it because a volume was not plugged in is unrecoverable. Callers that
         // need a runtime to actually exist check for themselves.
-        let fresh = store.state.runtimes.map { rt -> RuntimeSpec in
-            var r = rt
-            r.backends = RuntimeManager.backends(for: rt.kind, root: rt.root)
-            return r
+        // Re-derived *inside* the lock, from the copy `mutate` just read off
+        // disk. Computing the list first and assigning it afterwards looks
+        // equivalent and is not: `mutate` replaces `state` with the disk copy
+        // before running this body, so a list built beforehand is a snapshot
+        // from before another process's writes, and assigning it puts those
+        // writes back the way they were. The app runs this at launch, which is
+        // exactly when the CLI is most likely to have moved something.
+        let capable = store.state.runtimes.contains { rt in
+            RuntimeManager.backends(for: rt.kind, root: rt.root) != rt.backends
         }
-        guard fresh.map(\.backends) != store.state.runtimes.map(\.backends) else { return }
-        try? store.mutate { $0.runtimes = fresh }
+        guard capable else { return }
+        try? store.mutate { s in
+            s.runtimes = s.runtimes.map { rt in
+                var r = rt
+                r.backends = RuntimeManager.backends(for: rt.kind, root: rt.root)
+                return r
+            }
+        }
+    }
+
+    /// Forgets a pinned runtime and deletes Decanter's copy of it.
+    ///
+    /// Refused while a bottle still points at it: unpinning underneath a game
+    /// leaves that game unlaunchable with no way back, and "it stopped working
+    /// and I don't know why" is the failure this project exists to avoid. A
+    /// DXMT host clone is deleted with its base, because it is a copy of that
+    /// base and useless without it.
+    @discardableResult
+    public func removeRuntime(_ id: String, progress: (String) -> Void = { _ in }) throws -> String {
+        guard let spec = store.runtime(id) else {
+            throw DecanterError.notFound("no pinned runtime called \(id)")
+        }
+        let users = store.state.bottles.filter { $0.runtimeID == id }
+        guard users.isEmpty else {
+            let names = users.compactMap { b in store.state.games.first { $0.bottleID == b.id }?.name }
+            throw DecanterError.usage(
+                "\(id) is still in use by \(names.isEmpty ? "\(users.count) environment(s)" : names.joined(separator: ", "))"
+                + " — move them with `decanter runtime set <game> <other>` first.")
+        }
+        // The clone made for DXMT goes too. It exists only to host DXMT for
+        // this base, and leaving it behind is what put two Wine 11s in the
+        // runtime list with one of them unusable.
+        let clone = id + DXMTInstaller.hostSuffix
+        var removed = [id]
+        if store.runtime(clone) != nil,
+           store.state.bottles.allSatisfy({ $0.runtimeID != clone }) { removed.append(clone) }
+
+        for r in removed {
+            if let spec = store.runtime(r) { try? FileManager.default.removeItem(at: spec.root) }
+            try? FileManager.default.removeItem(at: paths.template(for: r))
+            progress("removed \(r)")
+        }
+        try store.mutate { st in
+            st.runtimes.removeAll { removed.contains($0.id) }
+            for r in removed { st.templates[r] = nil }
+            if let t = st.templateRuntimeID, removed.contains(t) { st.templateRuntimeID = nil }
+        }
+        _ = spec
+        return removed.count == 1 ? "removed \(id)"
+                                  : "removed \(removed.joined(separator: " and "))"
     }
 
     // MARK: Setup
