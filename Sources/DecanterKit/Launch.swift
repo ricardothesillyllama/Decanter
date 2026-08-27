@@ -74,6 +74,11 @@ public struct Launcher {
             env["WINEDEBUG"] = "+d3d,+dxgi,+vulkan,fixme-all"
             env["DXVK_LOG_LEVEL"] = "info"
             env["MVK_CONFIG_LOG_LEVEL"] = "2"
+            // DXMT names the exact failure — "Failed to create mach port for
+            // shared fence" and four siblings — and says nothing at all when
+            // this is left at "none". Troubleshooting a DXMT game without it
+            // means guessing at which of several paths gave up.
+            env["DXMT_LOG_LEVEL"] = "info"
         }
         // The on-screen overlay is a separate choice from verbose logging.
         // Bundling them meant troubleshooting a game also defaced it.

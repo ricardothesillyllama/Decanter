@@ -171,3 +171,65 @@ func runForwardCompatTests(_ t: Harness) {
     // Known keys must always win: preserved data cannot shadow real state.
     t.expect(obj["games"] as? [Any] != nil, "known keys are still written normally")
 }
+
+/// An unknown *enum case* is as breaking as an unknown key, and only the second
+/// was guarded against.
+///
+/// This is not hypothetical. Shipping DXMT put `"dxmt"` into `state.json`, and
+/// the installed 0.3.1 app — which had no such case — threw while decoding
+/// `runtimes`, so it opened on an empty library beside a CLI that could see
+/// everything. The app and the CLI are separate binaries sharing one store and
+/// are routinely different versions.
+func runUnknownCaseTests(_ t: Harness) {
+    t.suite("an older binary survives a backend it has never heard of")
+
+    // A runtime and a bottle written by some future version, using a graphics
+    // layer this build does not know.
+    let future = """
+    {"id":"wine-99","kind":"wine","version":"99","root":"file:///tmp/w",
+     "winePath":"file:///tmp/w/bin/wine","supports32Bit":true,
+     "backends":["dxvk","tomorrowd3d","wined3d"],"pinnedAt":0}
+    """
+    guard let spec = try? JSONDecoder().decode(RuntimeSpec.self, from: Data(future.utf8)) else {
+        t.expect(false, "a runtime with an unknown backend still decodes"); return
+    }
+    t.equal(spec.id, "wine-99", "the runtime decodes rather than throwing")
+    t.equal(spec.backends.count, 2, "the two known backends are kept")
+    t.expect(spec.backends.contains(.dxvk) && spec.backends.contains(.wined3d),
+             "…and they are the right two")
+    t.equal(spec.unknownBackends, ["tomorrowd3d"], "the unknown one is set aside, not dropped")
+
+    // Round-tripping through this binary must not cost the newer one anything.
+    guard let out = try? JSONEncoder().encode(spec),
+          let text = String(data: out, encoding: .utf8) else {
+        t.expect(false, "the runtime re-encodes"); return
+    }
+    t.expect(text.contains("tomorrowd3d"),
+             "the unknown backend survives a round trip through a binary that cannot use it")
+
+    let futureBottle = """
+    {"id":"\(UUID().uuidString)","prefixPath":"file:///tmp/p","runtimeID":"wine-99",
+     "backend":"tomorrowd3d","appliedRecipes":[],"generation":3,"health":"healthy","createdAt":0}
+    """
+    guard let bottle = try? JSONDecoder().decode(Bottle.self, from: Data(futureBottle.utf8)) else {
+        t.expect(false, "a bottle with an unknown backend still decodes"); return
+    }
+    t.equal(bottle.generation, 3, "the bottle decodes rather than throwing")
+    t.equal(bottle.backend, .wined3d, "it falls back to a backend this binary can actually run")
+    t.equal(bottle.unknownBackend, "tomorrowd3d", "…while remembering what it really was")
+    if let out = try? JSONEncoder().encode(bottle),
+       let text = String(data: out, encoding: .utf8) {
+        t.expect(text.contains("tomorrowd3d"),
+                 "and writes the original name back, not the fallback")
+        t.expect(!text.contains("\"backend\":\"wined3d\""),
+                 "…so the newer binary finds the game exactly as it left it")
+    }
+
+    // A whole state file, which is the shape the real failure took.
+    let state = """
+    {"runtimes":[\(future)],"games":[],"bottles":[\(futureBottle)]}
+    """
+    let decoded = try? JSONDecoder().decode(DecanterState.self, from: Data(state.utf8))
+    t.equal(decoded?.runtimes.count, 1, "one unknown backend does not empty the runtime list")
+    t.equal(decoded?.bottles.count, 1, "…nor the bottle list")
+}

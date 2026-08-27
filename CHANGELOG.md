@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.1 — 2026-08-27
+
+- **An older binary no longer opens on an empty library.** Shipping DXMT wrote
+  `"dxmt"` into `state.json`, and a 0.3.1 app — which has no such case — threw
+  while decoding `runtimes`, so it showed no runtimes and no games beside a CLI
+  that could see everything. The store already preserved unknown *keys*; an
+  unknown *enum case* is just as breaking and was not guarded against.
+  `RuntimeSpec` and `Bottle` now set an unrecognised backend name aside and
+  write it back out untouched, so passing through a binary that cannot use it
+  costs nothing. A bottle falls back to WineD3D — which every runtime can
+  provide — while still recording what it really was.
+- `decanter run --debug` now turns DXMT's own logging on alongside DXVK's and
+  MoltenVK's. DXMT names the exact failure ("Failed to create mach port for
+  shared fence" and four siblings) and says nothing at all when left at `none`,
+  which made troubleshooting a DXMT game guesswork.
+
 ## v0.4.0 — 2026-08-27
 
 ### DXMT, and a much more honest answer about Unity 6

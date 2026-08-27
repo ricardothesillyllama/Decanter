@@ -44,6 +44,51 @@ public struct RuntimeSpec: Codable, Hashable, Identifiable, Sendable {
         self.root = root; self.winePath = winePath; self.wineserverPath = wineserverPath
         self.supports32Bit = supports32Bit; self.backends = backends; self.pinnedAt = pinnedAt
     }
+
+    /// Raw backend names this binary does not recognise, kept so they survive a
+    /// round trip through an older version.
+    public var unknownBackends: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, version, root, winePath, wineserverPath, supports32Bit, backends, pinnedAt
+    }
+
+    /// Hand-written because an unknown *enum case* is as breaking as an unknown
+    /// key, and only the second was guarded against.
+    ///
+    /// Synthesised decoding throws on a raw value it has no case for, so one
+    /// `"dxmt"` written by a newer binary made the whole `runtimes` array
+    /// undecodable in an older one — which showed up as an app with no runtimes
+    /// and no games, next to a CLI that could see everything. Unrecognised
+    /// names are set aside and written back out, so passing through an old
+    /// binary costs nothing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = (try? c.decode(RuntimeKind.self, forKey: .kind)) ?? .wine
+        version = (try? c.decode(String.self, forKey: .version)) ?? "unknown"
+        root = try c.decode(URL.self, forKey: .root)
+        winePath = try c.decode(URL.self, forKey: .winePath)
+        wineserverPath = try? c.decodeIfPresent(URL.self, forKey: .wineserverPath)
+        supports32Bit = (try? c.decode(Bool.self, forKey: .supports32Bit)) ?? false
+        pinnedAt = (try? c.decode(Date.self, forKey: .pinnedAt)) ?? Date()
+        let raw = (try? c.decode([String].self, forKey: .backends)) ?? []
+        backends = raw.compactMap { GraphicsBackend(rawValue: $0) }
+        unknownBackends = raw.filter { GraphicsBackend(rawValue: $0) == nil }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(version, forKey: .version)
+        try c.encode(root, forKey: .root)
+        try c.encode(winePath, forKey: .winePath)
+        try c.encodeIfPresent(wineserverPath, forKey: .wineserverPath)
+        try c.encode(supports32Bit, forKey: .supports32Bit)
+        try c.encode(pinnedAt, forKey: .pinnedAt)
+        try c.encode(backends.map(\.rawValue) + unknownBackends, forKey: .backends)
+    }
 }
 
 // MARK: - Detection
@@ -206,6 +251,53 @@ public struct Bottle: Codable, Identifiable, Sendable {
         self.dxvkVersion = dxvkVersion; self.changeLog = changeLog
         self.generation = generation; self.health = health; self.createdAt = createdAt
     }
+
+    /// The backend name as written, when this binary has no case for it.
+    public var unknownBackend: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, prefixPath, runtimeID, backend, appliedRecipes, dxvkVersion
+        case changeLog, generation, health, createdAt
+    }
+
+    /// Same reasoning as `RuntimeSpec`: a single unrecognised backend name must
+    /// not make a bottle undecodable, and must not be silently rewritten to
+    /// something else either. The bottle falls back to a backend this binary
+    /// can actually run, and the original name is written back out untouched,
+    /// so a newer binary still finds the game exactly as it left it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        prefixPath = try c.decode(URL.self, forKey: .prefixPath)
+        runtimeID = try c.decode(String.self, forKey: .runtimeID)
+        let raw = (try? c.decode(String.self, forKey: .backend)) ?? GraphicsBackend.dxvk.rawValue
+        if let known = GraphicsBackend(rawValue: raw) {
+            backend = known
+        } else {
+            backend = .wined3d      // the one every runtime here can always provide
+            unknownBackend = raw
+        }
+        appliedRecipes = (try? c.decode([String].self, forKey: .appliedRecipes)) ?? []
+        dxvkVersion = try? c.decodeIfPresent(String.self, forKey: .dxvkVersion)
+        changeLog = try? c.decodeIfPresent([String].self, forKey: .changeLog)
+        generation = (try? c.decode(Int.self, forKey: .generation)) ?? 1
+        health = (try? c.decode(BottleHealth.self, forKey: .health)) ?? .healthy
+        createdAt = (try? c.decode(Date.self, forKey: .createdAt)) ?? Date()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(prefixPath, forKey: .prefixPath)
+        try c.encode(runtimeID, forKey: .runtimeID)
+        try c.encode(unknownBackend ?? backend.rawValue, forKey: .backend)
+        try c.encode(appliedRecipes, forKey: .appliedRecipes)
+        try c.encodeIfPresent(dxvkVersion, forKey: .dxvkVersion)
+        try c.encodeIfPresent(changeLog, forKey: .changeLog)
+        try c.encode(generation, forKey: .generation)
+        try c.encode(health, forKey: .health)
+        try c.encode(createdAt, forKey: .createdAt)
+    }
 }
 
 // MARK: - Games
@@ -274,7 +366,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.3.1"
-    public static let commit = "e18372a"
+    public static let version = "0.4.0"
+    public static let commit = "801ae56"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }
