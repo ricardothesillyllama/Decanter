@@ -96,5 +96,17 @@ if grep -n 'gameID' Sources/DecanterKit/Knowledge.swift | grep -i 'export' >/dev
   note "the knowledge export references gameID — it must not leave this machine"
 fi
 
+# 9. Build the way CI builds.
+#
+#    CI uses -warnings-as-errors and a plain `swift build` does not, so a
+#    warning that is invisible locally turns the pipeline red after the push —
+#    which is exactly how 0.4.0 and 0.4.1 both shipped with a red build. Opt in
+#    with STRICT=1; it is a full release build and too slow for every run.
+if [ "${STRICT:-0}" = "1" ]; then
+  if ! swift build -c release -Xswiftc -warnings-as-errors -Xswiftc -gnone >/dev/null 2>&1; then
+    note "the release build has warnings — CI treats those as errors"
+  fi
+fi
+
 [ "$fail" = 0 ] && echo "  ✓ all rules hold"
 exit "$fail"

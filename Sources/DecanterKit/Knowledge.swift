@@ -352,7 +352,11 @@ public extension Knowledge {
                     // The game being asked about does not get to vouch for
                     // itself: "this worked for 1 game" meaning *this* game is
                     // not knowledge, it is an echo.
-                    if id != gameID { o.worked ? t.worked.insert(id) : t.failed.insert(id) }
+                    // Not a ternary: Set.insert returns a tuple, and discarding
+                    // it is a warning — which CI builds with -warnings-as-errors.
+                    if id != gameID {
+                        if o.worked { t.worked.insert(id) } else { t.failed.insert(id) }
+                    }
                 } else if o.worked { t.bareWorked += 1 } else { t.bareFailed += 1 }
                 if o.seeded { t.seeded = true }
                 if t.note == nil { t.note = o.note }

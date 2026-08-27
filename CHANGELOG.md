@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2 — 2026-08-27
+
+- **The build is green again.** CI compiles with `-warnings-as-errors` and a
+  plain `swift build` does not, so a discarded `Set.insert` return value was
+  invisible locally and red the moment it was pushed — which is how both 0.4.0
+  and 0.4.1 shipped with a failing pipeline.
+- `STRICT=1 ./scripts/check-rules.sh` now builds the way CI builds, so that gap
+  can be closed before a push rather than discovered after one.
+
 ## v0.4.1 — 2026-08-27
 
 - **An older binary no longer opens on an empty library.** Shipping DXMT wrote
