@@ -82,6 +82,90 @@ func runAcquisitionTests(_ t: Harness) {
     } else {
         t.expect(false, "an empty folder is not a Wine build")
     }
+
+    // The regression that started this: the file at the end of Decanter's own
+    // Wine download link is a .tar.xz, which was not in the archive list, so it
+    // fell all the way through to "not something Decanter can use". The only
+    // route that worked was a Homebrew cask — a Terminal command, which is the
+    // thing this app exists to remove.
+    for name in ["wine-devel-11.16-osx64.tar.xz", "wine-staging-11.16-osx64.tar.xz"] {
+        let u = tmp.appending(path: name)
+        fm.createFile(atPath: u.path, contents: Data())
+        t.equal(acq.classify(u), .wineArchive(canon(u)), "\(name) is recognised as a Wine build")
+    }
+
+    let strangeXZ = tmp.appending(path: "linux-6.9.tar.xz")
+    fm.createFile(atPath: strangeXZ.path, contents: Data())
+    if case .unrecognised(let why) = acq.classify(strangeXZ) {
+        t.expect(why.contains("wine-devel-"),
+                 "an unrelated .tar.xz is refused, and the refusal names the file that was wanted")
+    } else {
+        t.expect(false, "an archive with no Wine in its name must not be unpacked looking for one")
+    }
+
+    // Dropping a folder: one gesture instead of three, and three chances to
+    // drag the wrong file removed.
+    let downloads = tmp.appending(path: "Downloads")
+    try? fm.createDirectory(at: downloads, withIntermediateDirectories: true)
+    for name in ["wine-devel-11.16-osx64.tar.xz", "dxvk-1.10.3.tar.gz",
+                 "dxmt-v0.80.tar.gz", "receipt.pdf"] {
+        fm.createFile(atPath: downloads.appending(path: name).path, contents: Data())
+    }
+    let found = acq.classifyAll(downloads)
+    t.equal(found.count, 3, "a dropped folder yields every piece in it, and nothing else")
+    if found.count == 3 {
+        // Runtimes first: staging DXMT reports whether anything can host it,
+        // and that answer is wrong until the Wine build beside it is pinned.
+        t.equal(found[0], .wineArchive(canon(downloads.appending(path: "wine-devel-11.16-osx64.tar.xz"))),
+                "the Wine build is taken before the graphics layers that depend on one")
+        t.equal(found[1], .dxvkArchive(canon(downloads.appending(path: "dxvk-1.10.3.tar.gz"))),
+                "DXVK comes after the runtime")
+        t.equal(found[2], .dxmtArchive(canon(downloads.appending(path: "dxmt-v0.80.tar.gz"))),
+                "DXMT comes last, because it is the one that reports its host")
+    }
+    t.equal(acq.classifyAll(downloads), found, "scanning the same folder twice gives the same order")
+
+    // A single file is the common case and must behave exactly as before.
+    t.equal(acq.classifyAll(dxvk), [.dxvkArchive(canon(dxvk))],
+            "dropping one file still yields exactly that one piece")
+    t.equal(acq.classifyAll(loose), [.wineRoot(canon(loose))],
+            "a folder that is itself a Wine build is not scanned for loose archives")
+
+    // Recognising the name is half of it. This unpacks a real .tar.xz through
+    // the same path a downloaded Wine build takes, because "tar reads xz" was
+    // an assumption until it was run.
+    let stage = tmp.appending(path: "stage")
+    makeWineRoot(at: stage.appending(path: "Wine Devel.app/Contents/Resources/wine"))
+    let archive = tmp.appending(path: "wine-devel-11.16-osx64.tar.xz")
+    let tarred = try? Shell.run(URL(filePath: "/usr/bin/tar"),
+                                ["cJf", archive.path, "-C", stage.path, "."], timeout: 120)
+    if tarred?.code == 0 {
+        t.survives("a downloaded Wine archive unpacks and the tree inside it is found") {
+            let name = try acq.withWineRoot(inArchive: archive) { $0.appending(path: "bin/wine").path }
+            guard name.contains("/bin/wine") else {
+                throw DecanterError.notFound("found \(name), which is not a Wine tree")
+            }
+        }
+        t.expect(!fm.fileExists(atPath: tmp.appending(path: "tmp-wine").path),
+                 "and the unpacked copy is cleaned up afterwards")
+        // A .tar.xz of the wrong thing must fail with the sentence that says
+        // which file to fetch, not with a tar error.
+        let decoy = tmp.appending(path: "wine-notes.tar.xz")
+        _ = try? Shell.run(URL(filePath: "/usr/bin/tar"),
+                           ["cJf", decoy.path, "-C", tmp.path, "empty"], timeout: 120)
+        t.throwsError("an archive with no Wine build inside is refused after unpacking") {
+            _ = try acq.withWineRoot(inArchive: decoy) { $0 }
+        }
+    } else {
+        t.skip("a downloaded Wine archive unpacks and the tree inside it is found",
+               "tar could not write an xz archive here")
+    }
+
+    // An empty folder must still refuse rather than quietly succeed with none.
+    let none = acq.classifyAll(empty)
+    t.equal(none.count, 1, "a folder with nothing usable yields one answer, not silence")
+    if case .unrecognised = none.first { t.expect(true, "and that answer is a refusal") }
+    else { t.expect(false, "an empty folder must not report success") }
 }
 
 /// hdiutil's plist is parsed rather than its human output, which is

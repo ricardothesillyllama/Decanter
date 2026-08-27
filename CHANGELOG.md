@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.4.3 — 2026-08-27
+
+### First run stops being an errand
+
+- **The Wine build Decanter links to can now actually be dropped into
+  Decanter.** Those builds ship as `.tar.xz`, which was not in the list of
+  archives `Acquisition` recognised, so the file at the end of Decanter's own
+  download link fell through every branch and came back as "not something
+  Decanter can use". The only route that worked was a Homebrew cask — a
+  Terminal command, in the app that exists to remove Terminal commands. Wine
+  archives are now unpacked and searched the same way a disk image already was.
+- **The download link points at the downloads.** It pointed at the Homebrew
+  tap, whose front page is a README of shell commands and no file; it now
+  points at the releases page, and the row names the file to click.
+- **Only the required pieces are numbered.** Rosetta, Wine and the template are
+  the whole path to a running game; the three graphics layers are a choice a
+  game asks for later. Numbering all six turned a first run into a six-item
+  errand across four websites. They now sit under "Graphics — optional".
+- **A folder can be dropped instead of a file.** Decanter takes everything it
+  recognises inside it, runtimes before graphics layers, and one piece failing
+  no longer discards the ones that worked. The CLI gets this too.
+- **A working setup no longer wears a warning.** The sidebar painted its footer
+  amber whenever any *optional* piece was missing, so the only way to clear it
+  was to fetch three graphics layers you might have no use for.
+
+### Fixed
+
+- `scripts/bump.sh` ran arithmetic on `CFBundleVersion`, which stopped working
+  once that key held a dotted version rather than a build number. It exited
+  half-done — one key rewritten, no changelog entry — so every release since
+  has been bumped by hand.
+- A tag's source now carries the version it is tagged as. `install.sh` stamps
+  the version constant *after* a release is cut, so v0.4.2's `Model.swift` said
+  `0.4.1` and a build from that tag misreported itself.
+
 ## v0.4.2 — 2026-08-27
 
 - **The build is green again.** CI compiles with `-warnings-as-errors` and a

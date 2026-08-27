@@ -15,10 +15,16 @@ struct SetupView: View {
     /// An earlier version numbered required items first, which is defensible
     /// and completely unreadable: the rows ran 1, 3, 4, 2 down the page.
     /// Numbers next to a list are read as its order, so they have to be it.
+    ///
+    /// Only the required pieces are numbered, and the page puts them first so
+    /// that still holds. Numbering the optional ones turned a first run into a
+    /// six-item errand across four websites, when the honest instruction is
+    /// press this, fetch one file, press that — the graphics layers are a
+    /// choice a game asks for later, and a numbered step reads as neither.
     static func stepNumbers(_ r: Readiness) -> [String: Int] {
         var out: [String: Int] = [:]
         var n = 1
-        for piece in r.pieces where piece.state != .present {
+        for piece in r.pieces where piece.required && piece.state != .present {
             out[piece.id] = n; n += 1
         }
         return out
@@ -79,7 +85,7 @@ struct SetupView: View {
             Text(firstRun ? "Welcome to Decanter" : "Setup")
                 .font(.largeTitle).bold()
             if firstRun {
-                Text("Before Decanter can run a game, it needs a couple of free downloads. Get each one, then **drag the file onto this window** — Decanter takes it from there.")
+                Text("Before Decanter can run a game it needs one free download. Get it, then **drag the file onto this window** — Decanter takes it from there. You can drop a whole folder too, and it will take everything it recognises.")
                     .font(.title3).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -97,14 +103,40 @@ struct SetupView: View {
 
     private func piecesCard(_ r: Readiness) -> some View {
         let steps = Self.stepNumbers(r)
+        let needed = r.pieces.filter(\.required)
+        let extras = r.pieces.filter { !$0.required }
         return VStack(spacing: 0) {
-            ForEach(r.pieces) { piece in
-                PieceRow(piece: piece, step: steps[piece.id])
-                if piece.id != r.pieces.last?.id { Divider().padding(.leading, 40) }
+            rows(needed, steps: steps)
+            if !extras.isEmpty {
+                extrasHeader
+                rows(extras, steps: [:])
             }
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
+    }
+
+    @ViewBuilder private func rows(_ pieces: [Readiness.Piece], steps: [String: Int]) -> some View {
+        ForEach(pieces) { piece in
+            PieceRow(piece: piece, step: steps[piece.id])
+            if piece.id != pieces.last?.id { Divider().padding(.leading, 40) }
+        }
+    }
+
+    /// The line that turns the rest of the card from "four more things to do"
+    /// into "things you can add when something wants one".
+    private var extrasHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Graphics — optional")
+                .font(.callout).bold()
+            Text("A game runs without these. Decanter says which one to add when a game actually needs it.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 8)
+        .background(Palette.hairline.opacity(0.35))
+        .overlay(alignment: .top) { Divider() }
     }
 
     /// The column beside the steps: the question people ask next, then the

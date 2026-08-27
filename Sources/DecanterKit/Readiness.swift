@@ -66,7 +66,11 @@ public struct Readiness: Sendable {
     }
 
     public static let gptkSource = URL(string: "https://developer.apple.com/download/all/?q=game%20porting%20toolkit")!
-    public static let wineSource = URL(string: "https://github.com/Gcenx/homebrew-wine")!
+    /// The releases page, not the Homebrew tap. The tap's front page is a
+    /// README whose instructions are Terminal commands — which is the thing
+    /// this app exists to remove, and it left a new user hunting for a file
+    /// that was never on the page they landed on.
+    public static let wineSource = URL(string: "https://github.com/Gcenx/macOS_Wine_builds/releases/latest")!
     public static let dxvkSource = URL(string: "https://github.com/doitsujin/dxvk/releases/tag/v1.10.3")!
     public static let dxmtSource = URL(string: "https://github.com/3Shain/dxmt/releases")!
 }
@@ -100,7 +104,7 @@ public extension Engine {
             title: "Windows support",
             technical: pinnedWine.map(\.id).joined(separator: ", "),
             spec: pinnedWine.isEmpty
-                ? "Wine 10 or 11, arm64 macOS build · Gcenx's casks are the usual source"
+                ? "Wine 10 or 11, macOS build · wine-devel-<version>-osx64.tar.xz from Gcenx"
                 : "Wine " + pinnedWine.map(\.version).joined(separator: ", ")
                   + " · " + (pinnedWine.contains(where: \.supports32Bit) ? "32-bit capable" : "64-bit only"),
             why: "Without this, a Windows game is just a file your Mac cannot open.",
@@ -108,11 +112,11 @@ public extension Engine {
             required: true,
             detail: pinnedWine.isEmpty
                 ? (foundWine.isEmpty
-                   ? "Free. Download it, then drag the file onto this window."
+                   ? "Free. On that page, click the file ending in -osx64.tar.xz, then drag it onto this window."
                    : "Already on this Mac. Decanter wants its own copy, so an update to it can never break your games.")
                 : pinnedWine.map(\.version).joined(separator: ", "),
             source: Readiness.wineSource, sourceLabel: "Download",
-            accepts: "Drag the app or folder onto this window"))
+            accepts: "Drag the downloaded file onto this window"))
 
         r.pieces.append(.init(
             id: "gptk",

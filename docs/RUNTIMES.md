@@ -38,10 +38,12 @@ if you use the released disk image.
 ## A mainline Wine build — required
 
 This is the part that lets a Windows program run at all. Any Apple Silicon Wine
-build works — for example the casks published by
-[Gcenx](https://github.com/Gcenx/homebrew-wine).
+build works — for example the builds published by
+[Gcenx](https://github.com/Gcenx/macOS_Wine_builds/releases/latest), where the
+file to take is the one ending `-osx64.tar.xz`.
 
-Drop the app or its folder on the window. If it is already in `/Applications`,
+Drop the downloaded archive, the app, or its folder on the window. If it is
+already in `/Applications`,
 Setup will have found it already and offers a **Use It** button instead.
 
 ## Game Porting Toolkit — optional, and usually worth it

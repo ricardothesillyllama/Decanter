@@ -30,9 +30,23 @@ if git rev-parse "v$NEXT" >/dev/null 2>&1; then
   echo "v$NEXT is already tagged — pick a later version"; exit 1
 fi
 
-BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")
+# Both keys carry the same dotted version. CFBundleVersion used to be
+# incremented arithmetically here, which stopped working the moment it held
+# "0.4.2" rather than a build number: sh cannot add 1 to a dotted string, so
+# bump.sh exited half-done — after rewriting one key and before writing the
+# changelog — and every release since has been bumped by hand.
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEXT" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((BUILD + 1))" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST"
+
+# The version constant moves here as well as in install.sh, so that the commit
+# being tagged carries the version it is tagged as. install.sh alone stamps the
+# working tree *after* a release is cut, which left every tag's source claiming
+# the previous version: v0.4.2's Model.swift said "0.4.1", so anyone building
+# from the tag got a binary that misreported itself. The commit constant cannot
+# be fixed the same way — a file cannot contain its own hash — and stays
+# install.sh's job.
+/usr/bin/sed -i '' -E "s/public static let version = \".*\"/public static let version = \"$NEXT\"/" \
+  Sources/DecanterKit/Model.swift
 
 # A version with no changelog entry is a version nobody can find out about.
 if ! grep -q "^## v$NEXT" CHANGELOG.md; then
@@ -44,5 +58,5 @@ if ! grep -q "^## v$NEXT" CHANGELOG.md; then
 _Unreleased._|" CHANGELOG.md
 fi
 
-echo "$CURRENT -> $NEXT (build $((BUILD + 1)))"
+echo "$CURRENT -> $NEXT"
 echo "  next: edit the CHANGELOG entry, then ./install.sh"

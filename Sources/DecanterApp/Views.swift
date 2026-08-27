@@ -103,10 +103,14 @@ struct Sidebar: View {
         guard let r = model.readiness, !r.ready else { return .secondary }
         return Palette.danger
     }
+    /// Ready is ready. An earlier version painted this amber while any
+    /// optional piece was missing, so a Mac that runs games perfectly wore a
+    /// warning for as long as the user declined to fetch three graphics layers
+    /// they had no use for. The symbol above still distinguishes the two; a
+    /// caution colour claims something is wrong, and nothing is.
     private func footerTint(_ h: Engine.Health) -> Color {
         guard let r = model.readiness else { return h.rosetta ? Palette.running : Palette.danger }
-        if !r.ready { return Palette.danger }
-        return r.missingOptional.isEmpty ? Palette.running : Palette.caution
+        return r.ready ? Palette.running : Palette.danger
     }
     @State private var pendingRemoval: Game?
     @State private var keepSaves = true
