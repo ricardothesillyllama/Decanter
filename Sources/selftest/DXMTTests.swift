@@ -34,14 +34,33 @@ func runDXMTTests(_ t: Harness) {
         return root
     }
 
-    // MH_DYLIB = 6, MH_BUNDLE = 8.
+    // MH_DYLIB = 6, MH_BUNDLE = 8. The three cases are the three real builds:
+    // one that links but hides the metal-view calls (mainline Wine), one that
+    // exports plenty but cannot be linked against (the Game Porting Toolkit),
+    // and the one DXMT actually asks for.
+    // `macdrv_functions` is what distinguishes real builds; the view calls are
+    // the other name DXMT looks up. Either has to be enough on its own.
+    let metalAPI = "_macdrv_functions"
     let dylib = fixtureRoot("winemac.so", machO(filetype: 6))
-    let bundle = fixtureRoot("winemac.drv.so", machO(filetype: 8, trailing: "_macdrv_get_client_cocoa_view WineMetalView"))
+    let capable = fixtureRoot("winemac.so", machO(filetype: 6, trailing: metalAPI))
+    let bundle = fixtureRoot("winemac.drv.so", machO(filetype: 8,
+                             trailing: "_macdrv_get_client_cocoa_view WineMetalView " + metalAPI))
     let noDriver = fixtureRoot(nil, Data())
-    defer { for u in [dylib, bundle, noDriver] { try? fm.removeItem(at: u) } }
+    defer { for u in [dylib, capable, bundle, noDriver] { try? fm.removeItem(at: u) } }
 
-    t.expect(RuntimeManager.metalHosting(root: dylib).looksCapable,
-             "a driver built as a dylib can host DXMT")
+    let capableAltName = fixtureRoot("winemac.so", machO(filetype: 6,
+                                     trailing: "_macdrv_view_create_metal_view"))
+    defer { try? fm.removeItem(at: capableAltName) }
+    t.expect(RuntimeManager.metalHosting(root: capable).looksCapable,
+             "a dylib that exports macdrv_functions can host DXMT")
+    t.expect(RuntimeManager.metalHosting(root: capableAltName).looksCapable,
+             "…and so can one that exports the view calls under their own names")
+    // The case that a real game disproved: it links, it reaches a Direct3D 11
+    // device, and only then finds there is nothing to draw into.
+    t.expect(!RuntimeManager.metalHosting(root: dylib).looksCapable,
+             "a dylib that hides them cannot, even though it loads perfectly well")
+    t.expect(RuntimeManager.metalHosting(root: dylib).driverIsLinkable,
+             "…and it is still recorded as linkable, because it is")
     t.expect(!RuntimeManager.metalHosting(root: bundle).looksCapable,
              "a driver built as a bundle cannot, however many symbols it exports")
     t.expect(RuntimeManager.metalHosting(root: bundle).hasCocoaViewAccess,
@@ -49,13 +68,17 @@ func runDXMTTests(_ t: Harness) {
     t.expect(RuntimeManager.metalHosting(root: noDriver).driverPath == nil,
              "a build with no Unix-side Mac driver reports no driver")
 
-    // Every "no" must be able to say why. A gate that refuses without a reason
-    // is the thing people file issues about.
-    for (name, root) in [("bundle", bundle), ("no driver", noDriver)] {
+    // Every "no" must be able to say why, and the two noes must not say the
+    // same thing: one needs a different build, the other needs the same build
+    // compiled differently.
+    for (name, root) in [("bundle", bundle), ("no driver", noDriver), ("hidden symbols", dylib)] {
         let why = RuntimeManager.metalHosting(root: root).unavailableReason
         t.expect(why != nil && why!.count > 40, "\(name): the refusal explains itself")
     }
-    t.expect(RuntimeManager.metalHosting(root: dylib).unavailableReason == nil,
+    t.expect(RuntimeManager.metalHosting(root: dylib).unavailableReason
+             != RuntimeManager.metalHosting(root: bundle).unavailableReason,
+             "a hidden-symbol build and a bundle are told apart, not given one answer")
+    t.expect(RuntimeManager.metalHosting(root: capable).unavailableReason == nil,
              "a capable build gives no reason, because there is nothing to explain")
 
     // MARK: Byte scan and nm must not drift apart
@@ -70,9 +93,17 @@ func runDXMTTests(_ t: Harness) {
         compared += 1
         let nmCocoa = m.exportedSymbols.contains { $0.contains("macdrv_get_cocoa_view")
                                                 || $0.contains("macdrv_get_client_cocoa_view") }
-        let nmMetal = m.exportedSymbols.contains { $0.contains("WineMetalView") }
+        let nmAPI = m.exportedSymbols.contains { $0.contains("macdrv_functions")
+                                              || $0.contains("macdrv_view_create_metal_view") }
         t.equal(m.hasCocoaViewAccess, nmCocoa, "\(r.id): cocoa view verdict matches nm")
-        t.equal(m.hasMetalView, nmMetal, "\(r.id): Metal view verdict matches nm")
+        // The field that decides is the one that has to agree. `hasMetalView`
+        // is deliberately not checked against nm: it looks for the string
+        // "WineMetalView", and mainline Wine 11 contains that string as an
+        // Objective-C class name while exporting no such symbol. A byte scan
+        // cannot tell a class name from an export, which is exactly why the
+        // verdict keys on `macdrv_functions` — a symbol that appears in the
+        // table when it is exported and not otherwise.
+        t.equal(m.hasMetalViewAPI, nmAPI, "\(r.id): Metal view API verdict matches nm")
     }
     if compared == 0 { t.skip("byte scan vs nm", "no pinned runtime with a readable driver") }
 
@@ -80,7 +111,9 @@ func runDXMTTests(_ t: Harness) {
     t.suite("a runtime only offers backends it can deliver")
     t.expect(!RuntimeManager.backends(for: .wine, root: bundle).contains(.dxmt),
              "a Wine that cannot host DXMT does not offer it")
-    t.expect(RuntimeManager.backends(for: .wine, root: dylib).contains(.dxmt),
+    t.expect(!RuntimeManager.backends(for: .wine, root: dylib).contains(.dxmt),
+             "…nor does one that would load and then fail at the first frame")
+    t.expect(RuntimeManager.backends(for: .wine, root: capable).contains(.dxmt),
              "a Wine that can host DXMT does offer it")
     t.expect(!RuntimeManager.backends(for: .wine, root: bundle).contains(.d3dmetal),
              "D3DMetal is still never offered on plain Wine")
@@ -89,10 +122,12 @@ func runDXMTTests(_ t: Harness) {
 
     // MARK: Unity 6's verdict says what was measured
     //
-    // DXMT is the only backend here that gets Unity 6 a device, and it still
-    // does not run it. The warning has to survive being on DXMT, or it would
-    // promise something that was tried and did not work.
-    t.suite("the Unity 6 verdict is not lifted by any backend here")
+    // DXMT is the only backend that runs Unity 6, and it was watched doing it:
+    // Direct3D 11.0 at feature level 11_1, renderer "Apple M2", gameplay on
+    // screen. So the warning must survive every other backend and be lifted by
+    // exactly one — an earlier version of this suite asserted the opposite,
+    // and was right until the Wine that DXMT needs turned up.
+    t.suite("the Unity 6 verdict names DXMT as the way through")
     let det6 = Detector()
     let u6 = det6.detect(exe: Fixture.unity(unityVersion: "6000.2.0b7").appending(path: "TestGame.exe"))
     t.equal(u6.engineVersion, "6000.2.0b7", "the Unity 6 version is read")
@@ -100,12 +135,14 @@ func runDXMTTests(_ t: Harness) {
         t.expect(false, "Unity 6 is flagged as unsupported"); return
     }
     t.expect(verdict.contains("ID3D11Fence"),
-             "the verdict names the interface that actually fails")
+             "the verdict names the interface Apple graphics is missing")
     t.expect(verdict.contains("11_1"),
-             "…and credits DXMT with the feature level it does reach")
-    t.expect(u6.unsupportedUnless == nil,
-             "no backend is named as an escape hatch, because none was seen to work")
-    for b in GraphicsBackend.allCases {
+             "…and the feature level DXMT reaches")
+    t.expect(verdict.contains("Metal view"),
+             "…and the driver requirement, without which DXMT loads and cannot draw")
+    t.equal(u6.unsupportedUnless, .dxmt, "DXMT is named as the way through")
+    t.expect(u6.blocker(onBackend: .dxmt) == nil, "so being on DXMT lifts the warning")
+    for b in GraphicsBackend.allCases where b != .dxmt {
         t.expect(u6.blocker(onBackend: b) != nil, "still blocked on \(b.label)")
     }
 

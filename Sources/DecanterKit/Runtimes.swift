@@ -36,8 +36,25 @@ public struct RuntimeManager {
         public var driverPath: URL?
         public var exportedSymbols: [String] = []
         /// The view accessors DXMT needs to hand Metal a surface to draw into.
+        /// Recorded for `doctor`; not the verdict — see `hasMetalViewAPI`.
         public var hasCocoaViewAccess = false
         public var hasMetalView = false
+
+        /// Whether the driver exposes the way in to Wine's Metal view.
+        ///
+        /// DXMT's `winemetal.so` has no undefined `macdrv_*` symbols — checked
+        /// with `nm -u`, there are none at all — so it resolves them with
+        /// `dlsym` at the moment a drawable is first wanted. The names it
+        /// carries are `macdrv_functions` and the three view calls
+        /// (`macdrv_view_create_metal_view` and siblings). Either family being
+        /// exported means the driver was built to expose this; ordinary builds
+        /// hide all of it behind `-fvisibility=hidden`.
+        ///
+        /// `macdrv_functions` is the one that separates real builds in
+        /// practice: the Game Porting Toolkit exports it, mainline Wine 11
+        /// exports neither, and Gcenx's Sikarugir build of Wine 10 exports it —
+        /// which is why that build is the one projects running DXMT use.
+        public var hasMetalViewAPI = false
 
         /// Whether the Mac driver is a Mach-O *dylib* rather than a *bundle*.
         ///
@@ -50,21 +67,30 @@ public struct RuntimeManager {
         /// part of the binary.
         public var driverIsLinkable = false
 
-        /// Linkability is the whole test.
+        /// Both halves are needed, and each was learned by being wrong about it.
         ///
-        /// The symbol flags above are recorded, but deliberately *not* part of
-        /// this: they were a reverse-engineered guess and measurement showed
-        /// them to be backwards. DXMT's `winemetal.so` has no undefined
-        /// `macdrv_*` symbols at all — it resolves what it needs through the
-        /// Objective-C runtime — so all it requires is that the driver be a
-        /// dylib it can link against.
+        /// Linking is the first gate: DXMT's `winemetal.so` carries a hard
+        /// `LC_LOAD_DYLIB` on `@rpath/winemac.so`, and dyld refuses a bundle
+        /// outright. The Game Porting Toolkit's driver is MH_BUNDLE, so DXMT
+        /// never loads there at all.
         ///
-        /// Checked against both runtimes here, and the static test agrees with
-        /// a real `dlopen` on each: mainline Wine 11 ships `winemac.so` as a
-        /// dylib and loads, exporting none of those symbols; the Game Porting
-        /// Toolkit exports all of them and does not load, because its driver is
-        /// a bundle.
-        public var looksCapable: Bool { driverIsLinkable }
+        /// Presenting is the second, and for a while this said linking was the
+        /// whole test — because a real `dlopen` of mainline Wine 11 succeeded.
+        /// It does succeed. Running a game then showed what that proves and
+        /// what it does not: DXMT loaded, created a D3D11 device at feature
+        /// level 11_1 on the real GPU, and only then said "Failed to create
+        /// metal view, it seems like your Wine has no exported symbols needed
+        /// by DXMT". The accessors are resolved when a drawable is first
+        /// wanted, not at load, so nothing about linking predicts them.
+        ///
+        /// Measured on this machine: mainline Wine 11 is a dylib and exports
+        /// nothing of either family; the Game Porting Toolkit exports
+        /// `macdrv_functions` but is a bundle, so it fails the first gate. DXMT
+        /// asks for "a FOSS CrossOver Wine 24+ built from the sources", and
+        /// Gcenx's Sikarugir build of Wine 10 is a ready-made one — a dylib
+        /// that exports `macdrv_functions`, which is what other projects
+        /// running DXMT on Apple Silicon ship.
+        public var looksCapable: Bool { driverIsLinkable && hasMetalViewAPI }
 
         /// Why this build cannot host DXMT, in the terms the person asking
         /// would use. `nil` when it can.
@@ -76,10 +102,19 @@ public struct RuntimeManager {
                 to draw through. Mainline Wine builds its Mac driver as PE only.
                 """
             }
+            if !driverIsLinkable {
+                return """
+                This Wine build's Mac driver is a Mach-O bundle, and DXMT's Metal bridge links \
+                against it as a dylib — macOS refuses that outright, with "cannot link against \
+                bundle". A build that ships the driver as a dylib is needed instead.
+                """
+            }
             return """
-            This Wine build's Mac driver is a Mach-O bundle, and DXMT's Metal bridge links \
-            against it as a dylib — macOS refuses that outright, with "cannot link against \
-            bundle". A build that ships the driver as a dylib is needed instead.
+            This Wine build's Mac driver does not export the three calls DXMT uses to get \
+            something to draw into (macdrv_view_create_metal_view and its two siblings). It \
+            would load, reach a Direct3D 11 device, and then fail at the first frame. Wine \
+            has these calls; ordinary builds hide them. DXMT asks for a FOSS CrossOver \
+            Wine 24+ built from source, which exposes them.
             """
         }
     }
@@ -110,6 +145,12 @@ public struct RuntimeManager {
         out.hasCocoaViewAccess = Self.contains(data, "_macdrv_get_client_cocoa_view")
                               || Self.contains(data, "_macdrv_get_cocoa_view")
         out.hasMetalView = Self.contains(data, "WineMetalView")
+        // One of the three is enough to tell a build that exposes them from one
+        // that does not: they are exported together or not at all.
+        out.hasMetalViewAPI = Self.contains(data, "_macdrv_functions")
+                           || Self.contains(data, "macdrv_functions")
+                           || Self.contains(data, "_macdrv_view_create_metal_view")
+                           || Self.contains(data, "macdrv_view_create_metal_view")
         out.driverIsLinkable = Self.machOFileType(data) == Self.MH_DYLIB
 
         // `nm -gU` lists external, defined symbols. Kept purely as detail for

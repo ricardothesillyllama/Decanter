@@ -99,13 +99,17 @@ func runKnowledgeTests(_ t: Harness) {
     let seeded = Knowledge.seeded()
     let u6 = sig(.unityMono, major: 6000, .x64, chip: .unknown, os: nil)
     let u6bad = seeded.knownBad(for: u6)
-    t.expect(u6bad.count >= 4, "every backend tried on Unity 6 is recorded as failing (got \(u6bad.count))")
-    t.expect(u6bad.contains { $0.setup.backend == .dxmt && $0.failure == .missingInterface },
-             "DXMT is recorded as reaching a device and then missing an interface")
+    t.expect(u6bad.count >= 3, "every backend that failed Unity 6 is recorded as failing (got \(u6bad.count))")
+    t.expect(u6bad.contains { $0.setup.backend == .d3dmetal && $0.failure == .missingInterface },
+             "Apple graphics is recorded as reaching a device and then missing an interface")
     t.expect(u6bad.contains { $0.setup.backend == .dxvk && $0.failure == .noDevice },
              "DXVK is recorded as never getting a device at all")
-    t.expect(seeded.best(for: u6) == nil,
-             "and nothing is recommended for Unity 6, because nothing worked")
+    t.expect(!u6bad.contains { $0.setup.backend == .dxmt },
+             "DXMT is not among them — it was watched running Unity 6")
+    // The seed that changed once the missing Wine turned up. Recorded because
+    // it was seen, not inferred: feature level 11_1, renderer "Apple M2".
+    t.equal(seeded.best(for: u6)?.setup.backend, .dxmt,
+            "and Unity 6 is recommended DXMT, the one thing that ran it")
 
     // Unity 2022 is a different generation and must be unaffected by all that.
     let u2022 = sig(.unityMono, major: 2022, .x64, chip: .unknown, os: nil)
@@ -148,4 +152,65 @@ func runKnowledgeTests(_ t: Harness) {
     t.suite("knowledge survives a round trip")
     let round = try? JSONDecoder().decode(Knowledge.self, from: JSONEncoder().encode(lib))
     t.equal(round?.observations.count, lib.observations.count, "every observation comes back")
+
+    // MARK: Import
+    t.suite("someone else's export folds in without outvoting what was seen here")
+
+    // A stranger's Mac: a different chip, so a different situation entirely.
+    var theirs = Knowledge()
+    let elsewhere = sig(chip: .m4, os: 27)
+    theirs.record(.init(signature: elsewhere, setup: dxvk, worked: true,
+                        gameID: UUID(), note: "played this for hours on Dino Attack"))
+    let wire = theirs.exportable()
+
+    var mine = Knowledge()
+    let local = UUID()
+    mine.recordSuccess(signature: here, gameID: local, setup: dxvk)
+    let before = mine.observations.count
+
+    let first = mine.merge(wire)
+    t.equal(first.added, 1, "a situation this Mac has never seen is taken")
+    t.equal(mine.observations.count, before + 1, "…and lands as one observation")
+    t.expect(mine.observations.contains { $0.imported },
+             "…marked as having come from somewhere else")
+    t.expect(mine.observations.allSatisfy { $0.gameID == nil || !$0.imported },
+             "an imported row carries no game id — it would mean nothing here anyway")
+
+    // The note is the one free-text field in the format, and an unsigned one
+    // cannot be attributed to anybody. It is also exactly where a title leaks.
+    t.expect(mine.observations.allSatisfy { !$0.imported || $0.note == nil },
+             "notes are dropped on import, so unsigned prose cannot carry a game name in")
+    let dump = String(data: (try? JSONEncoder().encode(mine)) ?? Data(), encoding: .utf8) ?? ""
+    t.expect(!dump.lowercased().contains("dino"),
+             "…and nothing from the note survives into the store")
+
+    let second = mine.merge(wire)
+    t.equal(second.added, 0, "importing the same file twice adds nothing")
+    t.equal(second.skipped, 1, "…and says so")
+
+    // Local evidence must not be displaceable by a stranger claiming otherwise
+    // about the same machine and setup: counts are not exported, so a second
+    // row would be a duplicate, not weight.
+    var contradiction = Knowledge.Export()
+    contradiction.observations.append(.init(signature: here, setup: dxvk,
+                                            worked: false, failure: .noDevice, note: nil))
+    let third = mine.merge(contradiction)
+    t.equal(third.added, 0, "a stranger disagreeing about a situation seen here is not taken")
+    t.expect(mine.best(for: here)?.setup.backend == .dxvk,
+             "…and what was actually seen here still stands")
+
+    // Round-tripping your own export must be a no-op, or every share doubles.
+    var self1 = Knowledge()
+    self1.recordSuccess(signature: here, gameID: local, setup: dxmt)
+    let selfCount = self1.observations.count
+    let selfMerge = self1.merge(self1.exportable())
+    t.equal(selfMerge.added, 0, "re-importing your own export changes nothing")
+    t.equal(self1.observations.count, selfCount, "…and the store does not grow")
+
+    // The marker has to survive being written and read, or the tier it exists
+    // for cannot be reconstructed after a restart.
+    let reloaded = try? JSONDecoder().decode(Knowledge.self, from: JSONEncoder().encode(mine))
+    t.equal(reloaded?.observations.filter(\.imported).count,
+            mine.observations.filter(\.imported).count,
+            "the imported marker survives a save and load")
 }

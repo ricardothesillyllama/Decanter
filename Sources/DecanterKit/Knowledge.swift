@@ -200,13 +200,19 @@ public struct Knowledge: Codable, Sendable {
         public var gameID: UUID?
         /// True for knowledge Decanter shipped with rather than saw here.
         public var seeded: Bool = false
+        /// True for knowledge that arrived in someone else's export. Nothing
+        /// weighs it differently yet — it is recorded now so that when signed
+        /// endorsements arrive there is a fact to tier, rather than a migration
+        /// that has to guess where every existing row came from.
+        public var imported: Bool = false
         public var note: String?
 
         public init(signature: Signature, setup: Setup, worked: Bool,
                     failure: Failure? = nil, gameID: UUID? = nil,
-                    seeded: Bool = false, note: String? = nil) {
+                    seeded: Bool = false, imported: Bool = false, note: String? = nil) {
             self.signature = signature; self.setup = setup; self.worked = worked
-            self.failure = failure; self.gameID = gameID; self.seeded = seeded; self.note = note
+            self.failure = failure; self.gameID = gameID; self.seeded = seeded
+            self.imported = imported; self.note = note
         }
 
         public init(from decoder: Decoder) throws {
@@ -217,6 +223,7 @@ public struct Knowledge: Codable, Sendable {
             failure = try? c.decodeIfPresent(Failure.self, forKey: .failure)
             gameID = try? c.decodeIfPresent(UUID.self, forKey: .gameID)
             seeded = (try? c.decode(Bool.self, forKey: .seeded)) ?? false
+            imported = (try? c.decode(Bool.self, forKey: .imported)) ?? false
             note = try? c.decodeIfPresent(String.self, forKey: .note)
         }
     }
@@ -490,8 +497,13 @@ public extension Knowledge {
                 add(engine, major: 6000, .x64, kind, .dxvk, worked: false, failure: .noDevice,
                     "DXVK on MoltenVK fails device creation at every feature level, down to 10_0")
             }
-            add(engine, major: 6000, .x64, .wine, .dxmt, worked: false, failure: .missingInterface,
-                "DXMT gets a real device at feature level 11_1, then Unity fails GpuFence::Create — no ID3D11Fence")
+            // The one that works, and the only route to it. Seeded as a
+            // success because it was watched happening rather than inferred:
+            // Direct3D 11.0 at feature level 11_1, renderer "Apple M2",
+            // gameplay on screen. Unity still logs a failed GpuFence::Create
+            // and does not care, which is why that line misled for so long.
+            add(engine, major: 6000, .x64, .wine, .dxmt, worked: true,
+                "DXMT runs Unity 6 at feature level 11_1 — needs a Wine whose Mac driver exports the Metal view API")
         }
         return k
     }
@@ -537,13 +549,50 @@ public extension Knowledge {
         public var formatVersion = 1
         public var observations: [Row] = []
 
+        public init() {}
+
         public struct Row: Codable, Sendable {
             public var signature: Signature
             public var setup: Setup
             public var worked: Bool
             public var failure: Failure?
             public var note: String?
+
+            public init(signature: Signature, setup: Setup, worked: Bool,
+                        failure: Failure? = nil, note: String? = nil) {
+                self.signature = signature; self.setup = setup
+                self.worked = worked; self.failure = failure; self.note = note
+            }
         }
+    }
+
+    /// Folds someone else's export in, and says what it did.
+    ///
+    /// A situation-and-setup this machine already has an answer for is skipped
+    /// rather than merged. Counts are deliberately not exported — how many
+    /// games agreed is a fact about a library, not about the world — so a
+    /// second row for a situation already answered adds a duplicate, not
+    /// weight, and a stranger's claim cannot outvote what was seen here.
+    ///
+    /// Notes are dropped. A note is the one free-text field in the format, and
+    /// an unsigned one cannot be attributed to anybody — which makes it both
+    /// the obvious place for a game title to leak in and impossible to hold
+    /// anyone to. Prose comes back when there is a signature to check it
+    /// against.
+    @discardableResult
+    mutating func merge(_ e: Export) -> (added: Int, skipped: Int) {
+        var have = Set(observations.map { Pair($0.signature, $0.setup) })
+        var added = 0, skipped = 0
+        for row in e.observations {
+            let key = Pair(row.signature, row.setup)
+            guard !have.contains(key) else { skipped += 1; continue }
+            have.insert(key)
+            observations.append(.init(signature: row.signature, setup: row.setup,
+                                      worked: row.worked, failure: row.failure,
+                                      gameID: nil, seeded: false, imported: true, note: nil))
+            added += 1
+        }
+        return (added, skipped)
     }
 
     func exportable() -> Export {
@@ -563,6 +612,30 @@ public extension Knowledge {
 }
 
 public extension Engine {
+    /// Reads an export and folds it in. The file is someone else's, so it is
+    /// treated as data: a format version this build does not understand is
+    /// refused by name rather than decoded optimistically, because the cost of
+    /// being wrong is a recommendation given to somebody else's game.
+    @discardableResult
+    func importKnowledge(from url: URL) throws -> (added: Int, skipped: Int) {
+        guard let data = try? Data(contentsOf: url) else {
+            throw DecanterError.badFile("Cannot read \(url.path) — check the path is right and the file is there.")
+        }
+        guard let e = try? JSONDecoder().decode(Knowledge.Export.self, from: data) else {
+            throw DecanterError.badFile(
+                "\(url.lastPathComponent) is not a Decanter knowledge export. "
+                + "An export is the file `decanter knowledge export` writes.")
+        }
+        guard e.formatVersion <= 1 else {
+            throw DecanterError.badFile(
+                "\(url.lastPathComponent) was written by a newer Decanter (format \(e.formatVersion); "
+                + "this one understands 1). Update before importing it.")
+        }
+        let result = knowledge.merge(e)
+        if result.added > 0 { try knowledge.save(to: paths.knowledgePath) }
+        return result
+    }
+
     @discardableResult
     func exportKnowledge(to url: URL) throws -> Int {
         let e = knowledge.exportable()

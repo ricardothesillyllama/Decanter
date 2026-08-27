@@ -158,37 +158,37 @@ public struct Detector {
         if let v = r.engineVersion {
             r.signals.append(.init("engine version \(v)", weight: 0.05))
             if v.hasPrefix("6000.") {
-                // Measured across every available combination on this machine:
-                // D3DMetal lacks the D3D11 fence/multithread interfaces Unity 6
-                // requires; its D3D12 path needs D3D11On12, also missing;
-                // WineD3D cannot create the device at all; and Unity's Vulkan
-                // renderer only works if the game shipped Vulkan shaders.
-                // Scoped deliberately. "Does not work on any Mac" is a claim
-                // about the world that goes stale the moment upstream moves —
-                // and it has: CrossOver 26 shipped DXMT 0.72 in February 2026.
-                // What Decanter can honestly assert is what its own runtimes do.
-                // Measured on an M2, macOS 26, against a real Unity 6.2 build:
+                // Measured on an M2, macOS 26, against a real 6000.2 build —
+                // and the answer changed once the last missing piece arrived.
                 //  - DXVK 1.10.3 on MoltenVK fails D3D11 device creation at
                 //    every feature level, down to 10_0.
                 //  - D3DMetal lacks ID3D11Fence and ID3D11Multithread, and
-                //    D3D11On12 for the D3D12 path.
-                //  - DXMT 0.80 on mainline Wine 11 *does* create a device, at
-                //    feature level 11_1 — the only backend here that gets
-                //    that far — and then Unity dies in GpuFence::Create with
-                //    "Failed to create ID3D11Fence, error 0x80004005".
+                //    D3D11On12 for the D3D12 path; Unity stops at
+                //    "InitializeEngineGraphics failed".
+                //  - WineD3D cannot create the device at all.
+                //  - DXMT 0.80 runs it: Direct3D 11.0 at feature level 11_1,
+                //    renderer "Apple M2", and the game plays.
                 //
-                // So DXMT changes the answer without yet fixing it, and this
-                // stays a blocker rather than naming an escape hatch. Graphics
-                // jobs are what need the fence, so `-force-gfx-direct` is worth
-                // trying; that is a suggestion, not a claim, until it is seen
-                // to work.
+                // Two things had to be true at once, which is why this read as
+                // a dead end for so long. DXMT's Metal bridge links against
+                // Wine's Mac driver as a dylib, and then asks that driver for a
+                // drawable at the first frame — so the driver must be a dylib
+                // *and* export `macdrv_functions`. The Game Porting Toolkit
+                // exports it but ships a bundle; mainline Wine ships a dylib
+                // that exports nothing. Gcenx's Sikarugir build of Wine 10 is
+                // both, and on it Unity 6 runs.
+                //
+                // `GpuFence::Create` still fails with 0x80004005 and Unity
+                // carries on regardless — logged, not fatal, and never the
+                // blocker it appeared to be.
+                r.unsupportedUnless = .dxmt
                 r.knownUnsupported = """
-                Unity 6 (\(v)) does not run on any graphics layer set up here. Apple graphics \
-                is missing ID3D11Fence and ID3D11Multithread, and D3D11On12 for its D3D12 path; \
-                Wine graphics cannot create a D3D11 device for it; and Vulkan graphics fails \
-                device creation at every feature level down to 10_0. Metal graphics (DXMT) gets \
-                furthest — a real device at feature level 11_1 — but Unity then fails to create \
-                an ID3D11Fence and stops. Unity 2022 and earlier are fine.
+                Unity 6 (\(v)) needs Metal graphics (DXMT). Apple graphics is missing \
+                ID3D11Fence and ID3D11Multithread, and D3D11On12 for its D3D12 path; Wine \
+                graphics cannot create a D3D11 device for it; and Vulkan graphics fails device \
+                creation at every feature level down to 10_0. DXMT runs it — feature level \
+                11_1, drawing on the GPU directly — but only on a Wine build whose Mac driver \
+                exports the Metal view API. Unity 2022 and earlier are fine on any of them.
                 """
             }
         }

@@ -13,6 +13,117 @@ func runAbuseTests(_ t: Harness) {
         return try! Engine(paths: Paths(root: root))
     }
 
+    // A knowledge export is the one file Decanter is asked to read from a
+    // stranger. It has to refuse the bad shapes by name, because the cost of
+    // accepting one is a recommendation handed to somebody else's game.
+    t.suite("An export from elsewhere is treated as data, not as truth")
+    do {
+        let e = freshEngine("kb-import")
+        let dir = Fixture.dir("kb-files")
+        func file(_ name: String, _ body: String) -> URL {
+            let u = dir.appending(path: name)
+            try? body.write(to: u, atomically: true, encoding: .utf8)
+            return u
+        }
+        t.throwsError("a file that is not JSON at all is refused") {
+            _ = try e.importKnowledge(from: file("junk.json", "not json"))
+        }
+        t.throwsError("a JSON file that is not an export is refused") {
+            _ = try e.importKnowledge(from: file("other.json", "{\"hello\":1}"))
+        }
+        t.throwsError("a format from a newer Decanter is refused rather than guessed at") {
+            _ = try e.importKnowledge(from: file("future.json",
+                "{\"formatVersion\":9,\"observations\":[]}"))
+        }
+        t.throwsError("a path that is not there is refused") {
+            _ = try e.importKnowledge(from: dir.appending(path: "absent.json"))
+        }
+        // A well-formed one still has to work, or the tests above pass for the
+        // wrong reason.
+        let good = file("good.json", """
+        {"formatVersion":1,"observations":[
+          {"signature":{"engine":"unreal","engineMajor":5,"bitness":"x64",
+                        "usesVideo":false,"usesD3D12":true,"chip":"m3","macOSMajor":26},
+           "setup":{"runtimeKind":"gptk","backend":"d3dmetal"},
+           "worked":true,"note":"a title that must not survive"}]}
+        """)
+        t.survives("a well-formed export is taken") {
+            let r = try e.importKnowledge(from: good)
+            guard r.added == 1 else {
+                throw DecanterError.badFile("expected 1 observation, took \(r.added)")
+            }
+        }
+        let stored = (try? String(contentsOf: e.paths.knowledgePath, encoding: .utf8)) ?? ""
+        t.expect(!stored.contains("must not survive"),
+                 "and the stranger's note is not written to disk")
+    }
+
+    // Exit codes are interface: docs/CLI.md tells people to branch on them.
+    t.suite("A failure exits with the code for its kind")
+    do {
+        t.equal(DecanterError.usage("x").exitCode, 2, "a misused command exits 2")
+        t.equal(DecanterError.notFound("x").exitCode, 3, "something not found exits 3")
+        t.equal(DecanterError.badFile("x").exitCode, 3, "…as does a file that cannot be used")
+        t.equal(DecanterError.notAnExecutable(URL(filePath: "/x")).exitCode, 3,
+                "…and something that is not a Windows program")
+        t.equal(DecanterError.templateMissing.exitCode, 4, "an unbuilt template exits 4")
+        t.equal(DecanterError.noRuntime("x").exitCode, 4, "…as does having no runtime")
+        t.equal(DecanterError.runtimeLacks32Bit("x").exitCode, 4,
+                "…and a runtime that cannot run the game")
+        t.equal(DecanterError.outOfSpace("x").exitCode, 5, "a full disk exits 5")
+        t.equal(DecanterError.pathEscapesScope(URL(filePath: "/x")).exitCode, 6,
+                "a path outside a game's scope exits 6, and never 0")
+        t.equal(DecanterError.launchFailed("x").exitCode, 1, "anything else exits 1")
+
+        // Nothing may exit 0, or a script reads a failure as success.
+        let every: [DecanterError] = [
+            .noRuntime("x"), .templateMissing, .noTemplate("x"), .notAnExecutable(URL(filePath: "/x")),
+            .pathEscapesScope(URL(filePath: "/x")), .runtimeLacks32Bit("x"), .cloneFailed("x"),
+            .launchFailed("x"), .notFound("x"), .badFile("x"), .usage("x"), .outOfSpace("x")]
+        t.expect(every.allSatisfy { $0.exitCode != 0 }, "no failure exits 0")
+        t.expect(every.allSatisfy { ($0.errorDescription ?? "").isEmpty == false },
+                 "and every one of them says something")
+    }
+
+    t.suite("Room is measured before a runtime is unpacked, not during")
+    do {
+        let dir = Fixture.dir("space")
+        t.survives("a requirement that fits is not refused") {
+            try DiskSpace.require(1, at: dir, toDo: "A tiny thing")
+        }
+        // The destination usually does not exist yet — that is the point of
+        // asking — so capacity is read from the nearest ancestor that does.
+        let unborn = dir.appending(path: "not/created/yet/runtime")
+        // Compared with slack, not for equality: the two readings are taken a
+        // moment apart and the disk is in use, so exact equality is a test that
+        // fails on a busy machine and passes on an idle one.
+        let onVolume = DiskSpace.available(at: unborn) ?? -1
+        let atParent = DiskSpace.available(at: dir) ?? -2
+        t.expect(onVolume > 0 && abs(onVolume - atParent) < 1_000_000_000,
+                 "a path that does not exist yet is measured on the volume that will hold it")
+        t.expect(DiskSpace.available(at: URL(filePath: "/nonexistent-volume-xyz")) != nil,
+                 "…walking up as far as the root rather than giving up")
+        t.throwsError("more space than the disk has is refused up front") {
+            try DiskSpace.require(Int64.max / 2, at: dir, toDo: "Unpacking a Wine build")
+        }
+        do {
+            try DiskSpace.require(Int64.max / 2, at: dir, toDo: "Unpacking a Wine build")
+            t.expect(false, "the refusal says what it was trying to do")
+        } catch {
+            let m = (error as? DecanterError)?.errorDescription ?? ""
+            t.expect(m.contains("Unpacking a Wine build"), "the refusal says what it was trying to do")
+            t.expect(m.contains("free") && m.contains("has"),
+                     "…and both how much was needed and how much there is")
+            t.equal((error as? DecanterError)?.exitCode, 5, "…and it is the out-of-space code")
+        }
+        // The estimate has to exceed the archive, or it measures nothing.
+        t.expect(DiskSpace.unpackEstimate(forArchiveOf: 100) > 100,
+                 "an unpack is budgeted for more than the archive it comes from")
+        t.equal(DiskSpace.label(2_000_000_000), "2 GB", "sizes read in whole units")
+        t.equal(DiskSpace.label(300_000_000), "300 MB", "…down to megabytes")
+        t.expect((DiskSpace.available(at: dir) ?? 0) > 0, "a real directory reports real capacity")
+    }
+
     t.suite("Corrupt and hostile state")
     do {
         let root = Fixture.dir("corrupt")

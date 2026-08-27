@@ -28,7 +28,7 @@ func die(_ e: Error) -> Never {
             try? line.write(to: f, atomically: true, encoding: .utf8)
         }
     }
-    exit(1)
+    exit((e as? DecanterError)?.exitCode ?? 1)
 }
 
 func usage() -> Never {
@@ -174,9 +174,12 @@ case "doctor":
     for r in h.pinnedRuntimes {
         let m = e.runtimes.metalHosting(of: r)
         if m.driverPath == nil { continue }
+        // Two different noes, and they are not interchangeable: one build
+        // cannot be linked against at all, the other links and then cannot
+        // produce a frame.
         let verdict = m.looksCapable ? "could host DXMT (untested)"
-            : m.hasCocoaViewAccess ? "partial — no WineMetalView"
-            : "cannot host DXMT (macOS driver symbols hidden)"
+            : !m.driverIsLinkable ? "cannot host DXMT — its Mac driver is a bundle, not a dylib"
+            : "cannot host DXMT — its Mac driver hides the metal-view calls"
         out("  \(r.id): \(verdict)")
     }
     let strays = e.strayWineProcesses()
@@ -230,7 +233,7 @@ case "use":
     // works out which it is by looking inside, because the names differ
     // between every source these come from.
     guard let p = rest.first else {
-        die(DecanterError.notFound("usage: decanter use <wine folder | .app | .dmg | dxvk-*.tar.gz>"))
+        die(DecanterError.usage("usage: decanter use <wine folder | .app | .dmg | dxvk-*.tar.gz>"))
     }
     let e = engine()
     do {
@@ -391,7 +394,7 @@ case "diagnose":
     }
 
 case "import":
-    guard rest.count >= 2 else { die(DecanterError.notFound("usage: decanter import <game> <dir>")) }
+    guard rest.count >= 2 else { die(DecanterError.usage("usage: decanter import <game> <dir>")) }
     let (e, g) = requireGame(rest[0])
     do {
         let src = URL(filePath: (rest[1] as NSString).expandingTildeInPath)
@@ -413,7 +416,7 @@ case "bottles":
 
 case "backend":
     guard rest.count >= 2, let nb = GraphicsBackend(rawValue: rest[1].lowercased()) else {
-        die(DecanterError.notFound("usage: decanter backend <game> <"
+        die(DecanterError.usage("usage: decanter backend <game> <"
                                    + GraphicsBackend.allCases.map(\.rawValue).joined(separator: "|") + ">"))
     }
     let (e, g) = requireGame(rest[0])
@@ -462,7 +465,7 @@ case "dxvk":
             out("    run `decanter check \(g.name)` to confirm")
         } catch { die(error) }
     } else {
-        die(DecanterError.notFound("usage: decanter dxvk stage <tar.gz> | list | use <game> <version>"))
+        die(DecanterError.usage("usage: decanter dxvk stage <tar.gz> | list | use <game> <version>"))
     }
 
 case "dxmt":
@@ -503,7 +506,7 @@ case "dxmt":
             out("    run `decanter check \(g.name)` to confirm")
         } catch { die(error) }
     } else {
-        die(DecanterError.notFound("usage: decanter dxmt stage <archive> | list | use <game>"))
+        die(DecanterError.usage("usage: decanter dxmt stage <archive> | list | use <game>"))
     }
 
 case "runtime":
@@ -529,7 +532,7 @@ case "runtime":
             out("      \(r.root.path)")
         }
     } else {
-        die(DecanterError.notFound("usage: decanter runtime add <wine-root> | decanter runtime list"))
+        die(DecanterError.usage("usage: decanter runtime add <wine-root> | decanter runtime list"))
     }
 
 case "check":
@@ -598,6 +601,18 @@ case "knowledge":
             out("    open an issue on the tracker and attach it if you would like it merged")
         } catch { die(error) }
 
+    case "import":
+        guard rest.count > 1 else { die(DecanterError.usage("usage: decanter knowledge import <file>")) }
+        let src = URL(filePath: (rest[1] as NSString).expandingTildeInPath)
+        do {
+            let r = try e2.importKnowledge(from: src)
+            ok("took \(r.added) observation(s) from \(src.lastPathComponent)")
+            if r.skipped > 0 {
+                out("    skipped \(r.skipped) — this Mac already has an answer for those situations")
+            }
+            out("    notes are not imported: unsigned prose cannot be attributed to anyone")
+        } catch { die(error) }
+
     case "explain":
         let (_, g) = requireGame(rest.count > 1 ? rest[1] : nil)
         let sig = Knowledge.Signature(g.detection)
@@ -649,6 +664,7 @@ case "knowledge":
         out("")
         out("  decanter knowledge explain <game>   what this says about one game")
         out("  decanter knowledge export [file]    hand the observations over, names-free")
+        out("  decanter knowledge import <file>    fold someone else's export into this Mac's")
     }
 
 case "remove", "rm", "uninstall":
@@ -966,7 +982,7 @@ case "saves":
         do { let n = try e2.restoreSaves(g, snapshot: rest.count > 2 ? rest[2] : nil, progress: step)
              ok("restored \(n) files") } catch { die(error) }
     case "search":
-        guard rest.count > 1 else { die(DecanterError.notFound("usage: decanter saves search <text>")) }
+        guard rest.count > 1 else { die(DecanterError.usage("usage: decanter saves search <text>")) }
         for h in e2.searchSaves(rest[1...].joined(separator: " ")).prefix(50) {
             out("  [\(h.game)] \(humanBytes(h.bytes))  \(h.relPath)")
         }
@@ -982,7 +998,7 @@ case "saves":
         for g in e2.store.state.games { removed += (try? e2.saves.prune(game: g, keep: e2.snapshotRetention)) ?? 0 }
         ok("pruned \(removed) old snapshot(s)")
     default:
-        die(DecanterError.notFound("usage: decanter saves list|show|snapshot|snapshots|restore|search|externalise|gc"))
+        die(DecanterError.usage("usage: decanter saves list|show|snapshot|snapshots|restore|search|externalise|gc"))
     }
 
 case "help", "--help", "-h": usage()

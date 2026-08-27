@@ -229,6 +229,14 @@ public struct Acquisition {
     /// `withWineRoot(inDiskImage:)`, and it exists for the same reason: the pin
     /// has to happen while the tree is still on disk.
     public func withWineRoot<T>(inArchive archive: URL, _ body: (URL) throws -> T) throws -> T {
+        // Asked before unpacking rather than discovered half way through it:
+        // a Wine build fills a temporary tree and then a real one, and running
+        // out in the middle leaves both, plus an error from `tar` that names
+        // no cause.
+        if let size = DiskSpace.sizeOfFile(at: archive) {
+            try DiskSpace.require(DiskSpace.unpackEstimate(forArchiveOf: size), at: paths.root,
+                                  toDo: "Unpacking \(archive.lastPathComponent)")
+        }
         let tmp = paths.root.appending(path: "tmp-wine")
         try? fm.removeItem(at: tmp)
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -253,6 +261,12 @@ public struct Acquisition {
     }
 
     public func withWineRoot<T>(inDiskImage dmg: URL, _ body: (URL) throws -> T) throws -> T {
+        // The tree inside is copied out onto this volume, and a disk image is
+        // the one source that is always a different filesystem — so the copy
+        // is a real one, never a clone, and its cost is the image's own size.
+        if let size = DiskSpace.sizeOfFile(at: dmg) {
+            try DiskSpace.require(size, at: paths.root, toDo: "Copying the Wine build out of \(dmg.lastPathComponent)")
+        }
         let mount = try attach(dmg)
         defer { detach(mount) }
         guard let root = findWineRoot(under: mount.mountPoint) else {

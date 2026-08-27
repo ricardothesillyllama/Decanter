@@ -60,6 +60,7 @@ does — plus a few diagnostics that only exist here.
 | `decanter knowledge` | What Decanter has learned so far, grouped by situation. Never names games |
 | `decanter knowledge explain <game>` | What the knowledge base says about one game, and how closely it matched |
 | `decanter knowledge export [file]` | Write the observations out to hand over — situations and outcomes only |
+| `decanter knowledge import <file>` | Fold someone else's export into this Mac's — notes are not taken |
 | `decanter knowledge forget` | Throw away everything learned, back to the shipped defaults |
 
 ## Saves
@@ -90,3 +91,23 @@ does — plus a few diagnostics that only exist here.
 `./install.sh` builds in release mode, assembles `Decanter.app` into
 `/Applications`, and puts `decanter` on your `PATH`. A locally built app is
 never quarantined, so this also avoids the unsigned-app warning entirely.
+
+## Exit codes
+
+Every command exits `0` on success. A failure exits with the code for its
+kind, so a script can branch without matching on the message text. These
+numbers are part of the interface: a released one is never reassigned.
+
+| Code | Meaning | Typical cause |
+|---|---|---|
+| `0` | It worked | — |
+| `1` | Something went wrong | A clone or a launch failed |
+| `2` | The command was used wrongly | A missing or unrecognised argument |
+| `3` | Something named could not be found or used | No such game; a file that is not what it claims to be |
+| `4` | This Mac is not set up for that yet | No Wine build pinned, no golden template, or a 32-bit game on a 64-bit-only runtime |
+| `5` | Not enough disk space | Unpacking or copying a runtime needs more room than the volume has |
+| `6` | Refused for safety | A path outside the game's allowed folders |
+
+Code `5` is a preflight, not a failure part-way through: Decanter measures
+before it unpacks or copies, so a full disk stops the operation instead of
+leaving a half-written runtime behind.

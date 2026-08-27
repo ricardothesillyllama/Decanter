@@ -346,6 +346,12 @@ public enum DecanterError: LocalizedError {
     case cloneFailed(String)
     case launchFailed(String)
     case notFound(String)
+    /// A message that is already a complete sentence. Every other case names a
+    /// category first, which reads well for "Not found: wine-11.0" and badly
+    /// for a sentence that already explains itself.
+    case badFile(String)
+    case usage(String)
+    case outOfSpace(String)
 
     public var errorDescription: String? {
         switch self {
@@ -358,6 +364,26 @@ public enum DecanterError: LocalizedError {
         case .cloneFailed(let s): "Could not clone prefix: \(s)"
         case .launchFailed(let s): "Launch failed: \(s)"
         case .notFound(let s): "Not found: \(s)"
+        case .badFile(let s): s
+        case .usage(let s): s
+        case .outOfSpace(let s): "Not enough disk space: \(s)"
+        }
+    }
+
+    /// The process exit status this failure produces, so a script can branch on
+    /// the kind of failure instead of matching on the message.
+    ///
+    /// These numbers are interface: they are listed in `docs/CLI.md`, and a
+    /// released one must not be reassigned to a different meaning.
+    public var exitCode: Int32 {
+        switch self {
+        case .usage:                                                   2
+        case .notFound, .badFile, .notAnExecutable:                    3
+        case .noRuntime, .templateMissing, .noTemplate,
+             .runtimeLacks32Bit:                                       4
+        case .outOfSpace:                                              5
+        case .pathEscapesScope:                                        6
+        case .cloneFailed, .launchFailed:                              1
         }
     }
 }
@@ -366,7 +392,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.4.3"
-    public static let commit = "2e0a796"
+    public static let version = "0.5.0"
+    public static let commit = "7d61a60"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

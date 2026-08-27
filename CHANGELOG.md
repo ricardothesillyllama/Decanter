@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.5.0 — 2026-08-27
+
+### Unity 6 runs
+
+A Unity 6 game rendering and playable on Apple Silicon, through DXMT on Metal:
+`Direct3D 11.0 [level 11.1]`, `Renderer: Apple M2`. Every previous release said
+this was impossible, and said so on measurements that were each individually
+correct.
+
+Two conditions have to hold at once, which is why it read as a dead end. Wine's
+`winemac.so` must be a Mach-O **dylib** — DXMT's Metal bridge carries a hard
+`LC_LOAD_DYLIB` on it and dyld refuses a bundle — **and** that same driver must
+export `macdrv_functions`, which DXMT resolves with `dlsym` when it first wants
+something to draw into. The Game Porting Toolkit exports it and ships a bundle.
+Mainline Wine ships a dylib that exports nothing. Neither is enough alone, and
+testing either condition on its own said "should work" about a build that could
+not.
+
+- **The Unity 6 verdict names the way through** instead of refusing everything.
+  A Unity 6 game on DXMT is no longer warned about; on anything else it still is,
+  with the driver requirement stated so the mainline-Wine dead end is not
+  repeated.
+- **The knowledge base seeds Unity 6 + DXMT as a success**, because it was
+  watched working rather than inferred.
+- **`GpuFence::Create(): Failed to create ID3D11Fence` was never the blocker.**
+  It still fails, and Unity carries on regardless. A whole release was planned
+  around reporting it upstream.
+
+### Fixed
+
+- **DXMT is no longer offered on a runtime that cannot draw.** The capability
+  gate tested only whether Wine's Mac driver could be linked against, because a
+  real `dlopen` succeeded — which proves loading, not presenting. Mainline Wine
+  would load DXMT, reach a Direct3D 11 device at feature level 11_1, and then
+  fail at the first frame with "your Wine has no exported symbols needed by
+  DXMT". `doctor` now distinguishes the two refusals: a driver that is the wrong
+  Mach-O type needs a different build, one that hides the symbols needs the same
+  build compiled differently.
+
+### Added
+
+- **`decanter knowledge import <file>`** closes the loop that `export` opened.
+  A situation this Mac already has an answer for is skipped rather than merged —
+  counts are not exported, so a second row would be a duplicate, not weight, and
+  a stranger cannot outvote what was seen here. Notes are dropped: an unsigned
+  one cannot be attributed to anybody, and prose is the one field a game title
+  could ride in on.
+- **Disk space is measured before unpacking or copying**, not discovered part-way
+  through. Running out mid-copy left a half-written runtime and an error from
+  `tar` that named no cause.
+- **Exit codes 0–6, documented in `docs/CLI.md`** and fixed as interface, so a
+  script can branch on the kind of failure instead of matching message text.
+
 ## v0.4.3 — 2026-08-27
 
 ### First run stops being an errand

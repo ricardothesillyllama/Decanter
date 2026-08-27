@@ -65,6 +65,10 @@ public struct DXVKInstaller {
         let tmp = paths.root.appending(path: "tmp-dxvk")
         try? fm.removeItem(at: tmp)
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        if let size = DiskSpace.sizeOfFile(at: tarball) {
+            try DiskSpace.require(DiskSpace.unpackEstimate(forArchiveOf: size), at: paths.root,
+                                  toDo: "Unpacking \(tarball.lastPathComponent)")
+        }
         progress("unpacking \(tarball.lastPathComponent)")
         let r = try Shell.run(URL(filePath: "/usr/bin/tar"), ["xzf", tarball.path, "-C", tmp.path], timeout: 300)
         guard r.code == 0 else { throw DecanterError.cloneFailed("tar: \(r.err)") }
@@ -241,6 +245,10 @@ public struct DXMTInstaller {
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
 
+        if let size = DiskSpace.sizeOfFile(at: archive) {
+            try DiskSpace.require(DiskSpace.unpackEstimate(forArchiveOf: size), at: paths.root,
+                                  toDo: "Unpacking \(archive.lastPathComponent)")
+        }
         progress("unpacking \(archive.lastPathComponent)")
         let name = archive.lastPathComponent.lowercased()
         let r: (code: Int32, out: String, err: String)
