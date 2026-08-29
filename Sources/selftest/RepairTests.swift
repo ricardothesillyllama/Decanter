@@ -123,6 +123,44 @@ func runRepairTests(_ t: Harness) {
     t.equal((try? repair.undo(targetSpec))?.isEmpty, true,
             "undoing twice is not an error")
 
+    t.suite("nothing is written outside the build being repaired")
+    // The boundary SECURITY.md states. Enforced rather than argued for: today
+    // every destination is built from a leaf name and a directory inside the
+    // build, but "cannot happen" is a property of the current code, and the
+    // promise is what people rely on.
+    t.expect(RuntimeRepair.isInside(target.appending(path: "lib/x.dylib"), root: target),
+             "a path inside the build is inside it")
+    t.expect(RuntimeRepair.isInside(unix.appending(path: "deep/y.dylib"), root: target),
+             "including one several directories down that does not exist yet")
+    t.expect(!RuntimeRepair.isInside(tmp.appending(path: "elsewhere/x.dylib"), root: target),
+             "a sibling directory is not")
+    t.expect(!RuntimeRepair.isInside(URL(filePath: "/tmp/x.dylib"), root: target),
+             "and neither is somewhere else entirely")
+    t.expect(!RuntimeRepair.isInside(target.appending(path: "lib/../../escaped.dylib"), root: target),
+             "a path that climbs back out is refused, however it is spelled")
+    // The check has to resolve links, or it stops holding exactly where the
+    // donor guard did.
+    let linkedRoot = tmp.appending(path: "target-link")
+    try? fm.createSymbolicLink(at: linkedRoot, withDestinationURL: target)
+    t.expect(RuntimeRepair.isInside(linkedRoot.appending(path: "lib/x.dylib"), root: target),
+             "and a build reached through a symlink is still the same build")
+
+    t.suite("an edited manifest cannot become a list of things to delete")
+    // The manifest lives inside the build, so anybody can write to it.
+    let victim = tmp.appending(path: "not-part-of-any-build.txt")
+    fm.createFile(atPath: victim.path, contents: Data("important".utf8))
+    _ = try? repair.apply(repair.plan(for: targetSpec, donors: [targetSpec, donorSpec]), to: targetSpec)
+    var tampered = repair.loadManifest(in: target)
+    tampered.borrows.append(.init(library: "victim", donorID: "x",
+                                  source: victim, destination: victim,
+                                  architectures: ["x86_64"], neededBy: []))
+    if let data = try? JSONEncoder().encode(tampered) {
+        try? data.write(to: RuntimeRepair.manifestPath(in: target))
+    }
+    _ = try? repair.undo(targetSpec)
+    t.expect(fm.fileExists(atPath: victim.path),
+             "undo removes only what is inside the build, whatever the manifest claims")
+
     t.suite("a library that cannot load is not offered")
     // Wine here is x86_64 under Rosetta. An arm64 library is the wrong kind of
     // file and fails silently — which is exactly why it has to be checked

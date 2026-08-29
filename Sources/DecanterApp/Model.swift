@@ -205,20 +205,41 @@ final class AppModel: ObservableObject {
                         // Never showed up at all: that is a failure to launch,
                         // and the log is the only place that says why.
                         let rep = Diagnostics().analyse(logAt: plan.logFile)
+                        // Decanter could not tell whether this worked, so it
+                        // asks. Only here and below, where it declines to
+                        // conclude anything itself.
+                        //
+                        // Asked on the main actor rather than from this task:
+                        // it reaches the engine's knowledge base, which is
+                        // created on first use, and first use from two threads
+                        // at once is a race nobody would find twice.
                         await MainActor.run {
+                            e.askAbout(game, observed: "it never opened a window")
                             self.running.remove(game.id)
                             self.diagnosis[game.id] = rep
                             if rep.isEmpty {
                                 self.lastError = "\(game.name) did not start, and its log says nothing. Try Troubleshoot Launch under Saves & Maintenance."
                             }
+                            self.refreshVerdict()
                         }
                         return
                     }
                     let rep = Diagnostics().analyse(logAt: plan.logFile)
-                    let quick = Date().timeIntervalSince(started) < 12
+                    let ran = Date().timeIntervalSince(started)
+                    let quick = ran < 12
+                    // A game that quit almost immediately, or one that left
+                    // complaints in its log, is the ambiguous case: it may have
+                    // been played and closed, or it may have died. Decanter
+                    // does not know, so it asks rather than recording a guess.
                     await MainActor.run {
+                        if quick {
+                            e.askAbout(game, observed: "it closed again after \(Int(ran)) seconds")
+                        } else if !rep.isEmpty {
+                            e.askAbout(game, observed: "it ran, but its log reports problems")
+                        }
                         self.running.remove(game.id)
                         if quick && !rep.isEmpty { self.diagnosis[game.id] = rep }
+                        self.refreshVerdict()
                     }
                     return
                 }
@@ -389,7 +410,7 @@ final class AppModel: ObservableObject {
             table.rows.removeAll { $0.runtimeID == rt.id }
             table.rows.append(bench.measure(rt))
             try? bench.save(table)
-            try? bench.reconcile(store: e.store, table: table)
+            _ = try? bench.reconcile(store: e.store, table: table)
             return "Put \(done.count) missing piece\(done.count == 1 ? "" : "s") into \(runtimeID)"
         } then: { self.refreshSoundness() }
     }

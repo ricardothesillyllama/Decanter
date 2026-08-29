@@ -274,6 +274,16 @@ public struct RuntimeRepair {
         var done: [String] = []
         var manifest = loadManifest(in: target.root)
         for b in offer.borrows {
+            // The boundary SECURITY.md states, enforced rather than argued for.
+            // Today every destination is built from a leaf name and a directory
+            // inside the build, so none of them can escape — but "cannot" is a
+            // property of the current code, not of the promise, and the promise
+            // is the one people rely on.
+            guard Self.isInside(b.destination, root: target.root) else {
+                throw DecanterError.notFound(
+                    "refusing to write outside \(target.id) — \(b.destination.lastPathComponent) "
+                    + "would land somewhere that is not part of this Wine build")
+            }
             try fm.createDirectory(at: b.destination.deletingLastPathComponent(),
                                    withIntermediateDirectories: true)
             // Refuse to write over anything already there. A repair that
@@ -297,12 +307,34 @@ public struct RuntimeRepair {
         guard !manifest.borrows.isEmpty else { return [] }
         var removed: [String] = []
         for b in manifest.borrows where fm.fileExists(atPath: b.destination.path) {
+            // A manifest is a file inside a build that anybody could edit.
+            // Removing what it names without checking would turn it into a
+            // list of things to delete anywhere on the disk.
+            guard Self.isInside(b.destination, root: target.root) else { continue }
             progress("removing \(b.library)")
             try fm.removeItem(at: b.destination)
             removed.append(b.destination.path)
         }
         try? fm.removeItem(at: Self.manifestPath(in: target.root))
         return removed
+    }
+
+    /// Whether a path really is inside a build, symlinks resolved on both
+    /// sides. The same comparison the donor guard makes, and for the same
+    /// reason: a prefix check on unresolved paths silently stops holding the
+    /// moment either side is reached through a link.
+    public static func isInside(_ url: URL, root: URL) -> Bool {
+        // Resolved on the deepest existing ancestor, because the destination
+        // itself does not exist yet — resolving a path that is not there
+        // returns it unchanged, which would defeat the check.
+        var probe = url.deletingLastPathComponent()
+        let fm = FileManager.default
+        while !fm.fileExists(atPath: probe.path), probe.pathComponents.count > 1 {
+            probe = probe.deletingLastPathComponent()
+        }
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let here = probe.resolvingSymlinksInPath().standardizedFileURL.path
+        return here == base || here.hasPrefix(base + "/")
     }
 
     public func loadManifest(in root: URL) -> Manifest {

@@ -33,10 +33,19 @@ public enum Endorsement {
         /// observation.
         case local
 
-        public static func < (a: Tier, b: Tier) -> Bool {
-            let order: [Tier] = [.community, .verified, .local]
-            return order.firstIndex(of: a)! < order.firstIndex(of: b)!
+        /// Weakest first. A switch rather than an array lookup, because the
+        /// array version force-unwrapped its own index: correct for exactly the
+        /// three cases that existed, and a crash the moment a fourth was added.
+        /// The compiler checks this one.
+        var rank: Int {
+            switch self {
+            case .community: 0
+            case .verified:  1
+            case .local:     2
+            }
         }
+
+        public static func < (a: Tier, b: Tier) -> Bool { a.rank < b.rank }
 
         public var label: String {
             switch self {
@@ -168,10 +177,22 @@ public enum Endorsement {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// The build's key, parsed once.
+    ///
+    /// Verification is asked for far more often than it looks: the knowledge
+    /// base checks it for every observation at every level of the matching
+    /// ladder, for every game, on every refresh. Parsing base64 and building a
+    /// key object each time made a cheap question expensive for no reason.
+    /// Immutable for the life of the process, because the key it caches is
+    /// compiled in.
+    private static let cachedPublicKey: Curve25519.Signing.PublicKey? = {
+        guard let text = publicKeyText(), let raw = Data(base64Encoded: text) else { return nil }
+        return try? Curve25519.Signing.PublicKey(rawRepresentation: raw)
+    }()
+
     static func loadPublicKey() throws -> Curve25519.Signing.PublicKey {
-        guard let text = publicKeyText() else { throw KeyError.noPublicKey }
-        guard let raw = Data(base64Encoded: text),
-              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: raw) else {
+        guard publicKeyText() != nil else { throw KeyError.noPublicKey }
+        guard let key = cachedPublicKey else {
             throw KeyError.badKey("the endorsement key this copy of Decanter is using")
         }
         return key
@@ -215,6 +236,9 @@ public enum Endorsement {
     /// cannot be verified is simply not verified; it is not an error, and
     /// treating it as one would make an unsigned knowledge base look broken.
     public static func isVerified(_ o: Knowledge.Observation) -> Bool {
+        // The cheap question first. Almost every row has no endorsement at all,
+        // and this used to load and parse a key before discovering that.
+        guard o.endorsement?.isEmpty == false else { return false }
         guard let key = try? loadPublicKey() else { return false }
         return isVerified(o, against: key)
     }
@@ -222,6 +246,7 @@ public enum Endorsement {
     /// Checks against a named key rather than this build's. The counterpart to
     /// `sign(_:privateKeyBase64:)`, and used for the same reason.
     public static func isVerified(_ o: Knowledge.Observation, publicKeyBase64: String) -> Bool {
+        guard o.endorsement?.isEmpty == false else { return false }
         guard let raw = Data(base64Encoded: publicKeyBase64),
               let key = try? Curve25519.Signing.PublicKey(rawRepresentation: raw) else { return false }
         return isVerified(o, against: key)

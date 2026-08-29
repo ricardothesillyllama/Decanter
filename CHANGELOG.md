@@ -123,6 +123,25 @@ Three faults in this work, each caught by measuring rather than reasoning:
 - Mod failures in the command line now lead with the explanation, with the exact
   line behind `--detail`, the same way everything else does.
 
+**Found reviewing this release before shipping it:**
+
+- **The verdict was never asked in the app.** Only the command line parked a
+  question, so the card that displays it could not appear. A feature that only
+  works in half the program is not shipped, it is written.
+- **The build failed with warnings as errors**, which is how CI builds it — one
+  discarded result. Caught by the release check that now runs it.
+- **A comparison force-unwrapped its own index.** Correct for the three tiers
+  that exist, a crash the moment a fourth was added. It is a switch now, which
+  the compiler checks.
+- **Verification did real work before asking the cheap question.** Every row at
+  every level of the matching ladder parsed the key before discovering the row
+  had no signature at all. The key is parsed once, and rows without one cost
+  nothing.
+- **Repair now refuses to write outside the build it names**, rather than that
+  being true only because of how the paths happen to be built. Undo checks the
+  same thing: the manifest lives inside the build, so anyone can edit it, and it
+  must not become a list of things to delete.
+
 **`scripts/release.sh`** gathers every precondition into one command: a dirty
 tree, an already-used version, a placeholder changelog entry, a failing rule or
 suite, an endorsement that no longer verifies. It does not tag and does not
