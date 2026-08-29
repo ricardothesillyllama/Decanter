@@ -377,6 +377,9 @@ public enum DecanterError: LocalizedError {
     case badFile(String)
     case usage(String)
     case outOfSpace(String)
+    /// The setup is inconsistent in a way that makes the game fail silently
+    /// rather than loudly. Its own sentence, because it always names the fix.
+    case notReady(String)
 
     public var errorDescription: String? {
         switch self {
@@ -391,6 +394,7 @@ public enum DecanterError: LocalizedError {
         case .notFound(let s): "Not found: \(s)"
         case .badFile(let s): s
         case .usage(let s): s
+        case .notReady(let s): s
         case .outOfSpace(let s): "Not enough disk space: \(s)"
         }
     }
@@ -405,7 +409,7 @@ public enum DecanterError: LocalizedError {
         case .usage:                                                   2
         case .notFound, .badFile, .notAnExecutable:                    3
         case .noRuntime, .templateMissing, .noTemplate,
-             .runtimeLacks32Bit:                                       4
+             .runtimeLacks32Bit, .notReady:                            4
         case .outOfSpace:                                              5
         case .pathEscapesScope:                                        6
         case .cloneFailed, .launchFailed:                              1
@@ -417,7 +421,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.5.4"
-    public static let commit = "02c8bce"
+    public static let version = "0.5.5"
+    public static let commit = "3f81d03"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

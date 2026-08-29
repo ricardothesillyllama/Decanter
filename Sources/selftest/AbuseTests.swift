@@ -304,6 +304,23 @@ func runAbuseTests(_ t: Harness) {
                  "a prefix with nothing stray to close reports nothing")
     }
 
+    t.suite("A setup that cannot work is refused, not launched")
+    do {
+        // Preflight listed four problems for a game that launched anyway, ran
+        // on graphics it was not configured for, and died with nothing in the
+        // log. It stayed that way for days because nothing ever refused.
+        var rep = Engine.PreflightReport()
+        t.expect(rep.blockers.isEmpty, "a clean preflight blocks nothing")
+        rep.blockers.append("this game is set to Metal graphics, which wine-11.0 cannot provide")
+        t.expect(!rep.blockers.isEmpty, "an impossible graphics option is a blocker, not a note")
+
+        let e = DecanterError.notReady("X is not ready to run — reason. Choose another option.")
+        t.equal(e.exitCode, 4, "a setup problem exits 4, like the other setup problems")
+        let msg = e.errorDescription ?? ""
+        t.expect(!msg.contains("decanter "), "the message carries no command syntax — it has to read in a window too")
+        t.expect(msg.contains("not ready to run"), "and it says plainly what is wrong")
+    }
+
     t.suite("A guess does not wear a measurement's badge")
     do {
         // The field defaulted to "high", so a recommendation with nothing

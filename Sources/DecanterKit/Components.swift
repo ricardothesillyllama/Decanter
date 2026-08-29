@@ -336,6 +336,18 @@ public struct DXMTInstaller {
         let base = runtime.id.hasSuffix(Self.hostSuffix)
             ? (store.state.runtimes.first { $0.id == String(runtime.id.dropLast(Self.hostSuffix.count)) } ?? runtime)
             : runtime
+        // Cloning is not the hard part; hosting is. DXMT resolves the Mac
+        // driver's Metal entry points by dlsym at the first frame, so a build
+        // whose winemac driver is a bundle, or exports nothing, can carry every
+        // DXMT DLL and still never draw. Copying such a runtime produced an
+        // 800 MB clone that `check` immediately reported as unable to host
+        // DXMT — work done to reach a dead end. Refuse before copying.
+        let hosting = RuntimeManager.metalHosting(root: base.root)
+        guard hosting.looksCapable else {
+            throw DecanterError.noRuntime(
+                "\(base.id) cannot host DXMT — \(hosting.unavailableReason?.replacingOccurrences(of: "\n", with: " ") ?? "its Mac driver does not expose the Metal view API"). This needs a Wine build whose Mac driver is a dylib exporting macdrv_functions; Sikarugir's is one.")
+        }
+
         let id = base.id.hasSuffix(Self.hostSuffix) ? base.id : base.id + Self.hostSuffix
         let dest = paths.runtimes.appending(path: id)
         let runtime = base

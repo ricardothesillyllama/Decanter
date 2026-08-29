@@ -273,6 +273,24 @@ public final class Engine: @unchecked Sendable {
         guard let rt = store.runtime(bottle.runtimeID) else {
             throw DecanterError.noRuntime(bottle.runtimeID)
         }
+        // Preflight already knew. It listed four problems for a game that then
+        // launched anyway, ran on graphics it was not configured for, and died
+        // without writing an error — and stayed that way for days because
+        // nothing ever refused. Checking and then proceeding regardless is the
+        // same as not checking.
+        let pre = try preflight(game)
+        if let first = pre.blockers.first {
+            let rest = pre.blockers.dropFirst()
+            let more = rest.isEmpty ? "" : "\n" + rest.map { "Also: \($0)." }.joined(separator: "\n")
+            // Plain sentences, no command syntax: the same words have to read
+            // correctly in a window and in a terminal, and the interface that
+            // shows them is the one that knows how its own buttons are named.
+            throw DecanterError.notReady(
+                "\(game.name) is not ready to run — \(first).\(more) "
+                + "Choose a graphics option this Windows environment provides, "
+                + "or let Decanter pick one for this game.")
+        }
+
         // Say it rather than only doing it. A drive that appeared since the
         // last launch is exactly the case the promise exists for, so it is
         // recorded where "what set this, and when" can be answered.
@@ -299,10 +317,18 @@ public final class Engine: @unchecked Sendable {
         public var escapingUserFolders: [String] = []
         public var effectiveD3D = ""
         public var problems: [String] = []
+        /// The subset of `problems` that means the game cannot work, as opposed
+        /// to the ones that are untidy but survivable. A game whose recorded
+        /// graphics option its runtime cannot provide does not fail loudly:
+        /// Wine's own D3D loads instead, the game initialises, and it dies with
+        /// nothing in the log to find. Measured once, on a game that had been
+        /// quietly unplayable for days.
+        public var blockers: [String] = []
         public var ok: Bool {
             problems.isEmpty && exeVisibleToWine && !fullFilesystemExposed
                 && escapingUserFolders.isEmpty
         }
+        public init() {}
     }
 
     /// Everything `run` does, minus starting the game. Applies the scopes,
@@ -317,20 +343,25 @@ public final class Engine: @unchecked Sendable {
 
         if game.detection.bitness == .x86 && !rt.supports32Bit {
             rep.problems.append("game is 32-bit but \(rt.id) has no 32-bit support")
+            rep.blockers.append("this game is 32-bit, and \(rt.id) cannot run 32-bit programs")
         }
         if !rt.backends.contains(bottle.backend) {
             rep.problems.append("\(bottle.backend.label) is not provided by \(rt.id)")
+            rep.blockers.append("this game is set to \(bottle.backend.label) graphics, which \(rt.id) cannot provide. Wine’s own graphics load instead and the game fails with nothing in the log")
         }
         if bottle.backend == .dxvk && !DXVKInstaller(paths: paths).isInstalled(in: bottle.prefixPath) {
             rep.problems.append("backend is DXVK but this prefix has Wine's builtin D3D")
+            rep.blockers.append("this game is set to Vulkan graphics, but its Windows environment has Wine’s built-in graphics instead")
         }
         if bottle.backend == .dxmt {
             if !DXMTInstaller(paths: paths).isInstalled(in: bottle.prefixPath) {
                 rep.problems.append("backend is DXMT but this prefix is not marked for it")
+            rep.blockers.append("this game is set to Metal graphics, but its Windows environment is not set up for it")
             }
             if !FileManager.default.fileExists(
                 atPath: rt.root.appending(path: "lib/wine/x86_64-unix/winemetal.so").path) {
                 rep.problems.append("\(rt.id) does not carry DXMT's Metal bridge")
+            rep.blockers.append("\(rt.id) does not carry the Metal bridge this game’s graphics option needs")
             }
         }
         rep.dxvkPresent = DXVKInstaller(paths: paths).isInstalled(in: bottle.prefixPath)

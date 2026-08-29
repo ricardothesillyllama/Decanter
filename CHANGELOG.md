@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.5 — 2026-08-29
+
+A game that had been unplayable for days turned out to be misconfigured rather
+than unsupported, and every layer that should have caught it stayed quiet.
+
+- **A game whose graphics option its runtime cannot provide is now refused, not
+  launched.** Preflight already detected this and listed it among its problems —
+  and then the launch went ahead regardless. Wine's own graphics loaded instead
+  of the recorded ones, the game initialised, and it died with nothing in the
+  log to find. Checking and then proceeding anyway is the same as not checking.
+  Launch now stops, names what is wrong in plain words, and says what to change.
+- **Blocking problems are distinguished from untidy ones.** A Windows user
+  folder pointing outside the prefix is repaired in passing; a graphics option
+  the environment cannot supply means the game cannot work. Only the second
+  kind stops a launch.
+- **A runtime that cannot host DXMT is no longer cloned into a DXMT host.**
+  Switching a game to Metal graphics copied its runtime — 800 MB — installed
+  DXMT into the copy, and only then reported that the copy could not host DXMT.
+  DXMT resolves the Mac driver's entry points at the first frame, so a build
+  whose driver is a bundle, or exports nothing, can carry every DXMT DLL and
+  still never draw. The check now happens before the copy.
+
 ## v0.5.4 — 2026-08-29
 
 - **Closing a stray drive is now recorded wherever it happens.** 0.5.3 removed
