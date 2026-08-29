@@ -22,6 +22,26 @@ public enum GraphicsBackend: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// What to call this where someone is reading rather than configuring.
+    ///
+    /// Lived in the app for a while, which meant the app said "Metal graphics"
+    /// and the command line said "DXMT" about the same setting. Two vocabularies
+    /// for one thing is worse than either alone: someone who learns one cannot
+    /// search the other. It belongs here, where everything that reports to a
+    /// person can reach it.
+    ///
+    /// The real name is never hidden, only demoted — someone following a forum
+    /// thread needs to recognise "DXVK", and concealing it would make this
+    /// harder to get help with, not easier. Say "Vulkan graphics (DXVK)".
+    public var plainName: String {
+        switch self {
+        case .d3dmetal: "Apple"
+        case .dxvk:     "Vulkan"
+        case .wined3d:  "Wine"
+        case .dxmt:     "Metal"
+        }
+    }
+
     /// One order for every list of backends, anywhere.
     ///
     /// Lists used to come out in whatever order the code that built them
@@ -421,7 +441,7 @@ public enum DecanterError: LocalizedError {
 /// Build identity, so a problem report from a source build can be traced to a
 /// commit. Stamped by install.sh; "dev" when built some other way.
 public enum Build {
-    public static let version = "0.5.7"
-    public static let commit = "8f28d15"
+    public static let version = "0.6.0"
+    public static let commit = "f29f34a"
     public static var summary: String { "Decanter \(version) (\(commit))" }
 }

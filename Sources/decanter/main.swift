@@ -6,7 +6,13 @@ import DecanterKit
 
 let argv = Array(CommandLine.arguments.dropFirst())
 let verbose = argv.contains("--verbose") || argv.contains("-v")
-let args = argv.filter { $0 != "--verbose" && $0 != "-v" }
+/// Opt in to the reasoning. Everything Decanter reports has a plain answer and,
+/// underneath it, the technical detail that produced the answer. The detail is
+/// never shown unless it is asked for: a person deciding what to do next is not
+/// helped by Mach-O file types, and being handed them anyway is how a report
+/// teaches people to stop reading it.
+let detailed = argv.contains("--detail") || argv.contains("--why")
+let args = argv.filter { !["--verbose", "-v", "--detail", "--why"].contains($0) }
 
 func out(_ s: String)  { print(s) }
 func step(_ s: String) { print("  \u{2022} \(s)") }
@@ -31,6 +37,34 @@ func die(_ e: Error) -> Never {
     exit((e as? DecanterError)?.exitCode ?? 1)
 }
 
+
+/// One bench row, in the order someone reads it: what it is, what it can do,
+/// then what is wrong with it. Plain by default; `--detail` adds the reasoning
+/// and the files it rests on.
+func printBenchRow(_ row: Bench.RuntimeRow, stale: Bool) {
+    out("\(row.runtimeID)  (Wine \(row.version)\(row.kind == .gptk ? ", Apple's Game Porting Toolkit" : ""), 32-bit games: \(row.supports32Bit ? "yes" : "no"))")
+    if stale { warn("this build has changed since it was measured \u{2014} run `decanter bench`") }
+    for f in row.findings.sorted(by: { $0.backend.rank < $1.backend.rank }) {
+        out("  \(f.provided ? "\u{2713}" : "\u{2717}") \(f.backend.plainName) graphics  (\(f.backend.label))")
+        out("      \(f.reason)")
+        if detailed {
+            if !f.detail.isEmpty { out("      why: \(f.detail)") }
+            for e in f.evidence { out("      decided by: \(e)") }
+        }
+    }
+    if row.soundness.scannedFiles > 0 {
+        if row.soundness.isSound {
+            out("  \u{2713} \(row.soundness.headline)")
+        } else {
+            out("  \u{2717} \(row.soundness.headline)")
+            for c in row.soundness.consequences { out("      \u{2192} \(c)") }
+            out("      `decanter audit \(row.runtimeID)` says more about this")
+        }
+        if detailed { out("      \(row.soundness.scannedFiles) files were examined") }
+    }
+    out("")
+}
+
 func usage() -> Never {
     out("""
     decanter — run Windows games on macOS
@@ -41,6 +75,10 @@ func usage() -> Never {
       decanter doctor                 check the stack (Rosetta, runtimes, template)
       decanter pin                    take Decanter's own copy of every Wine build found
       decanter runtime list           show pinned runtimes
+      decanter bench                  measure what each Wine build can actually provide
+      decanter audit [runtime]        what a build is missing, and what stops working
+      decanter repair <runtime>       offer to fill the gaps from builds already here
+        add --detail to any of these   the reasoning behind the answer, not just the answer
       decanter runtime set <game> <id>  move a game to another runtime
       decanter template build [rt]    build the golden template for a runtime
       decanter template list          which runtimes have a template
@@ -535,6 +573,144 @@ case "runtime":
         }
     } else {
         die(DecanterError.usage("usage: decanter runtime add <wine-root> | list | set <game> <id> | remove <id>"))
+    }
+
+case "bench":
+    // Open to anyone. The measurements are the same whoever runs them; what
+    // the maintainer's key adds later is the ability to publish a result, not
+    // the ability to take one.
+    let e = engine()
+    let bench = Bench(paths: e.paths)
+    if rest.first == "show" {
+        let t = bench.load()
+        if t.rows.isEmpty { die(DecanterError.notFound("nothing measured yet \u{2014} run `decanter bench`")) }
+        for row in t.rows { printBenchRow(row, stale: e.store.state.runtimes.first { $0.id == row.runtimeID }
+                                                        .map { bench.isStale(row, runtime: $0) } ?? false) }
+    } else {
+        guard !e.store.state.runtimes.isEmpty else {
+            die(DecanterError.noRuntime("no runtimes pinned yet \u{2014} run `decanter setup`"))
+        }
+        do {
+            let t = try bench.runAll(store: e.store, progress: step)
+            for row in t.rows { printBenchRow(row, stale: false) }
+            let changes = try bench.reconcile(store: e.store, table: t)
+            if changes.isEmpty {
+                ok("the record already matched what these builds can do")
+            } else {
+                for c in changes { ok("updated \(c)") }
+                out("    what Decanter offers for a game follows this, so the choices will have changed")
+            }
+        } catch { die(error) }
+    }
+
+case "audit":
+    let e = engine()
+    if rest.first == "deps", rest.count > 1 {
+        let u = URL(filePath: (rest[1] as NSString).expandingTildeInPath)
+        guard let img = MachO.read(at: u) else { die(DecanterError.notFound("not a Mach-O file")) }
+        out("rpaths:"); for r in img.rpaths { out("    \(r)") }
+        let rootGuess = e.store.state.runtimes.first { u.path.hasPrefix($0.root.path) }?.root
+            ?? u.deletingLastPathComponent()
+        out("root: \(rootGuess.path)")
+        out("loaderDir: \(u.deletingLastPathComponent().path)")
+        out("dependencies:"); for d in img.dependencies.sorted(by: { $0.path < $1.path }) {
+            out("    " + RuntimeAudit.explain(d.path, loaderDir: u.deletingLastPathComponent(),
+                                              rpaths: img.rpaths, root: rootGuess)
+                + (d.isWeak ? "  (weak)" : ""))
+        }
+        exit(0)
+    }
+    let targets = rest.isEmpty ? e.store.state.runtimes
+                              : e.store.state.runtimes.filter { $0.id == rest[0] }
+    guard !targets.isEmpty else { die(DecanterError.notFound("runtime \(rest.first ?? "")")) }
+    for rt in targets {
+        let rep = RuntimeAudit().audit(root: rt.root)
+        out(rt.id)
+        if rep.isSound {
+            ok(rep.headline)
+        } else {
+            out("  \u{2717} \(rep.headline)")
+            for c in rep.consequences { out("      \u{2192} \(c)") }
+            if !detailed {
+                out("      run `decanter audit \(rt.id) --detail` to see exactly which, and what needs them")
+            }
+        }
+        if detailed {
+            out("      \(rep.scannedFiles) files examined")
+            for g in rep.hardGaps {
+                out("    \(g.library)\(g.thirtyTwoBitOnly ? "   (32-bit side only)" : "")")
+                out("        needed by \(g.neededBy.prefix(4).joined(separator: ", "))"
+                    + (g.neededBy.count > 4 ? " and \(g.neededBy.count - 4) more" : ""))
+            }
+            for g in rep.weakGaps.prefix(5) {
+                out("    \(g.library)   (optional \u{2014} absent by design is fine)")
+            }
+        }
+        out("")
+    }
+
+case "repair":
+    // Describes by default and acts only when told to. The offer names its
+    // cause, says where the change lands and how to undo it, and then stops.
+    let e = engine()
+    guard let target = e.store.state.runtimes.first(where: { $0.id == rest.first }) else {
+        die(DecanterError.usage("usage: decanter repair <runtime> [--do | --undo]\n"
+            + "       runtimes: " + e.store.state.runtimes.map(\.id).joined(separator: ", ")))
+    }
+    let repair = RuntimeRepair()
+    if rest.contains("--undo") {
+        do {
+            let removed = try repair.undo(target, progress: step)
+            if removed.isEmpty { ok("nothing had been copied into \(target.id)") }
+            else { ok("removed \(removed.count) file\(removed.count == 1 ? "" : "s") \u{2014} \(target.id) is back as it was") }
+        } catch { die(error) }
+    } else {
+        let report = RuntimeAudit().audit(root: target.root)
+        if report.isSound { ok(report.headline); break }
+        let offer = repair.plan(for: target, donors: e.store.state.runtimes, audit: report)
+        out(target.id)
+        out("  \u{2717} \(report.headline)")
+        for c in report.consequences { out("      \u{2192} \(c)") }
+        out("")
+        out("  \(offer.summary)")
+        if !offer.isEmpty {
+            out("  It changes:")
+            for line in offer.location.split(separator: "\n") { out("      \(line)") }
+            out("  \(offer.undo)")
+            if detailed {
+                out("  In detail:")
+                for b in offer.borrows {
+                    out("      \(b.library)  (\(b.architectures.joined(separator: ", ")))  from \(b.donorID)")
+                    out("          wanted by \(b.neededBy.prefix(3).joined(separator: ", "))")
+                }
+                for g in offer.unfillable { out("      cannot supply \(g.library)") }
+            }
+        }
+        if rest.contains("--do") {
+            guard !offer.isEmpty else { die(DecanterError.notFound("nothing here can supply what is missing")) }
+            do {
+                let done = try repair.apply(offer, to: target, progress: step)
+                ok("copied \(done.count) file\(done.count == 1 ? "" : "s")")
+                let after = RuntimeAudit().audit(root: target.root)
+                if after.isSound { ok(after.headline) }
+                else {
+                    // A borrowed library brings its own dependencies. Saying
+                    // what is left beats declaring victory.
+                    out("  \(after.headline)")
+                    for c in after.consequences { out("      \u{2192} \(c)") }
+                    out("  run `decanter repair \(target.id)` again \u{2014} some of these may now be fillable")
+                }
+                let bench = Bench(paths: e.paths)
+                var table = bench.load()
+                table.rows.removeAll { $0.runtimeID == target.id }
+                table.rows.append(bench.measure(target))
+                try bench.save(table)
+                for c in try bench.reconcile(store: e.store, table: table) { ok("updated \(c)") }
+            } catch { die(error) }
+        } else if !offer.isEmpty {
+            out("")
+            out("  Nothing has been changed. Run `decanter repair \(target.id) --do` to go ahead.")
+        }
     }
 
 case "check":

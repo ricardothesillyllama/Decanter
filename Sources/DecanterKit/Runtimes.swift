@@ -92,8 +92,32 @@ public struct RuntimeManager {
         /// running DXMT on Apple Silicon ship.
         public var looksCapable: Bool { driverIsLinkable && hasMetalViewAPI }
 
-        /// Why this build cannot host DXMT, in the terms the person asking
-        /// would use. `nil` when it can.
+        /// Why this build cannot host DXMT, in one sentence anyone can act on.
+        /// `nil` when it can.
+        ///
+        /// The long explanation below is true and was expensive to learn, and
+        /// it is also unreadable to most of the people who will meet it —
+        /// including, on the evidence, the person who wrote the project. Mach-O
+        /// file types and exported symbol names are the reasoning, not the
+        /// answer. The answer is "this needs a different Wine build, and no
+        /// setting will change that", which is what someone actually needs in
+        /// order to decide what to do next.
+        ///
+        /// Both are kept. This one leads; `unavailableReason` is there for
+        /// anyone who wants to know why, and is never shown unasked.
+        public var unavailableSummary: String? {
+            if looksCapable { return nil }
+            if driverPath == nil {
+                return "This Wine build has no macOS display driver, so it cannot draw through Metal at all."
+            }
+            if !driverIsLinkable {
+                return "This Wine build's display driver is built in a form the Metal layer cannot attach to. It needs a different Wine build — no setting will change this."
+            }
+            return "This Wine build's display driver does not offer the Metal layer a way in. It would start, and then show nothing. It needs a different Wine build."
+        }
+
+        /// Why this build cannot host DXMT, in full. Detail, not the headline:
+        /// see `unavailableSummary`.
         public var unavailableReason: String? {
             if looksCapable { return nil }
             if driverPath == nil {

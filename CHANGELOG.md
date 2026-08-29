@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.6.0 — 2026-08-29
+
+_In progress._
+
+Decanter could tell you a game had failed. It could not tell you why the Wine
+build it ran on was incapable, because it had never looked.
+
+- **`decanter bench` measures what each Wine build can actually provide**, and
+  keeps the evidence. This was decided once, at the moment a build was pinned,
+  written into the library, and never revisited — so a build repaired or
+  extended afterwards kept being offered the old list, and there was no way to
+  tell Decanter it had changed short of unpinning and pinning it again. It is
+  now something you run, and it corrects the record where the two disagree.
+- **`decanter audit` finds what a build references but does not carry.** This is
+  the silent class of fault: the file is present, so every check that asks "is
+  it there?" says yes, and `dlopen` fails anyway — the caller takes its fallback
+  path and a game renders blank boxes or plays no video, with nothing written
+  anywhere. Found on this Mac: one build could not play video at all, and
+  Apple's Game Porting Toolkit cannot on its 32-bit side.
+- **`decanter repair` offers to fill those gaps from builds already on this
+  Mac.** Nothing is downloaded — Decanter still makes no network requests, and a
+  repair is not an exception. It describes by default and acts only when told
+  to, saying what it changes, where, and how to undo it. `--undo` removes
+  exactly the files it copied and nothing else.
+- **Every finding now has two registers.** A plain answer anyone can act on, and
+  the reasoning underneath it, shown only when asked for with `--detail`. The
+  rule is enforced by the suite rather than intended: no plain answer may
+  contain a file format, a symbol name or a library name. A refusal that reads
+  "its Mac driver is a Mach-O bundle" states the reason for the answer instead
+  of the answer, which is "this needs a different Wine build, and no setting
+  will change that".
+- **One vocabulary everywhere.** The app said "Metal graphics" and the command
+  line said "DXMT" about the same setting. The plain names moved into the shared
+  library; the real names are kept beside them, never hidden, because someone
+  following a forum thread needs to recognise "DXVK".
+
+Three faults in this work, each caught by measuring rather than reasoning:
+
+- A consequence was read from the missing library's *name*, so `libbz2` absent
+  from the video decoder announced that text would not draw — the font library
+  also happens to use bz2. It is read from the dependent now.
+- dyld's fallback search was not modelled, so eleven libraries were reported
+  missing that were sitting on disk. The resolver mirrors what the launcher
+  actually sets.
+- The first repair closed six gaps and opened three: a library moved out of its
+  own directory can no longer find its siblings. A plan now works to a fixed
+  point, examining every file it would copy at the place it would land.
+
 ## v0.5.7 — 2026-08-29
 
 - **Every Windows-written log was being read as a single line.** Swift treats

@@ -22,14 +22,9 @@ enum Help {
     /// baked into them, and the real names are kept as secondary text: someone
     /// following a forum thread needs to recognise "DXVK", and hiding it would
     /// make this app harder to get help with, not easier.
-    static func plainName(_ b: GraphicsBackend) -> String {
-        switch b {
-        case .d3dmetal: "Apple"
-        case .dxvk:     "Vulkan"
-        case .wined3d:  "Wine"
-        case .dxmt:     "Metal"
-        }
-    }
+    /// Defined in DecanterKit so the app and the command line say the same
+    /// word about the same setting.
+    static func plainName(_ b: GraphicsBackend) -> String { b.plainName }
 
     /// Whether a backend is still proving itself. Kept apart from the name for
     /// the same reason the recommendation is: a name should say what a thing

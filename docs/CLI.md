@@ -14,6 +14,11 @@ does — plus a few diagnostics that only exist here.
 | `decanter doctor` | Check the stack — Rosetta, runtimes, template, and the Rosetta end-of-life horizon |
 | `decanter pin` | Take Decanter's own copy of every Wine build already installed on this Mac |
 | `decanter runtime list` | Pinned runtimes, their 32-bit capability, and what each can render with |
+| `decanter bench` | Measure what every pinned Wine build can actually provide, with the evidence, and correct the record where it disagrees |
+| `decanter bench show` | The last measurements, without re-running them |
+| `decanter audit [rt]` | Every library a build references but does not carry — the silent faults, like a font library that cannot load |
+| `decanter repair <rt>` | Offer to fill a build's gaps from builds already on this Mac. Describes by default; `--do` applies, `--undo` reverses it. Nothing is downloaded |
+| `decanter audit deps <file>` | The load commands of one binary: what it needs and where it will look |
 | `decanter runtime set <game> <id>` | Move a game to another runtime (rebuilds its environment; saves are kept) |
 | `decanter runtime remove <id>` | Forget a pinned runtime and delete Decanter's copy. Refused while a game still uses it; takes its DXMT clone with it |
 | `decanter template build [rt]` | Build the golden template a new game clones from |
