@@ -360,12 +360,16 @@ func runAbuseTests(_ t: Harness) {
 
     t.suite("A guess does not wear a measurement's badge")
     do {
-        // The field defaulted to "high", so a recommendation with nothing
-        // observed behind it claimed as much certainty as one confirmed twice
-        // on this very Mac. Only the knowledge-base path may raise it.
+        // The field was once a confidence badge defaulting to "high", so a
+        // recommendation with nothing observed behind it claimed as much
+        // certainty as one confirmed twice on this very Mac. It is provenance
+        // now, which cannot be overstated the same way: the default says where
+        // this came from, and where it came from is a rule, not a measurement.
         let fresh = Engine.Recommendation(runtimeKind: .wine, backend: .wined3d)
-        t.expect(fresh.confidence != "high",
-                 "a recommendation with no evidence behind it does not claim high confidence")
+        t.equal(fresh.provenance, .inferred,
+                "a recommendation with nothing behind it says so")
+        t.expect(fresh.provenance != .seenHere && fresh.provenance != .verified,
+                 "and does not claim to have been seen working or vouched for")
         t.expect(!fresh.overriddenByUser,
                  "and it does not claim the user chose it")
     }

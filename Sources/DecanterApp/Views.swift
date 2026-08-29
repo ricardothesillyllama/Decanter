@@ -963,7 +963,8 @@ struct GameDetail: View {
                          ? "You're on the recommended setup"
                          : "Try \(Help.plainName(rec.backend)) graphics instead")
                         .font(.callout).bold()
-                    FactChip(text: "\(rec.confidence) confidence")
+                    FactChip(text: rec.provenance.label)
+                        .help(rec.provenance.detail)
                     Spacer()
                     if !onIt {
                         Button("Use This") { model.applyRecommendation(game) }

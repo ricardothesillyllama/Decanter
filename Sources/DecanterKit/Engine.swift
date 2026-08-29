@@ -866,19 +866,100 @@ public final class Engine: @unchecked Sendable {
         /// deliberate choice was re-argued on every screen. An override is a
         /// preference: it sticks, and it stops the app pushing back.
         public var overriddenByUser = false
-        /// How much evidence stands behind this, not how strongly it is felt.
-        /// It used to default to "high", so a recommendation derived purely
-        /// from a static rule — nothing measured, nothing observed — wore the
-        /// same badge as one confirmed twice on this very Mac. The default is
-        /// now the honest one; the knowledge-base path raises it by earning it.
-        public var confidence: String = "medium"
+        /// Where this came from, which is a fact, rather than how strongly it
+        /// is felt, which was not one.
+        ///
+        /// This replaced a confidence badge reading "high" / "medium" / "low".
+        /// The trouble with that scale was not its calibration but its type:
+        /// two things can both be "medium" for entirely different reasons, and
+        /// the word gave no way to tell a rule nobody has ever tested from an
+        /// observation on an identical machine. Provenance cannot be wrong in
+        /// the same way — it says what happened, and the reader decides what
+        /// that is worth.
+        public var provenance: Provenance = .inferred
+
+        /// The second option, when there is a real one.
+        ///
+        /// An endorsement outranks a generalisation drawn from this Mac's own
+        /// history, but it does not get to erase it. When one displaces the
+        /// other, both are offered — endorsed first, the machine's own answer
+        /// second — rather than the loser vanishing.
+        public var alternative: Alternative?
+
+        /// A note attached to an endorsed row: someone ran this and said what
+        /// to expect. The single place free text exists anywhere in the
+        /// knowledge base, and it can only be written by a key holder, which is
+        /// what keeps "no game is ever named" true.
+        public var note: String?
 
         public init(runtimeKind: RuntimeKind, backend: GraphicsBackend,
                     reasons: [String] = [], caveats: [String] = [],
-                    overriddenByUser: Bool = false, confidence: String = "medium") {
+                    overriddenByUser: Bool = false, provenance: Provenance = .inferred) {
             self.runtimeKind = runtimeKind; self.backend = backend
             self.reasons = reasons; self.caveats = caveats
-            self.overriddenByUser = overriddenByUser; self.confidence = confidence
+            self.overriddenByUser = overriddenByUser; self.provenance = provenance
+        }
+    }
+
+    /// The second choice, kept beside the first.
+    public struct Alternative: Sendable {
+        public var runtimeKind: RuntimeKind
+        public var backend: GraphicsBackend
+        public var why: String
+        public init(runtimeKind: RuntimeKind, backend: GraphicsBackend, why: String) {
+            self.runtimeKind = runtimeKind; self.backend = backend; self.why = why
+        }
+    }
+
+    /// Where a recommendation came from.
+    public enum Provenance: String, Codable, Sendable, CaseIterable {
+        /// This Mac has run it.
+        case seenHere
+        /// Someone ran it and signed for it. See `Endorsement`.
+        case verified
+        /// Arrived in someone else's export.
+        case sharedByOthers
+        /// A starting assumption Decanter shipped with, not yet confirmed here.
+        case shipped
+        /// Worked out from what the files say. Nothing has been observed.
+        case inferred
+        /// Nothing is known to work; this is the only thing that could.
+        case onlyOption
+        /// Nothing will work.
+        case knownLimitation
+
+        /// Short enough for a chip beside the recommendation.
+        public var label: String {
+            switch self {
+            case .seenHere:        "seen working here"
+            case .verified:        "verified"
+            case .sharedByOthers:  "shared by others"
+            case .shipped:         "a starting point"
+            case .inferred:        "worked out from the files"
+            case .onlyOption:      "the only thing that can work"
+            case .knownLimitation: "known not to work"
+            }
+        }
+
+        /// The same thing at length, for anyone who wants to know what the
+        /// short version is standing for.
+        public var detail: String {
+            switch self {
+            case .seenHere:
+                "This Mac has run this combination and it worked."
+            case .verified:
+                "Someone ran this themselves and vouched for it. It is not a guess, and it is not a measurement from this Mac either."
+            case .sharedByOthers:
+                "This came from someone else's shared knowledge. Nobody here has confirmed it."
+            case .shipped:
+                "Decanter came with this as a sensible place to start. Nothing here has confirmed it yet."
+            case .inferred:
+                "Worked out from what the game's own files say. Nothing has been tried."
+            case .onlyOption:
+                "Everything else is known to fail for this kind of game. This is the only remaining possibility, not a tested answer."
+            case .knownLimitation:
+                "This game needs something nothing available here provides."
+            }
         }
     }
 
@@ -941,14 +1022,14 @@ public final class Engine: @unchecked Sendable {
             // rather than assumed from the backend existing in the enum.
             if let escape = d.unsupportedUnless, let host = hostFor(escape) {
                 var r = Recommendation(runtimeKind: host.kind, backend: escape)
-                r.confidence = "untested"
+                r.provenance = .onlyOption
                 r.reasons.append("Only \(escape.label) implements the interfaces this game needs.")
                 r.reasons.append(blocker.replacingOccurrences(of: "\n", with: " "))
                 r.caveats.append("Decanter has not seen this combination succeed. It is the only one that can work, not one that is known to.")
                 return r
             }
             var r = Recommendation(runtimeKind: .gptk, backend: .d3dmetal)
-            r.confidence = "known limitation"
+            r.provenance = .knownLimitation
             r.reasons.append("This game will not run on any setup Decanter currently has.")
             r.reasons.append(blocker.replacingOccurrences(of: "\n", with: " "))
             if let escape = d.unsupportedUnless {
@@ -968,11 +1049,22 @@ public final class Engine: @unchecked Sendable {
         if let known = knowledge.best(for: sig, excluding: game.id) {
             var r = Recommendation(runtimeKind: known.setup.runtimeKind, backend: known.setup.backend)
             r.reasons.append("this worked for \(known.provenance)")
-            if let n = known.note { r.reasons.append(n) }
-            r.confidence = switch (known.level, known.confirmations) {
-                case (.thisMac, 2...), (.thisChip, 2...): "high"
-                case (_, 1...):                           "medium"
-                default:                                  "low"
+            r.provenance = switch (known.tier, known.seeded, known.confirmations) {
+                case (.verified, _, _):  .verified
+                case (.local, _, _):     .seenHere
+                case (.community, true, 0): .shipped
+                case (.community, _, _): .sharedByOthers
+            }
+            // A note on an endorsed row is the maintainer speaking, so it is
+            // kept apart and shown as such rather than folded in with the
+            // reasoning, which is Decanter's own voice.
+            if let n = known.note {
+                if r.provenance == .verified { r.note = n } else { r.reasons.append(n) }
+            }
+            if let second = known.alsoConsidered {
+                r.alternative = Alternative(runtimeKind: second.setup.runtimeKind,
+                                            backend: second.setup.backend,
+                                            why: second.why)
             }
             // Anything already known to break for this situation is worth
             // stating outright — knowing what not to try saves more time than
@@ -1018,7 +1110,7 @@ public final class Engine: @unchecked Sendable {
             r.reasons.append("D3D12 is referenced, which only D3DMetal can translate here")
         }
         r.caveats.append("If the game turns out to play video, switch to WineD3D — D3DMetal cannot drive Unity's video player")
-        if d.confidence < 0.6 { r.confidence = "low"; r.caveats.append("Detection confidence is low; treat this as a starting point") }
+        if d.confidence < 0.6 { r.caveats.append("Decanter is not very sure what kind of game this is, so treat this as a starting point") }
         r.overriddenByUser = game.runtimeLocked
         return r
     }
@@ -1055,6 +1147,50 @@ public final class Engine: @unchecked Sendable {
                                 gameID: game.id, setup: setup(for: b, runtime: rt),
                                 failure: failure)
         try knowledge.save(to: paths.knowledgePath)
+    }
+
+    /// Marks what this Mac has already seen work as vouched for.
+    ///
+    /// Only a setup that has actually been recorded as working can be endorsed,
+    /// and that is the point rather than a limitation. "Verified" is meant to
+    /// carry exactly one claim — someone ran this and watched it work — so
+    /// endorsing something nobody has run would make the tier into the guess it
+    /// exists to be distinguishable from.
+    ///
+    /// The note is signed along with everything else, so editing it later
+    /// invalidates the endorsement rather than quietly changing what was
+    /// vouched for.
+    @discardableResult
+    public func endorse(_ game: Game, note: String? = nil) throws -> Knowledge.Observation {
+        guard Endorsement.canEndorse else { throw Endorsement.KeyError.noPrivateKey }
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else {
+            throw DecanterError.notFound("this game has no environment to describe")
+        }
+        let sig = Knowledge.Signature(game.detection)
+        let s = setup(for: b, runtime: rt)
+        guard var row = knowledge.observations.first(where: {
+            $0.signature == sig && $0.setup == s && $0.worked && !$0.seeded
+        }) else {
+            throw DecanterError.notFound(
+                "nothing here records this setup as working yet. Run the game, say it worked, "
+                + "and then it can be endorsed \u{2014} verified has to mean somebody ran it")
+        }
+        if let note, !note.isEmpty { row.note = note }
+        row.endorsement = try Endorsement.sign(row)
+        knowledge.record(row)
+        try knowledge.save(to: paths.knowledgePath)
+        return row
+    }
+
+    /// Every endorsed row, with whether its signature still checks out.
+    ///
+    /// A signature that no longer verifies is worth surfacing rather than
+    /// hiding: it means the row was edited after it was vouched for, or that
+    /// this build carries a different key than the one that signed it.
+    public func endorsements() -> [(observation: Knowledge.Observation, valid: Bool)] {
+        knowledge.observations
+            .filter { $0.endorsement?.isEmpty == false }
+            .map { ($0, Endorsement.isVerified($0)) }
     }
 
     /// The setup a bottle is actually running, including the graphics layer's

@@ -42,6 +42,7 @@ broke:
     swift run selftest metal               # can a Wine build host DXMT
     swift run selftest bench               # what a build can provide, and what it is missing
     swift run selftest repair              # filling a build's gaps without breaking it differently
+    swift run selftest endorse             # signing knowledge, and what a tier is allowed to do
     swift run selftest kb                  # the knowledge base: matching ladder, seeds, export
     swift run selftest fwd                 # state survives an older binary
     swift run selftest docs                # documentation matches the code, report redaction

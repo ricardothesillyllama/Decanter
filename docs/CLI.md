@@ -18,6 +18,9 @@ does — plus a few diagnostics that only exist here.
 | `decanter bench show` | The last measurements, without re-running them |
 | `decanter audit [rt]` | Every library a build references but does not carry — the silent faults, like a font library that cannot load |
 | `decanter repair <rt>` | Offer to fill a build's gaps from builds already on this Mac. Describes by default; `--do` applies, `--undo` reverses it. Nothing is downloaded |
+| `decanter endorse <game>` | Vouch for a setup you have run yourself, signing it with your key. `--note` attaches a line others will see |
+| `decanter endorse list` | Endorsed rows, and whether each signature still checks out |
+| `decanter endorse keygen` | Make an endorsement key pair. The private half never leaves this Mac |
 | `decanter audit deps <file>` | The load commands of one binary: what it needs and where it will look |
 | `decanter runtime set <game> <id>` | Move a game to another runtime (rebuilds its environment; saves are kept) |
 | `decanter runtime remove <id>` | Forget a pinned runtime and delete Decanter's copy. Refused while a game still uses it; takes its DXMT clone with it |

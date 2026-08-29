@@ -78,6 +78,8 @@ func usage() -> Never {
       decanter bench                  measure what each Wine build can actually provide
       decanter audit [runtime]        what a build is missing, and what stops working
       decanter repair <runtime>       offer to fill the gaps from builds already here
+      decanter endorse <game>         vouch for a setup you have actually run
+      decanter endorse list           what is endorsed, and whether it still checks out
         add --detail to any of these   the reasoning behind the answer, not just the answer
       decanter runtime set <game> <id>  move a game to another runtime
       decanter template build [rt]    build the golden template for a runtime
@@ -713,6 +715,68 @@ case "repair":
         }
     }
 
+case "endorse":
+    // Making an endorsement needs a private key, which is the one thing an
+    // open repository cannot hand out. Checking one needs only the public half,
+    // so anyone can tell whether a row is genuinely vouched for.
+    let e = engine()
+    // Defaulted rather than matched on Optional: the documentation test
+    // reads these case labels to check every command is written down, and a
+    // pattern that is not a command confuses it.
+    switch rest.first ?? "list" {
+    case "keygen":
+        do {
+            let pair = try Endorsement.generateKeyPair()
+            try Endorsement.writePrivateKey(pair.privateKeyBase64)
+            try pair.publicKeyBase64.write(to: Endorsement.localPublicKeyPath,
+                                           atomically: true, encoding: .utf8)
+            ok("private key written to \(Endorsement.privateKeyPath.path)")
+            out("    keep it, back it up, and never commit it \u{2014} losing it means every")
+            out("    endorsement already made stops verifying, and there is no way back")
+            out("")
+            out("  public key (this is the half that ships):")
+            out("    \(pair.publicKeyBase64)")
+            out("")
+            out("  paste it into Endorsement.maintainerPublicKey to bake it into releases.")
+            out("  until then it is read from \(Endorsement.localPublicKeyPath.lastPathComponent), which a release ignores.")
+        } catch { die(error) }
+
+    case "list", "check":
+        let rows = e.endorsements()
+        if rows.isEmpty {
+            out("  nothing here is endorsed")
+        } else {
+            for (o, valid) in rows {
+                out("  \(valid ? "\u{2713}" : "\u{2717}") \(o.signature.label) \u{2014} \(o.setup.label)")
+                if let n = o.note { out("      note: \(n)") }
+                if !valid {
+                    warn("this row's endorsement does not check out \u{2014} it was changed after it was vouched for, or it was signed with a different key")
+                }
+            }
+        }
+        out("")
+        out(Endorsement.canEndorse
+            ? "  this Mac holds an endorsement key, so it can vouch for a setup"
+            : "  this Mac has no endorsement key \u{2014} `decanter endorse keygen` makes one")
+        if Endorsement.canVerify && !Endorsement.keyIsBuiltIn {
+            out("  the key in use came from a file beside Decanter, not from the build")
+        }
+
+    case let name:
+        let (_, g) = requireGame(name)
+        var note: String?
+        if let i = rest.firstIndex(of: "--note"), i + 1 < rest.count { note = rest[i + 1] }
+        do {
+            let row = try e.endorse(g, note: note)
+            ok("endorsed: \(row.setup.label) for \(row.signature.label)")
+            if let n = row.note { out("    note: \(n)") }
+            out("    this travels with the knowledge base and carries no name \u{2014} only the tier")
+            if !Endorsement.isVerified(row) {
+                warn("this build cannot check its own endorsements yet: no public key is baked in and none was found beside it")
+            }
+        } catch { die(error) }
+    }
+
 case "check":
     let (e, g) = requireGame(rest.first)
     do {
@@ -984,8 +1048,15 @@ case "recommend":
     out("\(g.name)")
     out("  engine:   \(g.detection.engine.label), \(g.detection.bitness.label)\(g.detection.usesVideo ? ", plays video" : "")")
     out("")
-    out("  recommended: \(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(rec.backend.label)   [\(rec.confidence) confidence]")
+    out("  recommended: \(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(rec.backend.plainName) graphics (\(rec.backend.label))")
+    out("    \u{2014} \(rec.provenance.label)\(detailed ? ": " + rec.provenance.detail : "")")
+    if let n = rec.note { out("    note: \(n)") }
     for r in rec.reasons { out("    \u{00b7} \(r)") }
+    if let alt = rec.alternative {
+        out("")
+        out("  second option: \(alt.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine") + \(alt.backend.plainName) graphics (\(alt.backend.label))")
+        out("    \u{00b7} \(alt.why)")
+    }
     if !rec.caveats.isEmpty { out(""); for c in rec.caveats { out("    ! \(c)") } }
     if rest.contains("--apply") {
         do { _ = try e2.applyRecommendation(g, progress: step); ok("applied — nothing was launched") }

@@ -206,13 +206,18 @@ public struct Knowledge: Codable, Sendable {
         /// that has to guess where every existing row came from.
         public var imported: Bool = false
         public var note: String?
+        /// A detached signature over this row's own contents, made with the
+        /// maintainer's key. Its presence is not the claim — anyone can write
+        /// bytes here — so it is checked, never trusted. See `Endorsement`.
+        public var endorsement: String?
 
         public init(signature: Signature, setup: Setup, worked: Bool,
                     failure: Failure? = nil, gameID: UUID? = nil,
-                    seeded: Bool = false, imported: Bool = false, note: String? = nil) {
+                    seeded: Bool = false, imported: Bool = false, note: String? = nil,
+                    endorsement: String? = nil) {
             self.signature = signature; self.setup = setup; self.worked = worked
             self.failure = failure; self.gameID = gameID; self.seeded = seeded
-            self.imported = imported; self.note = note
+            self.imported = imported; self.note = note; self.endorsement = endorsement
         }
 
         public init(from decoder: Decoder) throws {
@@ -225,6 +230,7 @@ public struct Knowledge: Codable, Sendable {
             seeded = (try? c.decode(Bool.self, forKey: .seeded)) ?? false
             imported = (try? c.decode(Bool.self, forKey: .imported)) ?? false
             note = try? c.decodeIfPresent(String.self, forKey: .note)
+            endorsement = try? c.decodeIfPresent(String.self, forKey: .endorsement)
         }
     }
 
@@ -318,14 +324,41 @@ public extension Knowledge {
         public var failures: Int
         public var note: String?
         public var seeded: Bool
+        /// Where this came from, which is the only thing an endorsement grants.
+        public var tier: Endorsement.Tier = .community
+        /// What this answer displaced.
+        ///
+        /// Set only when an endorsement outranked something the person's own
+        /// machine had to say. The local answer is kept rather than discarded:
+        /// their Mac still said something, and dropping it silently would be
+        /// deciding on their behalf. Shown second, not hidden.
+        public var alsoConsidered: RunnerUp?
 
         /// Said plainly, including how loose the match was — an answer drawn
         /// from "this engine, any Mac" should not sound like one drawn from an
         /// identical machine.
         public var provenance: String {
+            if tier == .verified {
+                let n = confirmations
+                return n > 0
+                    ? "someone ran this and confirmed it, and \(n == 1 ? "1 game has" : "\(n) games have") since agreed"
+                    : "someone ran this and confirmed it"
+            }
             if seeded && confirmations == 0 { return "a starting assumption, not yet confirmed here" }
             let games = confirmations == 1 ? "1 game" : "\(confirmations) games"
             return "\(games) at the level of \(level.label)"
+        }
+    }
+
+    /// The answer an endorsement displaced, kept so it can be offered second.
+    struct RunnerUp: Sendable, Hashable {
+        public var setup: Setup
+        public var level: Level
+        public var confirmations: Int
+        public var why: String {
+            confirmations > 0
+                ? "what this Mac has seen work: \(confirmations == 1 ? "1 game" : "\(confirmations) games") at the level of \(level.label)"
+                : "a starting assumption at the level of \(level.label)"
         }
     }
 
@@ -338,7 +371,60 @@ public extension Knowledge {
     /// A setup that has failed at least as often as it has worked is never
     /// returned: a bucket where something is known to break should fall through
     /// to a broader question rather than recommend the broken thing.
-    func best(for sig: Signature, excluding gameID: UUID? = nil) -> Answer? {
+    /// The answer to give, once endorsement is taken into account.
+    ///
+    /// The ladder is unchanged for anything the person's own Mac has actually
+    /// seen: an observation at "this setup, on this Mac" or "on this chip" is
+    /// their experience, and nothing outranks it. Below that the levels stop
+    /// being observations of their machine and become generalisations — and a
+    /// generalisation somebody ran and confirmed is a better one than a
+    /// generalisation nobody did.
+    ///
+    /// So an endorsement slots in between: under what they have seen, over what
+    /// has merely been inferred for them. When it displaces a local answer, the
+    /// local answer is returned alongside as the second option rather than
+    /// dropped — their machine still said something.
+    func best(for sig: Signature, excluding gameID: UUID? = nil,
+              verified: (Observation) -> Bool = { Endorsement.isVerified($0) }) -> Answer? {
+        let local = observed(for: sig, excluding: gameID, verified: verified)
+        // Their own machine, on their own hardware. Nothing goes above this.
+        if let local, local.level <= .thisChip { return local }
+        guard let endorsed = endorsedAnswer(for: sig, verified: verified) else { return local }
+        guard let local else { return endorsed }
+        guard local.setup != endorsed.setup else { return endorsed }
+        var winner = endorsed
+        winner.alsoConsidered = RunnerUp(setup: local.setup, level: local.level,
+                                         confirmations: local.confirmations)
+        return winner
+    }
+
+    /// The tightest endorsed row that answers this situation, if any.
+    ///
+    /// Endorsed rows are searched down the same ladder, so an endorsement made
+    /// about this exact chip beats one made about the engine in general.
+    func endorsedAnswer(for sig: Signature,
+                        verified: (Observation) -> Bool = { Endorsement.isVerified($0) }) -> Answer? {
+        for level in Level.allCases {
+            let here = observations(matching: sig, at: level)
+                .filter { $0.worked && verified($0) }
+            guard let row = here.first else { continue }
+            var a = Answer(setup: row.setup, level: level, confirmations: 0, failures: 0,
+                           note: row.note, seeded: false)
+            a.tier = .verified
+            // How many distinct games here have since agreed. An endorsement is
+            // a claim in its own right; corroboration is worth saying, and its
+            // absence is not a mark against it.
+            a.confirmations = Set(observations(matching: sig, at: level)
+                .filter { $0.worked && $0.setup == row.setup }
+                .compactMap(\.gameID)).count
+            return a
+        }
+        return nil
+    }
+
+    /// The ladder as it was: what has been seen, nothing more.
+    func observed(for sig: Signature, excluding gameID: UUID? = nil,
+                  verified: (Observation) -> Bool = { Endorsement.isVerified($0) }) -> Answer? {
         // A specific failure outranks a general success. Without this, Unity 6
         // fell through to "Unity games work on D3DMetal" — true of Unity in
         // general, and measured to be false for Unity 6, which is exactly the
@@ -351,10 +437,48 @@ public extension Knowledge {
 
             struct Tally { var worked = Set<UUID>(); var failed = Set<UUID>()
                            var seeded = false; var note: String?
-                           var bareWorked = 0; var bareFailed = 0 }
+                           var bareWorked = 0; var bareFailed = 0
+                           /// Failures that arrived in someone else's export and
+                           /// carry no endorsement. Counted rather than acted on:
+                           /// they do not veto, and the number is kept because it
+                           /// is what a future export format carrying weight from
+                           /// others would need in order to start mattering.
+                           var uncorroboratedFailures = 0
+                           var anyLocal = false
+                           /// Whether any row behind this answer is vouched for.
+                           /// An endorsed row whose situation happens to match
+                           /// tightly is returned by this walk and never reaches
+                           /// the endorsement branch at all — so without this it
+                           /// came back labelled as merely shared, which is the
+                           /// one thing it demonstrably is not.
+                           var anyVerified = false }
             var tally: [Setup: Tally] = [:]
             for o in here {
                 var t = tally[o.setup] ?? Tally()
+                if !o.seeded && !o.imported { t.anyLocal = true }
+                if verified(o) { t.anyVerified = true }
+                // A failure this Mac saw rules a setup out at once. A failure
+                // that arrived in someone's export does not, because a single
+                // stranger's broken install would otherwise take an option away
+                // from everyone who imported it. Endorsement is what promotes
+                // such a row to the weight a local observation already has, and
+                // it is the *only* thing that can.
+                //
+                // Corroboration was the obvious alternative — two independent
+                // reports of the same failure being a pattern — and it is not
+                // available: `merge` skips any situation-and-setup the library
+                // already answers, deliberately, so that a stranger's claim
+                // cannot outvote what was seen here. Two such rows can never
+                // both exist, and counting toward a threshold nothing can reach
+                // would have been a rule that reads as active while never
+                // firing. If weight from others is ever wanted, the export
+                // format has to say so first.
+                if !o.worked && o.imported && !verified(o) {
+                    t.uncorroboratedFailures += 1
+                    if t.note == nil { t.note = o.note }
+                    tally[o.setup] = t
+                    continue
+                }
                 if let id = o.gameID {
                     // The game being asked about does not get to vouch for
                     // itself: "this worked for 1 game" meaning *this* game is
@@ -386,13 +510,24 @@ public extension Knowledge {
                 // broader, vaguer success cannot contradict a specific
                 // measurement — but only downward: a failure found at the same
                 // level as a success is already handled by the filters above.
-                for o in here where !o.worked { vetoed.insert(o.setup) }
+                for o in here where !o.worked {
+                    // An uncorroborated imported failure did not stop this
+                    // setup winning here, so it must not veto it further down
+                    // either — the two rules have to be the same rule.
+                    if o.imported && !verified(o) { continue }
+                    vetoed.insert(o.setup)
+                }
                 continue
             }
-            return Answer(setup: winner.key, level: level,
-                          confirmations: winner.value.worked.count,
-                          failures: winner.value.failed.count,
-                          note: winner.value.note, seeded: winner.value.seeded)
+            var answer = Answer(setup: winner.key, level: level,
+                                confirmations: winner.value.worked.count,
+                                failures: winner.value.failed.count,
+                                note: winner.value.note, seeded: winner.value.seeded)
+            // Ordered the same way the tiers are: what this Mac saw, then what
+            // someone vouched for, then what was merely shared.
+            answer.tier = winner.value.anyLocal ? .local
+                        : (winner.value.anyVerified ? .verified : .community)
+            return answer
         }
         return nil
     }
