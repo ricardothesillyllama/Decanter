@@ -1,8 +1,6 @@
 # Changelog
 
-## v0.6.0 — 2026-08-29
-
-_In progress._
+## v0.6.0 — 2026-08-30
 
 Decanter could tell you a game had failed. It could not tell you why the Wine
 build it ran on was incapable, because it had never looked.
