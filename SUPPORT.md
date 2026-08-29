@@ -7,14 +7,20 @@ the order worth trying.
 
 1. **Open Setup.** If anything required is missing, the app says so and says
    what it is for. Most "it does nothing" reports are a missing piece.
-2. **Apply Decanter's recommendation** — the ★ option on the game page, or
+2. **Apply Decanter's recommendation** — the suggestion on the game page, or
    `decanter recommend <game> --apply`. It costs nothing and resolves a
    surprising share of problems.
-3. **Check the [symptom table](README.md#troubleshooting).** Blank text, black
+3. **If it used to work, go back.** `decanter restore <game>` says what it last
+   ran on and when; `--do` puts it back. Saves are kept.
+4. **Check the Wine build itself.** `decanter audit` finds libraries a build
+   references but does not carry — a silent fault that looks like a broken game
+   and is not one. `decanter repair <runtime>` offers to fill the gaps from
+   builds already on your Mac.
+5. **Check the [symptom table](README.md#troubleshooting).** Blank text, black
    screens, failing cutscenes and stuck processes each have a known cause.
-4. **Read the [troubleshooting guide](docs/TROUBLESHOOTING.md)** for the detail
+6. **Read the [troubleshooting guide](docs/TROUBLESHOOTING.md)** for the detail
    behind those.
-5. **Open an issue** with the *A game does not work* template. Press **Report a
+7. **Open an issue** with the *A game does not work* template. Press **Report a
    Problem** on the game page first — it copies everything the report needs.
 
 You never have to name the game. Rename or redact it; the report is still

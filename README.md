@@ -11,7 +11,7 @@ environment, and picks the graphics translation most likely to work —
 instead of leaving you to guess between five combinations and try each by hand.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=577%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=852%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -115,6 +115,17 @@ says which one and why, with the exact log line underneath.
 
 ![Mods](Resources/screenshots/mods.png)
 
+### A way back, and a question worth asking
+
+A game remembers the setup it last worked on, with a date, and offers to go back
+to it. Saves are kept.
+
+And when a launch is ambiguous — a window that appeared and then vanished, a
+process with no window at all — Decanter says what it saw and asks you once
+whether it played. A launch that plainly worked is recorded without asking:
+being made to confirm the obvious is how a prompt becomes something you dismiss
+without reading.
+
 ## How this compares
 
 There are several ways to run Windows games on a Mac, and Decanter is not the
@@ -158,9 +169,16 @@ Decanter grants a game its own folder and a shared games directory, closes the
 seventeen further routes Wine opens through its mapped user folders, and
 verifies it before every launch.
 
-**Saves survive a rebuild.** Broken environments are replaced rather than
-repaired, because repair heuristics rot. That is only safe because saves are
-moved out of the environment first and linked back in.
+**Saves survive a rebuild.** A broken Windows environment is replaced rather
+than repaired, because repair heuristics rot and an environment is rebuilt in
+half a second anyway. That is only safe because saves are moved out of it first
+and linked back in.
+
+**A Wine build is a different matter, and Decanter checks it.** A missing
+library there is silent: the game renders blank boxes or plays no video, and
+nothing writes an error anywhere. `decanter audit` finds what a build references
+but does not carry, and `decanter repair` offers to fill the gaps from builds
+already on your Mac. Nothing is downloaded, and it can be undone.
 
 **It is much younger than the alternatives**, has been used in anger by one
 person, and is not notarised. If you need something proven today, use one of
@@ -291,9 +309,12 @@ surprising share of them.
 | Fans spin up and macOS blames Decanter while it is closed | Wine processes left running by an earlier session | `decanter reap` |
 | The app forgets granted permissions after every rebuild | Ad-hoc signing — see [Signing](docs/TROUBLESHOOTING.md#signing-and-why-permissions-reset) | Create a `Decanter Dev` certificate once |
 | Worked before, broken after a game update or new mods | Detection is stale | `decanter redetect <game>`, then `decanter rederive <game>` if needed |
+| Worked before and nothing obvious changed | The setup moved off what was working | `decanter restore <game>` says what it last ran on; `--do` puts it back |
+| Text never draws, or video never plays, and no setting helps | The Wine build is missing a library it needs — a silent failure, not a game problem | `decanter audit`, then `decanter repair <runtime>` |
 
 **[Full troubleshooting guide →](docs/TROUBLESHOOTING.md)** — choosing a
-graphics mode, blank text, missing Windows files, leftover processes, signing.
+graphics mode, blank text, incomplete Wine builds, missing Windows files,
+leftover processes, signing.
 
 Two things worth knowing before you go deeper:
 
@@ -354,10 +375,11 @@ Screen Recording permission.
 Tested by one person, on an M2 MacBook Air running macOS 26.5, with Wine 11.0
 and Apple's Game Porting Toolkit pinned side by side.
 
-Runtimes are pinned, every game gets its own copy-on-write environment, broken
-environments are replaced rather than repaired, and no game can see your files.
+Runtimes are pinned and measured rather than trusted, every game gets its own
+copy-on-write environment, a broken environment is replaced rather than
+repaired, and no game can see your files.
 Decanter is a CLI and a SwiftUI app over one engine, written in Swift with no
-external dependencies — every dependency is a future 404. **577 checks** run in
+external dependencies — every dependency is a future 404. **852 checks** run in
 a hand-rolled harness.
 
 ## Documentation

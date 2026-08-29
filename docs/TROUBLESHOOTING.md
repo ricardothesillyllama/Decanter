@@ -46,6 +46,66 @@ Japanese games are the usual casualty even when their text is English: a
 translation patch replaces the strings, not the UI font. New bottles inherit the
 mapping automatically.
 
+If mapping the fonts changes nothing, the problem may be one layer down — the
+Wine build's own font library failing to load. See below.
+
+## Nothing wrong with the game: the Wine build is incomplete
+
+The worst failures here are silent. A Wine build that is missing a library it
+references does not report anything: the load returns nothing, the caller takes
+its fallback path, and the result is text that never draws or video that never
+plays. Every check that asks "is the file there?" says yes, because the file
+that is missing is one the *other* file needs.
+
+    decanter audit                    # what each build is missing, and what stops working
+    decanter audit <runtime> --detail # exactly which, and what needs them
+    decanter repair <runtime>         # what could be done about it, without doing it
+    decanter repair <runtime> --do    # do it
+    decanter repair <runtime> --undo  # remove exactly what was copied
+
+Everything comes from a Wine build already on this Mac — nothing is downloaded,
+and a build that has nothing to borrow from says so rather than reaching for the
+network. Two real examples, both found this way:
+
+- A hand-assembled build had `libfreetype` copied in without the four libraries
+  FreeType itself links against. Every font call failed and no font mapping
+  could have helped.
+- Apple's Game Porting Toolkit cannot reach its own bundled GStreamer from its
+  32-bit side, so 32-bit games play no video on it.
+
+## What worked before
+
+If a game used to run and now does not, you do not have to work out what
+changed:
+
+    decanter restore <game>        # what it last worked on, and when
+    decanter restore <game> --do   # put it back there
+
+Saves are kept. If Decanter could not tell whether the last launch worked, it
+asks once:
+
+    decanter verdict               # the question, and how to answer it
+    decanter verdict worked
+    decanter verdict failed --why noDevice
+    decanter verdict skip          # nothing is recorded, and it does not come back
+
+## Red text in a mod log that is not a mod's fault
+
+BepInEx logs `Unable to start Unity log writer` on some games at error level.
+No mod is affected — every plugin still loads and the game runs. What it does
+mean is that the game's own messages reach only the console window and are never
+written to `LogOutput.log`, so the file appears to stop moments after startup.
+
+A log that ends just after "Chainloader startup complete" is that, not a game
+that stopped. If you need the game's own output, read the console window while
+it runs.
+
+    decanter mods <game>            # what actually went wrong, and what did not
+    decanter mods <game> --detail   # the exact lines
+
+A game that cannot reach Steam is reported the same way — as a notice rather
+than a failure. The game runs; achievements, cloud saves and friends do not.
+
 ## When a game names a missing Windows file
 
 Wine provides most of what games need, but some ask for a Visual C++ runtime or

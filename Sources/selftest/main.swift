@@ -18,6 +18,7 @@ if wantAll || args.contains("mods")    { runModLogTests(t) }
 if wantAll || args.contains("stop")    { runStopScopeTests(t) }
 if wantAll || args.contains("noise")   { runSaveNoiseTests(t) }
 if wantAll || args.contains("explain") { runModExplainTests(t) }
+if wantAll || args.contains("triage") { runModTriageTests(t) }
 if wantAll || args.contains("verbs")   { runRecipeVerbTests(t) }
 if wantAll || args.contains("bench")   { runBenchTests(t) }
 if wantAll || args.contains("repair")  { runRepairTests(t) }

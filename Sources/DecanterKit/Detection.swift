@@ -585,6 +585,100 @@ public struct ModInspector {
         /// launch. The reason is always in this log and nowhere else — the
         /// game's own window is gone by the time you could read it.
         public var errors: [String] = []
+
+        /// Lines logged at error level that no mod is responsible for.
+        ///
+        /// Kept rather than dropped, and kept apart rather than counted. A
+        /// loader that writes the same error on every start makes every game
+        /// look broken, and "one mod did not load" once pointed at a message
+        /// the loader logs about itself moments before loading every plugin
+        /// successfully. Separating them is not the same as calling them
+        /// harmless — one of these is the reason a log goes silent after
+        /// startup, which is worth knowing and is nobody's mod's fault.
+        public var benign: [String] = []
+
+        /// Things the *game* said through the loader's console, which is not
+        /// the same as something the mods did. The loader's log is often the
+        /// only place a game's own complaints are visible at all.
+        public var notices: [Notice] = []
+    }
+
+    public struct Notice: Sendable, Hashable {
+        /// Plain, and about consequences.
+        public var summary: String
+        /// The line it came from, for pasting into a forum thread.
+        public var evidence: String
+        public init(summary: String, evidence: String) {
+            self.summary = summary; self.evidence = evidence
+        }
+    }
+
+    /// Messages the loader logs at error level that no mod is responsible for.
+    ///
+    /// Not the same as harmless, and the distinction was learned by getting it
+    /// wrong. A deny-list is a poor instrument alone, so it is consulted only
+    /// when the log also shows the loader finishing its work — the structural
+    /// evidence that no plugin was actually prevented from loading. What each
+    /// entry then says is the *consequence*, not a reassurance: the first one
+    /// added here was written as "nothing is lost", and measuring the log
+    /// showed that a great deal is.
+    static let notAMod: [(needle: String, why: String)] = [
+        ("unable to start unity log writer",
+         "BepInEx could not attach its listener to Unity's log. No mod is affected — every plugin still loads and the game runs. But the game's own messages then reach only the console window and never this log file, so if something goes wrong later there will be nothing recorded to look at. A log that appears to stop just after startup is this, not a game that stopped."),
+    ]
+
+    /// Things worth explaining that are not mod failures.
+    ///
+    /// Matched at any level, including warnings, because the interesting ones
+    /// are rarely errors: a game that cannot reach Steam warns and carries on,
+    /// and the warning is the only sign anybody ever gets.
+    static let knownNotices: [(needle: String, summary: String)] = [
+        ("steaminternal_steamapi_init",
+         "This game looked for Steam and did not find it running. The game itself works; anything that goes through Steam — achievements, cloud saves, friends, playtime — will not."),
+        ("steamapi_init",
+         "This game looked for Steam and did not find it running. The game itself works; anything that goes through Steam — achievements, cloud saves, friends, playtime — will not."),
+    ]
+
+    /// Whether the loader got all the way through. When it did, an earlier
+    /// error stopped nothing, whatever it said.
+    public static func loaderFinished(_ text: String) -> Bool {
+        let low = text.lowercased()
+        return low.contains("chainloader startup complete")
+            || low.contains("chainloader initialized")
+    }
+
+    /// Splits reported failures into ones that matter and ones that do not.
+    public static func triage(_ failures: [String], loaderFinished: Bool) -> (real: [String], benign: [String]) {
+        guard loaderFinished else { return (failures, []) }
+        var real: [String] = [], benign: [String] = []
+        for line in failures {
+            let low = line.lowercased()
+            if notAMod.contains(where: { low.contains($0.needle) }) { benign.append(line) }
+            else { real.append(line) }
+        }
+        return (real, benign)
+    }
+
+    /// What a not-a-mod line actually means, for somebody who saw red text and
+    /// wants to know whether it is their problem.
+    public static func whyBenign(_ line: String) -> String {
+        let low = line.lowercased()
+        return notAMod.first { low.contains($0.needle) }?.why
+            ?? "The mod loader carried on and every plugin loaded, so no mod was prevented from working by this."
+    }
+
+    /// Notices found anywhere in a loader log.
+    public static func notices(in lines: [String]) -> [Notice] {
+        var out: [Notice] = []
+        var seen = Set<String>()
+        for line in lines {
+            let low = line.lowercased()
+            guard let hit = knownNotices.first(where: { low.contains($0.needle) }) else { continue }
+            guard seen.insert(hit.summary).inserted else { continue }
+            out.append(.init(summary: hit.summary,
+                             evidence: line.trimmingCharacters(in: .whitespaces)))
+        }
+        return out
     }
 
     /// Pulls the failure lines out of a loader log.
@@ -738,7 +832,13 @@ public struct ModInspector {
                             st.loaderVersion = String(line[r]); break
                         }
                     }
-                    st.errors = Self.failures(in: lines.map(String.init))
+                    let all = Self.failures(in: lines.map(String.init))
+                    // Split before storing, so nothing downstream has to know
+                    // which of these is worth pulling someone's attention to.
+                    let split = Self.triage(all, loaderFinished: Self.loaderFinished(text))
+                    st.errors = split.real
+                    st.benign = split.benign
+                    st.notices = Self.notices(in: lines.map(String.init))
                 }
                 break
             }

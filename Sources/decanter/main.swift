@@ -1234,9 +1234,35 @@ case "mods":
         if let n = st.note { warn(n) }
         if !st.errors.isEmpty {
             out("")
-            warn("the mod loader reported \(st.errors.count) failure(s):")
-            for e in st.errors { out("      \(e.prefix(150))") }
+            out("  \u{2717} \(st.errors.count) thing\(st.errors.count == 1 ? "" : "s") went wrong:")
+            // The explanation leads and the line follows, the same way
+            // everywhere else. The raw line is what gets pasted into a forum
+            // thread, and it is useless as a headline.
+            for e in st.errors {
+                out("      \(ModInspector.explain(e))")
+                if detailed { out("        \(e.prefix(200))") }
+            }
+        }
+        if !st.notices.isEmpty {
+            out("")
+            for n in st.notices {
+                out("  \u{00b7} \(n.summary)")
+                if detailed { out("        \(n.evidence.prefix(200))") }
+            }
+        }
+        if !st.benign.isEmpty {
+            out("")
+            // Said, but not counted. A loader that writes one harmless error on
+            // every start otherwise makes every game look broken.
+            out("  \(st.benign.count) error\(st.benign.count == 1 ? "" : "s") in the log that no mod is responsible for:")
+            for b in st.benign {
+                out("      \(ModInspector.whyBenign(b))")
+                if detailed { out("        \(b.prefix(200))") }
+            }
+        }
+        if !st.errors.isEmpty || !st.benign.isEmpty || !st.notices.isEmpty {
             if let l = st.logPath { out("  full log: \(l.path)") }
+            if !detailed { out("  add --detail for the exact lines") }
         }
     }
 

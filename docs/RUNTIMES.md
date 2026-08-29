@@ -110,6 +110,25 @@ window.
 > like game bugs. 1.10.3 targets Vulkan 1.1 and is the one that works here. You
 > can stage several versions and switch per game with `decanter dxvk use`.
 
+## Checking a build you assembled
+
+A Wine build put together by hand is the usual source of a silent fault: a
+library copied in without the libraries *it* needs loads nothing and says
+nothing.
+
+    decanter bench            # what each build can actually provide, and why
+    decanter bench --detail   # the reasoning, and the files that decided it
+    decanter audit            # what a build references but does not carry
+    decanter repair <runtime> # fill the gaps from builds already on this Mac
+
+`bench` also corrects Decanter's own record. What a build provides used to be
+decided once, at the moment it was pinned, and never revisited — so a build that
+was repaired afterwards kept being offered the stale answer. Run `bench` after
+changing a runtime and the graphics options for every game follow.
+
+The two DXMT conditions above are measured, not assumed: `bench --detail` names
+the driver file it read and says which of the two a build fails.
+
 ## Licensing
 
 None of these are this project's work, and none are redistributed by it: Wine is

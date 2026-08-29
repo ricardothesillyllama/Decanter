@@ -56,7 +56,22 @@ swift run selftest > .build/selftest.log 2>&1 || {
 tail -3 .build/selftest.log | head -2
 ok "$(grep TOTAL_CHECKS .build/selftest.log | cut -d= -f2) checks passed"
 
-# 4. A changelog entry, because a version nobody can find out about is a version
+# 4. The check count in the documents, regenerated from the suite that just ran.
+#
+#    This is the only place it can be done. CI runs a subset — the launch suite
+#    needs a pinned runtime a fresh runner does not have — so regenerating it
+#    there would write a smaller number every time. The `docs` suite compares
+#    the documents to each other and not to reality, which is why all three
+#    agreed on 577 for months while the suite ran hundreds more.
+step "check count"
+./scripts/sync-docs.sh > /dev/null
+if [ -n "$(git status --porcelain README.md CONTRIBUTING.md)" ]; then
+  git --no-pager diff --stat README.md CONTRIBUTING.md
+  fail "the documented check count was out of date — it has been corrected, commit it and run this again"
+fi
+ok "README and CONTRIBUTING report the count this suite actually produced"
+
+# 5. A changelog entry, because a version nobody can find out about is a version
 #    that may as well not have shipped.
 step "changelog"
 grep -q "^## v$VERSION" CHANGELOG.md || fail "CHANGELOG.md has no entry for v$VERSION"
@@ -65,7 +80,7 @@ if grep -A2 "^## v$VERSION" CHANGELOG.md | grep -q "_Unreleased._"; then
 fi
 ok "CHANGELOG.md describes v$VERSION"
 
-# 5. Anything vouched for has to still check out. A signature that no longer
+# 6. Anything vouched for has to still check out. A signature that no longer
 #    verifies means either the row was edited after the fact or this build
 #    carries a different key — and shipping either would put a claim in front of
 #    people that Decanter itself cannot stand behind.
@@ -77,14 +92,14 @@ if [ "$QUICK" -eq 0 ]; then
   fi
   ok "every endorsement still checks out"
 
-  # 6. The capability measurements, against whatever this Mac actually has.
+  # 7. The capability measurements, against whatever this Mac actually has.
   #    Not a gate — another Mac has other runtimes — but a release cut without
   #    looking is a release where nobody noticed the bench had stopped working.
   step "runtimes on this Mac (reported, not enforced)"
   swift run decanter bench 2>/dev/null | grep -E '^(wine|gptk)|✗|✓' | head -30 || true
 fi
 
-# 7. The artefacts.
+# 8. The artefacts.
 step "package"
 ./install.sh > .build/install.log 2>&1 || { tail -20 .build/install.log; fail "install.sh failed"; }
 ok "app and CLI built"

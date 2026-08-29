@@ -48,6 +48,67 @@ Three faults in this work, each caught by measuring rather than reasoning:
   own directory can no longer find its siblings. A plan now works to a fixed
   point, examining every file it would copy at the place it would land.
 
+**Knowledge can be vouched for, and the vouching is checkable.**
+
+- **`decanter endorse` marks a setup as one somebody actually ran**, signing the
+  row with a key only the maintainer holds. An earlier plan had the app verify
+  its own code signature instead; that would have been theatre, since Decanter
+  is ad-hoc signed by design and anyone rebuilding from source gets a binary
+  that passes the same check. Signing the knowledge works, and it keeps
+  everything anonymous: a signature proves a tier and carries no name. A fork
+  should ship its own key and cannot forge an endorsement in this one.
+- **An endorsement never overrules what your own Mac has seen.** It outranks a
+  generalisation and loses to an observation about this machine, and when it
+  displaces one, the displaced answer is offered second rather than dropped. Its
+  only other power is to let an imported failure count — an unendorsed one never
+  does, or one stranger's broken install takes an option away from everyone who
+  imported it.
+- **The confidence badge became provenance.** "High" and "medium" gave no way to
+  tell a rule nobody has ever tested from an observation on an identical
+  machine. Provenance says what happened and lets you decide what it is worth.
+
+**Two ways back from a launch that went wrong.**
+
+- **A game remembers the setup it last worked on**, with a date, and offers to
+  go back to it. Saves are kept.
+- **Decanter now asks about the launches it refuses to judge.** A clean launch is
+  recorded and asks nothing — being asked to confirm the obvious is how a prompt
+  becomes something people dismiss unread. An ambiguous one, which is the kind
+  most worth learning from, previously taught the knowledge base nothing at all.
+  The question says what Decanter actually saw, is asked once, and expires
+  rather than asking about a launch nobody remembers.
+- **A failure on a setup you chose yourself says nothing about the suggestion.**
+  It is recorded against that setup and no further; the suggestion stays
+  unjudged, which is not the same as having been tried and found wanting.
+
+**Red text in a mod log that is nobody's mod's fault.**
+
+- **BepInEx's "Unable to start Unity log writer" is no longer reported as a mod
+  failing.** Every plugin loads and the game runs; the loader is talking about
+  itself. A message the loader writes on every start otherwise made every one of
+  those games look broken.
+- **But it is not called harmless either, because it is not.** It is the reason
+  the log file stops just after startup: with that listener unattached, the
+  game's own messages reach only the console window and are never written down.
+  So a log that looks like it ends when the game began is *this*, and not a game
+  that stopped — which is worth being told, since it is exactly what makes a
+  later problem impossible to diagnose. The first version of this text said
+  "nothing is lost"; reading the log showed the file held no game output at all.
+- **A loader that did not finish gets no benefit of the doubt.** The same line is
+  a real failure when nothing in the log shows the chainloader completing.
+- **What the game itself said is separated from what the mods did.** A game that
+  cannot reach Steam warns and carries on, and that warning — visible nowhere
+  else — now reads as "the game works; achievements, cloud saves and friends
+  will not" rather than as an exception type.
+- Mod failures in the command line now lead with the explanation, with the exact
+  line behind `--detail`, the same way everything else does.
+
+**`scripts/release.sh`** gathers every precondition into one command: a dirty
+tree, an already-used version, a placeholder changelog entry, a failing rule or
+suite, an endorsement that no longer verifies. It does not tag and does not
+push — deciding a thing is finished is a judgement, and only checking whether it
+is sound belongs in a script.
+
 ## v0.5.7 — 2026-08-29
 
 - **Every Windows-written log was being read as a single line.** Swift treats

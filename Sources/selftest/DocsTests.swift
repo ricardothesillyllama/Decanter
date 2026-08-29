@@ -334,6 +334,36 @@ func runCLIDocsTests(_ t: Harness) {
     t.expect(undocumented.isEmpty,
              "every command appears in docs/CLI.md (missing: \(undocumented.joined(separator: ", ")))")
 
+    // And the other direction, which nothing checked. A document can go on
+    // describing a command long after it is gone — SUPPORT.md pointed at a "★
+    // option on the game page" for months after that badge stopped existing,
+    // and no test had any way to notice. This catches the command half of that
+    // class, which is the half that can be checked mechanically.
+    let prose = ["README.md", "SUPPORT.md", "docs/TROUBLESHOOTING.md",
+                 "docs/RUNTIMES.md", "docs/DESIGN.md", "CONTRIBUTING.md"]
+    var invented: [String] = []
+    // Words that follow `decanter ` but are options, placeholders or prose
+    // rather than commands.
+    func looksLikeAVerb(_ w: String) -> Bool {
+        !w.isEmpty && !w.hasPrefix("-") && !w.hasPrefix("<")
+            && w.allSatisfy { $0.isLetter } && w.lowercased() == w
+    }
+    for file in prose {
+        let text = read(file)
+        guard !text.isEmpty else { continue }
+        for span in text.components(separatedBy: "decanter ").dropFirst() {
+            let word = String(span.prefix { !$0.isWhitespace && $0 != "`" && $0 != "\n" })
+            guard looksLikeAVerb(word), !verbs.contains(word) else { continue }
+            // Subcommands are real too — they are matched against the same
+            // dispatch table the CLI documentation check uses, plus the inner
+            // words of any command CLI.md already spells out.
+            guard !documentedWords.contains(word) else { continue }
+            invented.append("\(file): decanter \(word)")
+        }
+    }
+    t.expect(invented.isEmpty,
+             "no document describes a command that does not exist (\(invented.prefix(4).joined(separator: "; ")))")
+
     // The README must not carry a second, drifting copy of the same table.
     let readme = read("README.md")
     t.expect(readme.contains("docs/CLI.md"),

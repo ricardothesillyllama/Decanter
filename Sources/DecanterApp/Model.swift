@@ -76,6 +76,11 @@ final class AppModel: ObservableObject {
             var m: [UUID: ModInspector.Status] = [:]
             for g in games { m[g.id] = ModInspector().inspect(game: g) }
             mods = m
+            // A question about a launch nobody judged, and whether the builds
+            // underneath still hold together. Both are cheap to ask for and
+            // both are things somebody would want to see without going looking.
+            pendingVerdict = Verdict(paths: e.paths).pending()
+            if runtimeSoundness.isEmpty { refreshSoundness() }
         } catch {
             lastError = error.localizedDescription
         }
@@ -317,6 +322,76 @@ final class AppModel: ObservableObject {
               let rt = pinnedRuntimes.first(where: { $0.id == b.runtimeID }) else { return false }
         if rec.overriddenByUser { return true }
         return rt.kind == rec.runtimeKind && b.backend == rec.backend
+    }
+
+    // MARK: - Going back, and being asked
+
+    /// The launch Decanter could not judge for itself, if there is one.
+    @Published var pendingVerdict: Verdict.Pending?
+    /// Whether each runtime holds together, and what could be done if not.
+    @Published var runtimeSoundness: [String: RuntimeAudit.Report] = [:]
+
+    func refreshVerdict() {
+        guard let e = engine else { return }
+        pendingVerdict = Verdict(paths: e.paths).pending()
+    }
+
+    /// Measured off the main thread: an audit reads every binary in a Wine
+    /// build, which is fast but not instant, and the window must not stop while
+    /// it happens.
+    func refreshSoundness() {
+        guard let e = engine else { return }
+        let roots = e.store.state.runtimes.map { ($0.id, $0.root) }
+        Task.detached(priority: .utility) {
+            var out: [String: RuntimeAudit.Report] = [:]
+            for (id, root) in roots { out[id] = RuntimeAudit().audit(root: root) }
+            await MainActor.run { self.runtimeSoundness = out }
+        }
+    }
+
+    func answerVerdict(worked: Bool, failure: Knowledge.Failure = .unspecified,
+                       reason: Verdict.SwitchReason? = nil) {
+        perform(worked ? "Recording that it worked…" : "Recording what happened…", key: "verdict") { e in
+            try e.settleVerdict(worked: worked, failure: failure, switchReason: reason)
+        } then: { self.refreshVerdict() }
+    }
+
+    func skipVerdict() {
+        guard let e = engine else { return }
+        Verdict(paths: e.paths).clear()
+        pendingVerdict = nil
+    }
+
+    /// The setup this game last worked on, when it is on something else now.
+    func restorable(_ game: Game) -> Game.KnownGood? { engine?.restorable(game) }
+
+    func restoreKnownGood(_ game: Game) {
+        perform("Putting \(game.name) back on what worked…", key: "restore") { e in
+            let good = try e.restoreKnownGood(game)
+            return "Back on \(good.label)"
+        }
+    }
+
+    /// Fills a build's gaps from builds already on this Mac. Never automatic.
+    func repairRuntime(_ runtimeID: String) {
+        perform("Repairing \(runtimeID)…", key: "repair") { e in
+            guard let rt = e.store.state.runtimes.first(where: { $0.id == runtimeID }) else {
+                throw DecanterError.notFound(runtimeID)
+            }
+            let repair = RuntimeRepair()
+            let offer = repair.plan(for: rt, donors: e.store.state.runtimes)
+            guard !offer.isEmpty else {
+                throw DecanterError.notFound("nothing on this Mac can supply what \(runtimeID) is missing")
+            }
+            let done = try repair.apply(offer, to: rt)
+            let bench = Bench(paths: e.paths)
+            var table = bench.load()
+            table.rows.removeAll { $0.runtimeID == rt.id }
+            table.rows.append(bench.measure(rt))
+            try? bench.save(table)
+            try? bench.reconcile(store: e.store, table: table)
+            return "Put \(done.count) missing piece\(done.count == 1 ? "" : "s") into \(runtimeID)"
+        } then: { self.refreshSoundness() }
     }
 
     func applyRecommendation(_ game: Game) {

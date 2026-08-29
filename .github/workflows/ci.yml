@@ -30,7 +30,8 @@ jobs:
       - name: Test
         run: |
           ./.build/release/selftest unit abuse stress saves schema \
-            fonts dxvk mods reap stop noise explain verbs exes metal fwd docs
+            fonts dxvk mods reap stop noise explain verbs exes metal fwd docs \
+            bench repair endorse verdict
 
       - name: Rules that exist because breaking them caused a real failure
         run: ./scripts/check-rules.sh

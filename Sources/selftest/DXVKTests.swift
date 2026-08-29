@@ -182,6 +182,81 @@ func runSaveNoiseTests(_ t: Harness) {
 /// The raw loader line is accurate and useless: "Could not load [UIScale 0.9.0]
 /// : missing dependency" does not tell most people that a mod is broken, which
 /// one, or whether the game will still start.
+/// The BepInEx log is often the only record of what happened, and it is full of
+/// red text that is not anybody's mod failing. Getting that wrong in either
+/// direction is expensive: a false failure sends someone hunting through
+/// plugins, and calling a consequential message harmless leaves them without
+/// the one fact that explains what they are seeing.
+func runModTriageTests(_ t: Harness) {
+    let realLog = [
+        "[Message: Preloader] BepInEx 6.0.0-be.785 - Rebirth Pub",
+        "[Info   : Preloader] Running under Unity 6000.0.58f2",
+        "[Message: Preloader] Preloader finished",
+        "[Error  :   BepInEx] Unable to start Unity log writer",
+        "[Message:   BepInEx] Chainloader initialized",
+        "[Info   :   BepInEx] Loading [RebirthPub Cheat 1.0.0]",
+        "[Info   :RebirthPub Cheat] Plugin loaded!",
+        "[Message:   BepInEx] Chainloader startup complete",
+    ]
+    let text = realLog.joined(separator: "\r\n")
+
+    t.suite("an error the loader logs about itself is not a mod failing")
+    t.expect(ModInspector.loaderFinished(text),
+             "a log that reaches the end of the chainloader is seen to have finished")
+    let failures = ModInspector.failures(in: realLog)
+    t.equal(failures.count, 1, "the log holds one error-level line")
+    let split = ModInspector.triage(failures, loaderFinished: true)
+    t.equal(split.real.count, 0, "and it is not counted as something that went wrong")
+    t.equal(split.benign.count, 1, "it is kept, separately, rather than dropped")
+
+    t.suite("but separating it is not the same as calling it harmless")
+    // The first version of this said "nothing is lost". Measuring the log
+    // showed it holds no Unity output at all — the game's own messages never
+    // reach the file, which is exactly why a log can look like it stops.
+    let why = ModInspector.whyBenign(failures[0]).lowercased()
+    t.expect(why.contains("no mod"), "it says whose fault it is not")
+    t.expect(why.contains("log"), "and what the actual consequence is")
+    t.expect(!why.contains("nothing is lost") && !why.contains("harmless"),
+             "without claiming there is no consequence, because there is one")
+    t.expect(realLog.filter { $0.contains("Unity Log") }.isEmpty,
+             "and the log this was measured against does indeed carry no Unity output")
+
+    t.suite("a loader that did not finish gets no benefit of the doubt")
+    let died = Array(realLog.prefix(4))
+    let strict = ModInspector.triage(ModInspector.failures(in: died), loaderFinished: false)
+    t.equal(strict.benign.count, 0,
+            "the same line is a real failure when nothing shows the loader finishing")
+    t.equal(strict.real.count, 1, "and is reported as one")
+
+    t.suite("a real plugin failure is still a real plugin failure")
+    let broken = realLog + ["[Error  :   BepInEx] Could not load [UIScale 0.9.0] : missing dependency"]
+    let mixed = ModInspector.triage(ModInspector.failures(in: broken), loaderFinished: true)
+    t.equal(mixed.real.count, 1, "a plugin that failed is not swept in with the loader's own message")
+    t.expect(ModInspector.explain(mixed.real[0]).contains("UIScale"),
+             "and is still explained by name")
+
+    t.suite("what the game itself said, which is not what the mods did")
+    let steam = [
+        "[Warning: Unity Log] Warning: 602 / System.EntryPointNotFoundException: SteamInternal_SteamAPI_Init",
+        "  at Steamworks.SteamAPI.Init (System.String pszInternalCheckInterfaceVersions)",
+    ]
+    let notices = ModInspector.notices(in: steam)
+    t.equal(notices.count, 1, "a game that cannot reach Steam is noticed")
+    t.expect(notices.first?.summary.contains("Steam") == true, "and named")
+    t.expect(notices.first?.summary.contains("achievements") == true,
+             "with the consequence stated rather than the exception")
+    let s = notices.first?.summary.lowercased() ?? ""
+    t.expect(!s.contains("entrypointnotfound") && !s.contains("steaminternal"),
+             "and without the exception type in the sentence somebody reads")
+    t.expect(notices.first?.evidence.contains("EntryPointNotFound") == true,
+             "which is kept underneath, for pasting into a thread")
+    t.equal(ModInspector.notices(in: realLog).count, 0,
+            "a log with nothing of the kind produces no notices")
+    // A warning, not an error — the interesting ones rarely are.
+    t.equal(ModInspector.failures(in: steam).count, 0,
+            "and none of it is mistaken for a failure")
+}
+
 func runModExplainTests(_ t: Harness) {
     t.suite("mod failures in plain language")
 

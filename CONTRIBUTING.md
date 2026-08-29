@@ -37,6 +37,7 @@ broke:
     swift run selftest stop                # per-game stop must not kill other games
     swift run selftest noise               # logs must not be mistaken for saves
     swift run selftest explain             # mod failures in plain language
+    swift run selftest triage              # which red lines are a mod's fault, and which are not
     swift run selftest verbs               # winetricks verb validation
     swift run selftest exes                # telling a game from a crash handler
     swift run selftest metal               # can a Wine build host DXMT
@@ -52,7 +53,7 @@ broke:
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **577 checks.**
+the no-dependency rule. **852 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

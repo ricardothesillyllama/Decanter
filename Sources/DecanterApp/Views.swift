@@ -350,6 +350,60 @@ struct ModsCard: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
             }
 
+            // Things the game itself said, which is not what the mods did. The
+            // loader's console is often the only place a game's own complaints
+            // are visible at all.
+            ForEach(Array(st.notices.enumerated()), id: \.offset) { _, n in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(n.summary).font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    DisclosureGroup {
+                        Text(n.evidence).font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 5)
+                    } label: {
+                        Text("Exact message").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+            }
+
+            // Red text in the log that no mod is responsible for. Shown, and
+            // deliberately not counted as a failure: the loader writes one of
+            // these on every start for some games, and counting it made every
+            // one of them look broken.
+            if !st.benign.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(st.benign.count == 1
+                         ? "One error in the log is not a mod's fault"
+                         : "\(st.benign.count) errors in the log are not a mod's fault")
+                        .font(.callout.weight(.medium))
+                    ForEach(Array(st.benign.enumerated()), id: \.offset) { _, b in
+                        Text(ModInspector.whyBenign(b))
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(st.benign.enumerated()), id: \.offset) { _, b in
+                                Text(b).font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.top, 5)
+                    } label: {
+                        Text("Exact message").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+            }
+
             if !st.plugins.isEmpty {
                 DisclosureGroup(isExpanded: $showAllPlugins) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -645,6 +699,16 @@ struct GameDetail: View {
                 }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
                 if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
+                // Asked before anything is suggested: what happened last time
+                // is the thing most likely to change what should happen next.
+                if let p = model.pendingVerdict, p.gameID == game.id {
+                    VerdictCard(pending: p)
+                }
+                if let id = bottle?.runtimeID, let health = model.runtimeSoundness[id],
+                   !health.isSound {
+                    EnvironmentHealthCard(runtimeID: id, report: health)
+                }
+                if let good = model.restorable(game) { RestoreCard(game: game, good: good) }
                 if !model.isOnRecommended(game) { recommendationBanner }
 
                 DetailSection(title: "Graphics", systemImage: "square.stack.3d.up",
@@ -982,6 +1046,31 @@ struct GameDetail: View {
                     Text(Help.oneLiner(rec.backend))
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                // Someone signed for this and wrote a line about what to
+                // expect. Kept apart from Decanter's own reasoning, because it
+                // is a different voice and reads as one.
+                if let n = rec.note {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(Palette.running).imageScale(.small)
+                        Text(n).font(.callout).foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Palette.running.opacity(0.08)))
+                }
+                // What this displaced. A vouched-for setup outranks something
+                // worked out from this Mac's own history, but it does not get
+                // to erase it — their machine still said something.
+                if let alt = rec.alternative {
+                    HStack(spacing: 6) {
+                        Text("Second option:").font(.caption).foregroundStyle(.tertiary)
+                        Text("\(alt.backend.plainName) graphics").font(.caption).bold()
+                        Text("— \(alt.why)").font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
                 // The technical reasoning is the evidence, not the headline.
                 DisclosureGroup {
                     VStack(alignment: .leading, spacing: 3) {
@@ -1118,6 +1207,135 @@ struct DiagnosisCard: View {
             }
             if let p = report.logPath {
                 Text(p.path).font(.evidence).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.caution.opacity(0.30), lineWidth: 0.5))
+    }
+}
+
+/// The one thing Decanter could not see for itself.
+///
+/// Shown only after a launch it refused to judge. A clean launch is recorded
+/// and asks nothing — a prompt that appears when the answer is already obvious
+/// is a prompt people learn to dismiss without reading, and then it is not
+/// there when it matters.
+struct VerdictCard: View {
+    @EnvironmentObject var model: AppModel
+    let pending: Verdict.Pending
+    @Environment(\.colorScheme) private var scheme
+    @State private var why: Knowledge.Failure = .unspecified
+    @State private var instead: Verdict.SwitchReason = .unstated
+    @State private var saying = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Did that work?", systemImage: "questionmark.circle.fill")
+                .font(.headline).foregroundStyle(Palette.accent(scheme))
+            Text(pending.question)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if saying {
+                // Only asked once the answer is "no". Someone whose game worked
+                // should never be made to classify anything.
+                Picker("What happened", selection: $why) {
+                    ForEach(Knowledge.Failure.allCases, id: \.self) { f in
+                        Text(f.label).tag(f)
+                    }
+                }
+                .pickerStyle(.menu).controlSize(.small)
+                if let q = pending.switchQuestion {
+                    Text(q).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Picker("Why this setup", selection: $instead) {
+                        ForEach(Verdict.SwitchReason.allCases, id: \.self) { r in
+                            Text(r.label).tag(r)
+                        }
+                    }
+                    .pickerStyle(.menu).controlSize(.small)
+                }
+                HStack {
+                    Button("Record This") {
+                        model.answerVerdict(worked: false, failure: why,
+                                            reason: pending.switchQuestion == nil ? nil : instead)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    Button("Cancel") { saying = false }.controlSize(.small)
+                }
+            } else {
+                HStack {
+                    Button("It Worked") { model.answerVerdict(worked: true) }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
+                    Button("It Did Not") { saying = true }.controlSize(.small)
+                    Spacer()
+                    // Not answering has to be as easy as answering, or the
+                    // answers stop being worth anything.
+                    Button("Skip") { model.skipVerdict() }
+                        .buttonStyle(.plain).controlSize(.small)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 0.5))
+    }
+}
+
+/// The way back to a setup that is known to have worked, with a date on it.
+struct RestoreCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    let good: Game.KnownGood
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Palette.running)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This last worked on \(good.label)").font(.callout)
+                Text("Confirmed \(good.confirmedAt.formatted(date: .abbreviated, time: .shortened)). "
+                     + "Going back keeps your saves.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("Go Back") { model.restoreKnownGood(game) }
+                .controlSize(.small).disabled(model.busy != nil)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.running.opacity(0.08)))
+    }
+}
+
+/// What a Wine build is missing, and what can be done about it here.
+///
+/// Named for the consequence, never for the libraries: "video will not play"
+/// is something to decide about, and a list of dylib names is not.
+struct EnvironmentHealthCard: View {
+    @EnvironmentObject var model: AppModel
+    let runtimeID: String
+    let report: RuntimeAudit.Report
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label("Something is missing from this game's Windows", systemImage: "puzzlepiece.extension.fill")
+                .font(.headline).foregroundStyle(Palette.caution)
+            ForEach(Array(report.consequences.enumerated()), id: \.offset) { _, c in
+                Text(c).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button("Fix This") { model.repairRuntime(runtimeID) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(model.busy != nil)
+                    .help("Copies the missing pieces from builds already on this Mac. Nothing is downloaded, and it can be undone.")
+                Text("Nothing is downloaded — the pieces come from builds already here.")
+                    .font(.caption).foregroundStyle(.tertiary)
             }
         }
         .padding(14)
