@@ -293,6 +293,15 @@ func runAbuseTests(_ t: Harness) {
                  "z: stays gone after applying scopes")
         t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: "h:").path)) != nil,
                  "a granted scope survives the descope that runs before it")
+        // Reporting a granted letter as "closed" moments before recreating it
+        // put a false line in the security log of every launch.
+        try? fm.createSymbolicLink(atPath: dd.appending(path: "j:").path, withDestinationPath: "/Volumes/Elsewhere")
+        let report = (try? pb.applyScopes(prefix: prefix,
+                        scopes: [ScopeGrant(letter: "h", hostPath: Fixture.dir("g"))])) ?? []
+        t.expect(!report.contains { $0.hasPrefix("h:") },
+                 "a granted scope is never reported as a drive that was closed")
+        t.expect(report.contains { $0.hasPrefix("j:") },
+                 "and a genuinely stray one still is")
 
         // A stray drive is not merely removed, it is reported — the promise is
         // only worth leading with if the user can be told when it was kept.
@@ -302,6 +311,34 @@ func runAbuseTests(_ t: Harness) {
                  "descope reports what it closed rather than doing it silently")
         t.expect(((try? pb.descope(prefix: prefix)) ?? ["x"]).isEmpty,
                  "a prefix with nothing stray to close reports nothing")
+    }
+
+    t.suite("The mod loader's proxy is whichever one is there")
+    do {
+        // Overriding only winhttp meant a game whose Doorstop proxy was hid.dll
+        // started perfectly and ran vanilla — no loader, no plugins, no error.
+        let dir = Fixture.dir("doorstop-hid")
+        let exe = dir.appending(path: "Game.exe")
+        try? Data().write(to: exe)
+        try? Data().write(to: dir.appending(path: "hid.dll"))
+        try? Data().write(to: dir.appending(path: "doorstop_config.ini"))
+        let found = Launcher.doorstopProxies(besideExecutable: exe)
+        t.expect(found.contains("hid"), "a hid.dll proxy is found, not just winhttp")
+
+        // Without Doorstop's own files, a DLL of the same name is the game's.
+        let plain = Fixture.dir("doorstop-none")
+        let exe2 = plain.appending(path: "Game.exe")
+        try? Data().write(to: exe2)
+        try? Data().write(to: plain.appending(path: "hid.dll"))
+        t.expect(Launcher.doorstopProxies(besideExecutable: exe2).isEmpty,
+                 "a game's own hid.dll is not forced native on a guess")
+
+        // The graphics names stay out: forcing dxgi native for a mod loader
+        // would swap the renderer.
+        for gfx in ["dxgi", "d3d9", "opengl32"] {
+            t.expect(!Launcher.doorstopProxyNames.contains(gfx),
+                     "\(gfx) is never treated as a mod-loader proxy")
+        }
     }
 
     t.suite("A setup that cannot work is refused, not launched")

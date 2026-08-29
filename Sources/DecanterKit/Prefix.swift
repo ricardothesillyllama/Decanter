@@ -217,8 +217,12 @@ public struct PrefixBuilder {
         let dd = prefix.appending(path: "dosdevices")
         try fm.createDirectory(at: dd, withIntermediateDirectories: true)
         // Descope before the grants are written, so a letter the user asked
-        // for is created fresh rather than trusted from whatever was there.
-        let closed = try descope(prefix: prefix)   // also re-seals the user folders
+        // for is created fresh rather than trusted from whatever was there —
+        // but tell descope which letters those are. Without that it reported
+        // the game's own folder as "a drive this game should not have had",
+        // moments before recreating it. The doors were right and the account of
+        // them was false, which is the worse of the two failures.
+        let closed = try descope(prefix: prefix, keeping: scopes)
         for s in scopes {
             let link = dd.appending(path: "\(s.letter):")
             try? fm.removeItem(at: link)

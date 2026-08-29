@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.5.6 — 2026-08-29
+
+- **Mods load whichever proxy DLL they actually use.** BepInEx and Doorstop hook
+  a game through a proxy DLL sitting next to it, and *which* DLL is the mod
+  pack author's choice — `winhttp` is only the most common. Decanter overrode
+  `winhttp` and nothing else, so a game whose proxy was `hid.dll` started
+  perfectly and ran completely vanilla: no loader, no plugins, no translation,
+  no error anywhere. The same game under Whisky showed a full mod interface,
+  which is how the difference surfaced at all. Every proxy Doorstop ships as is
+  now named, gated on Doorstop's own files being present so a game's real
+  `hid.dll` is not forced native on a guess. The graphics names it can also use
+  — `dxgi`, `d3d9`, `opengl32` — are deliberately excluded: forcing one native
+  for a mod loader would swap the renderer.
+- **A granted folder is no longer reported as a drive that was closed.** The
+  descope introduced in 0.5.3 ran before the grants were written and did not
+  know about them, so every launch logged the game's own folder as "a drive this
+  game should not have had" moments before recreating it. The doors were right
+  and the account of them was false, which is the worse of the two failures.
+
 ## v0.5.5 — 2026-08-29
 
 A game that had been unplayable for days turned out to be misconfigured rather

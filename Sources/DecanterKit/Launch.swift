@@ -43,6 +43,37 @@ public struct Launcher {
         public var closedDrives: [String] = []
     }
 
+    /// DLL names Doorstop is distributed as. Deliberately excludes the
+    /// graphics ones it can also use — `d3d9`, `dxgi`, `opengl32` — because the
+    /// graphics backend owns those, and quietly forcing one native would swap
+    /// the whole renderer for a mod loader. A game shipping Doorstop as a
+    /// graphics proxy is a real conflict and should be reported, not resolved
+    /// behind the user's back.
+    public static let doorstopProxyNames = ["winhttp", "version", "hid", "dinput8",
+                                     "xinput1_3", "iphlpapi", "wininet"]
+
+    /// The proxy DLLs actually present beside a game, when Doorstop is there.
+    ///
+    /// Gated on Doorstop's own files: `hid.dll` beside a game is a mod loader
+    /// only when something says so, and forcing a game's real hid.dll native on
+    /// a guess would be its own bug.
+    public static func doorstopProxies(besideExecutable exe: URL) -> [String] {
+        let dir = exe.deletingLastPathComponent()
+        let fm = FileManager.default
+        let marker = ["doorstop_config.ini", ".doorstop_version", "winhttp.dll"]
+            .contains { fm.fileExists(atPath: dir.appending(path: $0).path) }
+            || fm.fileExists(atPath: dir.appending(path: "BepInEx").path)
+        guard marker else { return [] }
+        let present = doorstopProxyNames.filter {
+            fm.fileExists(atPath: dir.appending(path: "\($0).dll").path)
+        }
+        // Doorstop is here but no proxy is visible on disk — an odd layout, a
+        // case-folding difference, an install part-way through. Naming winhttp
+        // costs nothing when the file is absent, and keeps the guarantee this
+        // had before it learned about the others.
+        return present.isEmpty ? ["winhttp"] : present
+    }
+
     public func plan(game: Game, bottle: Bottle, runtime: RuntimeSpec,
                      verbose: Bool = false, showHUD: Bool = false) throws -> Plan {
         let pb = PrefixBuilder(paths: paths)
@@ -57,12 +88,17 @@ public struct Launcher {
         // Wine ships wine-mono, so .NET works without any dialog.
         overrides.append("mshtml=")
         if let a = gfx["WINEDLLOVERRIDES"] { overrides.append(a) }
-        // BepInEx / Doorstop loads through a proxy winhttp.dll sitting next to
-        // the game. Wine prefers its own builtin winhttp unless told otherwise,
-        // so without this the game starts perfectly and simply runs vanilla —
-        // a failure that produces no error at all.
-        if game.detection.modded, game.dllOverrides["winhttp"] == nil {
-            overrides.append("winhttp=n,b")
+        // BepInEx / Doorstop loads through a proxy DLL sitting next to the
+        // game, and *which* DLL is the mod pack author's choice — winhttp is
+        // merely the most common. Overriding only winhttp meant a game whose
+        // proxy was hid.dll started perfectly and ran completely vanilla: no
+        // loader, no plugins, no error anywhere. The same setup under Whisky
+        // showed a full mod interface, which is how the difference surfaced.
+        // Wine prefers its own builtin for every one of these names, so each
+        // proxy actually present has to be named.
+        for dll in Self.doorstopProxies(besideExecutable: game.exePath)
+        where game.dllOverrides[dll] == nil {
+            overrides.append("\(dll)=n,b")
         }
         for (dll, mode) in game.dllOverrides.sorted(by: { $0.key < $1.key }) {
             overrides.append("\(dll)=\(mode)")
