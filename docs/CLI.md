@@ -46,6 +46,11 @@ does — plus a few diagnostics that only exist here.
 | `decanter info <game>` | Detection evidence and current settings |
 | `decanter run <game>` | Launch it. `--debug` for verbose graphics logging, `--hud` for the overlay |
 | `decanter check <game>` | Dry run — would it launch? Verifies the environment without starting anything |
+| `decanter restore <game>` | Put a game back on the last configuration it was confirmed working on. Describes by default; `--do` applies |
+| `decanter verdict` | The one thing Decanter could not see for itself after an ambiguous launch, asked once and only then |
+| `decanter verdict worked` | It played. Recorded for this game and for games like it |
+| `decanter verdict failed` | It did not. `--why` names the failure; `--instead` says why you moved off the suggested setup |
+| `decanter verdict skip` | Leave it unjudged. Nothing is recorded, and you are not asked again |
 | `decanter exe <game>` | List every executable; pick a different one, or run one once |
 | `decanter recommend <game>` | Which setup to use, and why. Launches nothing. `--apply` to accept it |
 | `decanter autoconfig <game>` | Try each setup for real and keep the one that works |

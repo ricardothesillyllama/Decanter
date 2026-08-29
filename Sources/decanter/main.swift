@@ -78,6 +78,8 @@ func usage() -> Never {
       decanter bench                  measure what each Wine build can actually provide
       decanter audit [runtime]        what a build is missing, and what stops working
       decanter repair <runtime>       offer to fill the gaps from builds already here
+      decanter verdict                answer the one thing Decanter could not see for itself
+      decanter restore <game>         put a game back on the last setup that worked
       decanter endorse <game>         vouch for a setup you have actually run
       decanter endorse list           what is endorsed, and whether it still checks out
         add --detail to any of these   the reasoning behind the answer, not just the answer
@@ -393,19 +395,31 @@ case "run":
                     warn("it rendered but did not stay running — not recording this as working")
                 } else if !r.findings.isEmpty {
                     warn("it is running, but the engine log reports problems — not recording this as working")
+                    e.askAbout(g, observed: "it is running, but its log reports problems")
                 } else {
                     try? e.rememberWorking(g)
                     out("    remembered this setup for games like it")
                 }
             case .runningWithoutWindow:
                 warn("running, but no window appeared after 45s")
+                e.askAbout(g, observed: "it is running, but no window appeared")
             case .exited(let t):
                 warn("exited after \(Int(t))s — it did not stay running")
+                e.askAbout(g, observed: "it exited after \(Int(t)) seconds")
             case .neverStarted:
                 warn("it never started")
+                e.askAbout(g, observed: "it never started")
             }
             for f in r.findings { out("    \u{2717} \(f.summary)"); out("      -> \(f.suggestion)") }
             if !r.outcome.isGood { out("    try: decanter autoconfig \(g.name)") }
+            // Only where Decanter declined to record. A clean launch asks
+            // nothing — being asked to confirm the obvious is how a prompt
+            // becomes something people dismiss without reading.
+            if Verdict(paths: e.paths).pending() != nil {
+                out("")
+                out("    Decanter could not tell whether that worked.")
+                out("    Say so with `decanter verdict worked` or `decanter verdict failed`.")
+            }
         }
         out("    log: \(plan.logFile.path)")
     } catch { die(error) }
@@ -775,6 +789,70 @@ case "endorse":
                 warn("this build cannot check its own endorsements yet: no public key is baked in and none was found beside it")
             }
         } catch { die(error) }
+    }
+
+case "restore":
+    // Describes first, like every other change Decanter offers to make.
+    let e = engine()
+    let (_, g) = requireGame(rest.first)
+    guard let good = g.knownGood else {
+        die(DecanterError.notFound(
+            "nothing has been confirmed working for \(g.name) yet. Once you run it and say it worked, "
+            + "Decanter can bring you back here."))
+    }
+    let when = good.confirmedAt.formatted(date: .abbreviated, time: .shortened)
+    if let change = e.restorable(g) {
+        out("\(g.name) last worked on \(change.label), confirmed \(when).")
+        out("  It is on something else now.")
+        if rest.contains("--do") {
+            do {
+                let done = try e.restoreKnownGood(g, progress: step)
+                ok("\(g.name) is back on \(done.label)")
+                out("    saves are kept; the Windows environment is rebuilt around them")
+            } catch { die(error) }
+        } else {
+            out("")
+            out("  Nothing has been changed. Run `decanter restore \(g.name) --do` to go back to it.")
+        }
+    } else {
+        ok("\(g.name) is already on \(good.label), which is what last worked (\(when))")
+    }
+
+case "verdict":
+    let e = engine()
+    let v = Verdict(paths: e.paths)
+    guard let p = v.pending() else {
+        out("  there is no launch waiting to be judged")
+        break
+    }
+    switch rest.first ?? "ask" {
+    case "worked":
+        do { ok(try e.settleVerdict(worked: true)) } catch { die(error) }
+    case "failed":
+        // A closed vocabulary, because free text is the one place a game title
+        // could leak into knowledge that travels.
+        var failure = Knowledge.Failure.unspecified
+        if let i = rest.firstIndex(of: "--why"), i + 1 < rest.count,
+           let f = Knowledge.Failure(rawValue: rest[i + 1]) { failure = f }
+        var reason: Verdict.SwitchReason?
+        if let i = rest.firstIndex(of: "--instead"), i + 1 < rest.count {
+            reason = Verdict.SwitchReason(rawValue: rest[i + 1])
+        }
+        do { ok(try e.settleVerdict(worked: false, failure: failure, switchReason: reason)) }
+        catch { die(error) }
+    case "skip":
+        v.clear()
+        ok("left unjudged — nothing was recorded")
+    default:
+        out("  \(p.question)")
+        if let q = p.switchQuestion { out("  \(q)") }
+        out("")
+        out("    decanter verdict worked")
+        out("    decanter verdict failed [--why \(Knowledge.Failure.allCases.map(\.rawValue).joined(separator: "|"))]")
+        if p.switchQuestion != nil {
+            out("                           [--instead \(Verdict.SwitchReason.allCases.map(\.rawValue).joined(separator: "|"))]")
+        }
+        out("    decanter verdict skip")
     }
 
 case "check":

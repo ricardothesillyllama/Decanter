@@ -1135,10 +1135,102 @@ public final class Engine: @unchecked Sendable {
     /// starting the guessing over again.
     public func rememberWorking(_ game: Game) throws {
         guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return }
+        let s = setup(for: b, runtime: rt)
         knowledge.recordSuccess(signature: Knowledge.Signature(game.detection),
-                                gameID: game.id, setup: setup(for: b, runtime: rt))
+                                gameID: game.id, setup: s)
         try knowledge.save(to: paths.knowledgePath)
+        // Kept per game as well as in the knowledge base. The two answer
+        // different questions: the knowledge base knows what works for this
+        // *kind* of game, and this knows what this one was running the last
+        // time somebody said it was fine.
+        try store.mutate { st in
+            if let i = st.games.firstIndex(where: { $0.id == game.id }) {
+                st.games[i].knownGood = .init(runtimeID: rt.id, backend: b.backend,
+                                              layerVersion: s.layerVersion)
+            }
+        }
         note(b.id, "confirmed working: \(rt.id) + \(b.backend.label)")
+    }
+
+    /// Parks the question Decanter could not answer for itself.
+    ///
+    /// Called only where a launch was *not* recorded — a clean launch is
+    /// recorded and asks nothing, because confirming the obvious is how a
+    /// prompt trains people to dismiss it unread.
+    public func askAbout(_ game: Game, observed: String) {
+        guard let b = store.bottle(game.bottleID) else { return }
+        let rec = recommend(for: game)
+        let onRec = rec.runtimeKind == store.runtime(b.runtimeID)?.kind && rec.backend == b.backend
+        try? Verdict(paths: paths).park(.init(
+            gameID: game.id, gameName: game.name, runtimeID: b.runtimeID,
+            backend: b.backend, observed: observed, onRecommendation: onRec,
+            suggested: onRec ? nil : "\(rec.backend.plainName) graphics"))
+    }
+
+    /// Records what the person said, and stops asking.
+    ///
+    /// A failure on a setup nobody suggested is recorded as a failure of *that*
+    /// setup and nothing else. The suggestion stays unjudged, because it was
+    /// never run — which is a different thing from having been tried and found
+    /// wanting, and the two must not become the same row.
+    @discardableResult
+    public func settleVerdict(worked: Bool, failure: Knowledge.Failure = .unspecified,
+                              switchReason: Verdict.SwitchReason? = nil) throws -> String {
+        let v = Verdict(paths: paths)
+        guard let p = v.pending() else {
+            throw DecanterError.notFound("there is no launch waiting to be judged")
+        }
+        guard let game = store.state.games.first(where: { $0.id == p.gameID }) else {
+            v.clear()
+            throw DecanterError.notFound("that game is no longer in the library")
+        }
+        defer { v.clear() }
+        if worked {
+            try rememberWorking(game)
+            return "recorded: \(p.backend.plainName) graphics works for \(game.name), and for games like it"
+        }
+        try rememberFailed(game, failure: failure)
+        var out = "recorded: \(p.backend.plainName) graphics did not work here"
+        if !p.onRecommendation, let suggested = p.suggested {
+            out += ". Decanter suggested \(suggested), which has not been tried — this says nothing about it"
+        }
+        if let switchReason, switchReason != .unstated {
+            note(game.bottleID, "moved off the suggestion: \(switchReason.label)")
+        }
+        return out
+    }
+
+    /// What going back to the last working setup would involve, or nil when
+    /// there is nothing to go back to or it is already there.
+    public func restorable(_ game: Game) -> Game.KnownGood? {
+        guard let good = game.knownGood else { return nil }
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return good }
+        let now = setup(for: b, runtime: rt)
+        let unchanged = b.runtimeID == good.runtimeID
+                     && b.backend == good.backend
+                     && now.layerVersion == good.layerVersion
+        return unchanged ? nil : good
+    }
+
+    /// Puts a game back on the last configuration it was confirmed working on.
+    ///
+    /// Not automatic, and not offered as a guess: it is offered when something
+    /// has stopped working and there is a specific, dated configuration to
+    /// return to. "It worked on Tuesday" is a named cause.
+    @discardableResult
+    public func restoreKnownGood(_ game: Game, progress: (String) -> Void = { _ in }) throws -> Game.KnownGood {
+        guard let good = game.knownGood else {
+            throw DecanterError.notFound(
+                "nothing has been confirmed working for \(game.name) yet, so there is nothing to go back to")
+        }
+        guard store.state.runtimes.contains(where: { $0.id == good.runtimeID }) else {
+            throw DecanterError.noRuntime(
+                "\(good.runtimeID) is no longer here, so \(game.name) cannot be put back on it")
+        }
+        try apply(Candidate(runtimeID: good.runtimeID, backend: good.backend,
+                            dxvkVersion: good.backend == .dxvk ? good.layerVersion : nil),
+                  to: game, progress: progress)
+        return good
     }
 
     public func rememberFailed(_ game: Game, failure: Knowledge.Failure = .unspecified) throws {

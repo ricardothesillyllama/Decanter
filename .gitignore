@@ -17,3 +17,5 @@ Resources/screenshots/Screenshot*.png
 
 # Release artefacts are attached to GitHub releases, not committed.
 dist/
+*.key
+.decanter-endorse.*

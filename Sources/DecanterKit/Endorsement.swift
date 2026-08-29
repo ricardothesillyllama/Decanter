@@ -54,7 +54,7 @@ public enum Endorsement {
     /// says so. A fork that wants its own endorsements replaces this with its
     /// own public key — which is the correct thing for it to do, and cannot be
     /// mistaken for this one.
-    public static let maintainerPublicKey = ""
+    public static let maintainerPublicKey = "TzkcOiTxTi5v/FvLRjtsZZnpDGoo3jFR8TbS6D+aYzE="
 
     /// Where the private half lives when this Mac has one. Never in the
     /// repository, and never anywhere Decanter's own export could reach it.

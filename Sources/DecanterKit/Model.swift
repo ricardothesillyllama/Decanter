@@ -365,17 +365,51 @@ public struct Game: Codable, Identifiable, Sendable {
     public var launchArguments: [String]?
     public var lastPlayed: Date?
     public var addedAt: Date
+    /// The last configuration this game was confirmed working on.
+    ///
+    /// The knowledge base already holds what worked, but it holds it as a claim
+    /// about a *situation* — an engine, a bitness, a chip — deliberately, so it
+    /// can answer for games it has never seen. That makes it the wrong place to
+    /// ask "what was this game running when it last worked", which is a fact
+    /// about one game and needs a date attached. Observations carry no date, and
+    /// giving them one would put a timestamp into something that gets exported.
+    ///
+    /// So it lives here: local, per game, never exported, and the one thing
+    /// needed to offer somebody their working setup back.
+    public var knownGood: KnownGood?
+
+    public struct KnownGood: Codable, Sendable, Hashable {
+        public var runtimeID: String
+        public var backend: GraphicsBackend
+        /// The graphics layer's version, because going back to "DXVK" is not
+        /// going back if it is a different DXVK than the one that worked.
+        public var layerVersion: String?
+        public var confirmedAt: Date
+
+        public init(runtimeID: String, backend: GraphicsBackend,
+                    layerVersion: String? = nil, confirmedAt: Date = Date()) {
+            self.runtimeID = runtimeID; self.backend = backend
+            self.layerVersion = layerVersion; self.confirmedAt = confirmedAt
+        }
+
+        public var label: String {
+            let base = "\(runtimeID) with \(backend.plainName) graphics"
+            return layerVersion.map { "\(base) \($0)" } ?? base
+        }
+    }
 
     public init(id: UUID = UUID(), name: String, exePath: URL, bottleID: UUID,
                 detection: DetectionResult, scopes: [ScopeGrant] = [],
                 envOverrides: [String: String] = [:], dllOverrides: [String: String] = [:],
                 runtimeLocked: Bool = false, launchArguments: [String]? = nil,
-                lastPlayed: Date? = nil, addedAt: Date = Date()) {
+                lastPlayed: Date? = nil, addedAt: Date = Date(),
+                knownGood: KnownGood? = nil) {
         self.id = id; self.name = name; self.exePath = exePath; self.bottleID = bottleID
         self.detection = detection; self.scopes = scopes
         self.envOverrides = envOverrides; self.dllOverrides = dllOverrides
         self.runtimeLocked = runtimeLocked; self.launchArguments = launchArguments
         self.lastPlayed = lastPlayed; self.addedAt = addedAt
+        self.knownGood = knownGood
     }
 }
 

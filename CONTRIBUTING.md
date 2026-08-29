@@ -43,6 +43,7 @@ broke:
     swift run selftest bench               # what a build can provide, and what it is missing
     swift run selftest repair              # filling a build's gaps without breaking it differently
     swift run selftest endorse             # signing knowledge, and what a tier is allowed to do
+    swift run selftest verdict             # asking only what could not be seen, and going back
     swift run selftest kb                  # the knowledge base: matching ladder, seeds, export
     swift run selftest fwd                 # state survives an older binary
     swift run selftest docs                # documentation matches the code, report redaction
@@ -67,9 +68,18 @@ the whole chain worked.
 
 ### Releasing
 
+    ./scripts/release.sh      # everything that has to be true, then the artefacts
+    ./scripts/release.sh --quick   # skips the checks that touch real runtimes
+
     ./install.sh              # build, sign, install locally
     ./scripts/make-dmg.sh     # dist/Decanter-<version>.dmg for a release
     ./scripts/make-demo.sh    # throwaway library of invented games, for screenshots
+
+`release.sh` refuses a dirty tree, an already-used version, a placeholder
+changelog entry, a failing rule or suite, and an endorsement that no longer
+verifies. It does not tag and does not push: deciding a thing is finished is a
+judgement, checking whether it is sound is not, and only the second belongs in
+a script.
 
 ### Bugs these tests found
 
