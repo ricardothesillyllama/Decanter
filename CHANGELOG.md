@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.7 — 2026-08-29
+
+- **Every Windows-written log was being read as a single line.** Swift treats
+  `\r\n` as one character, so splitting a log on `"\n"` did not split it at
+  all — and every log Decanter reads is written by Windows software, which uses
+  `\r\n`. Ten parsers were affected. The visible symptoms: a mod loader
+  reporting one "failure" that was actually 150 characters of three
+  concatenated lines, attributed to a plugin called *"Message: Preloader"* that
+  does not exist; and launch diagnosis announcing that a log said nothing while
+  the log said plenty. Everything that reads a log now splits on any newline.
+- **The mod loader's own messages are no longer blamed on a mod.** BepInEx
+  writes internal notices through the same tagged format its plugins use, so
+  "Unable to start Unity log writer" — the loader talking about itself — was
+  presented as a mod that failed to load, sending you hunting through plugins
+  for a fault that was not there.
+- **A severity tag can never be mistaken for a mod's name**, at any depth.
+
 ## v0.5.6 — 2026-08-29
 
 - **Mods load whichever proxy DLL they actually use.** BepInEx and Doorstop hook

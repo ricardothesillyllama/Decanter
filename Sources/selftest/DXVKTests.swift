@@ -145,6 +145,21 @@ func runSaveNoiseTests(_ t: Harness) {
     t.expect(noise("prev_output_log.txt"), "the rolled copy is not a save either")
     t.expect(noise("index.dat"), "Internet Explorer's index.dat is not a save")
     t.expect(noise("LogOutput.log"), "BepInEx's loader log is not a save")
+
+    // Windows software writes CRLF, and Swift treats "\r\n" as ONE grapheme —
+    // so splitting on "\n" did not split a Windows log at all. Every parser
+    // was reading the whole file as a single line, which is why a loader log
+    // produced one 150-character "failure" made of three concatenated lines,
+    // and why launch diagnosis reported that a log said nothing.
+    let crlf = "[Error  :   BepInEx] first problem\r\n[Message: Preloader] BepInEx 6.0.0\r\n[Error  :   Chainloader] second problem\r\n"
+    let split = crlf.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+    t.expect(split.count > 3, "a CRLF log splits into lines, not one giant line")
+    let found = ModInspector.failures(in: split)
+    t.equal(found.count, 2, "both real failures are found in a Windows-written log")
+    t.expect(!found.contains { $0.contains("Preloader] BepInEx 6.0.0") },
+             "and an informational line is not swept up with them")
+    t.expect(ModInspector.explain(found[0]).hasPrefix("The mod loader"),
+             "the loader's own message is not blamed on a mod")
     t.expect(noise("something.tmp"), "temp files are still skipped")
 
     // The point of the filter is to keep real saves, so over-matching is the

@@ -23,7 +23,7 @@ public struct WineRegConverter {
     public func convert(_ text: String, hive: String = "HKEY_CURRENT_USER") -> Result {
         var out = ["Windows Registry Editor Version 5.00", ""]
         var keys = 0
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = String(raw)
             if line.hasPrefix("WINE REGISTRY") { continue }
             if line.hasPrefix("#") { continue }          // #time=, #class= metadata

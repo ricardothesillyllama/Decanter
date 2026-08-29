@@ -635,16 +635,24 @@ public struct ModInspector {
                   line.index(after: o) < c else { return nil }
             let inner = String(line[line.index(after: o)..<c])
             // Skip BepInEx's own severity tag, which is also bracketed.
-            if inner.hasPrefix("Error") || inner.hasPrefix("Info")
-                || inner.hasPrefix("Message") || inner.hasPrefix("Warning")
-                || inner.hasPrefix("Fatal") || inner.hasPrefix("Debug") {
+            if Self.isSeverityTag(inner) {
                 let rest = line[c...].dropFirst()
-                return Self.explainName(String(rest))
+                // The remainder can begin with another severity tag when the
+                // lines were run together — which is how a card once announced
+                // that "Message: Preloader" had reported a problem. A tag is
+                // never a mod name, at any depth.
+                if let next = Self.explainName(String(rest)), !Self.isSeverityTag(next) {
+                    return next
+                }
+                return nil
             }
             return inner
         }
         let low = line.lowercased()
-        let name = bracketed().map { "“\($0)”" } ?? "A mod"
+        // A line whose source is the loader itself is not a mod failing. Saying
+        // "a mod reported a problem" about BepInEx's own internal message sends
+        // someone hunting through their plugins for a fault that is not there.
+        let name = bracketed().map { "“\($0)”" } ?? (Self.isLoaderItself(line) ? "The mod loader" : "A mod")
 
         if low.contains("missing dependency") || low.contains("missing dependencies") {
             return "\(name) needs another mod that is not installed."
@@ -671,6 +679,23 @@ public struct ModInspector {
     }
 
     /// Pulls a plugin name out of the text after the severity tag.
+    /// BepInEx's own severity tags, which look exactly like a bracketed mod
+    /// name and are not one.
+    static func isSeverityTag(_ inner: String) -> Bool {
+        ["Error", "Info", "Message", "Warning", "Fatal", "Debug"]
+            .contains { inner.hasPrefix($0) }
+    }
+
+    /// Whether a log line's source is BepInEx or its preloader rather than a
+    /// plugin. The source is the half of the tag after the colon.
+    static func isLoaderItself(_ line: String) -> Bool {
+        guard let o = line.firstIndex(of: "["), let c = line[o...].firstIndex(of: "]") else { return false }
+        let inner = line[line.index(after: o)..<c]
+        guard let colon = inner.firstIndex(of: ":") else { return false }
+        let source = inner[inner.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        return source == "BepInEx" || source == "Preloader" || source == "AssemblyPatcher"
+    }
+
     static func explainName(_ rest: String) -> String? {
         guard let o = rest.firstIndex(of: "["), let c = rest[o...].firstIndex(of: "]"),
               rest.index(after: o) < c else { return nil }
@@ -707,7 +732,7 @@ public struct ModInspector {
                 st.logPath = u
                 if let text = try? String(contentsOf: u, encoding: .utf8) {
                     st.loaderRan = text.contains("BepInEx") || text.contains("Chainloader")
-                    let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
                     for line in lines.prefix(12) where line.contains("BepInEx") {
                         if let r = line.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression) {
                             st.loaderVersion = String(line[r]); break

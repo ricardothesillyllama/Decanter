@@ -27,7 +27,7 @@ public struct Reporter {
         }
         d["rosetta"] = FileManager.default.fileExists(atPath: "/Library/Apple/usr/share/rosetta") ? "installed" : "MISSING"
         let gpu = sh("/usr/sbin/system_profiler", ["SPDisplaysDataType"])
-        for line in gpu.split(separator: "\n") {
+        for line in gpu.split(whereSeparator: \.isNewline) {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.hasPrefix("Chipset Model:") { d["gpu"] = t.replacingOccurrences(of: "Chipset Model:", with: "").trimmingCharacters(in: .whitespaces) }
             if t.hasPrefix("Metal Support:") { d["metal"] = t.replacingOccurrences(of: "Metal Support:", with: "").trimmingCharacters(in: .whitespaces) }
@@ -154,7 +154,7 @@ public struct Reporter {
         let sys = Self.systemSummary()
         let logURL = paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
         let logText = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "(no log)"
-        let logLines = logText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let logLines = logText.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
         let diag = Diagnostics().analyse(text: logText, logPath: logURL)
 
         var md = """

@@ -157,7 +157,7 @@ public struct RuntimeManager {
         // `doctor` output, and absent without the developer tools — which is
         // exactly why the verdict above does not depend on it.
         if let r = try? Shell.run(URL(filePath: "/usr/bin/nm"), ["-gU", driver.path], timeout: 60) {
-            out.exportedSymbols = r.out.split(separator: "\n").compactMap { line in
+            out.exportedSymbols = r.out.split(whereSeparator: \.isNewline).compactMap { line in
                 guard let last = line.split(separator: " ").last else { return nil }
                 let name = String(last)
                 return name.contains("macdrv") || name.contains("WineMetalView") ? name : nil

@@ -198,7 +198,7 @@ public struct SaveStore {
         func keys(_ url: URL) -> Set<String> {
             guard let t = try? String(contentsOf: url, encoding: .utf8) else { return [] }
             var out = Set<String>()
-            for line in t.split(separator: "\n") where line.hasPrefix("[") {
+            for line in t.split(whereSeparator: \.isNewline) where line.hasPrefix("[") {
                 if let close = line.lastIndex(of: "]") {
                     out.insert(String(line[line.index(after: line.startIndex)..<close]))
                 }
@@ -221,7 +221,7 @@ public struct SaveStore {
         let wanted = Set(keys)
         var out = ["WINE REGISTRY Version 2", ""]
         var keep = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let l = String(line)
             if l.hasPrefix("[") {
                 let name = l.lastIndex(of: "]").map { String(l[l.index(after: l.startIndex)..<$0]) } ?? ""

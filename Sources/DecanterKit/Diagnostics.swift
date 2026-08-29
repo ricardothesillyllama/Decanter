@@ -141,7 +141,7 @@ public struct Diagnostics {
     /// failure look like "nothing obviously wrong".
     public func analysePlayerLog(_ text: String) -> [Finding] {
         var out: [Finding] = []
-        for line in text.split(separator: "\n") {
+        for line in text.split(whereSeparator: \.isNewline) {
             let l = line.lowercased()
             if l.contains("not-recognized"), l.contains("feature_level") {
                 let level = line.contains("11_1") ? "11_1" : "11_0"
@@ -173,7 +173,7 @@ public struct Diagnostics {
 
     public func analyse(text: String, logPath: URL? = nil) -> Report {
         var r = Report(); r.logPath = logPath
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
         r.tail = Array(lines.suffix(25))
         var found: [Finding] = []
 
