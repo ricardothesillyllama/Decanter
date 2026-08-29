@@ -37,6 +37,10 @@ public struct Launcher {
         public var arguments: [String] = []
         public var cwd: URL
         public var logFile: URL
+        /// Drives removed from the prefix on the way to this launch. Normally
+        /// empty; non-empty means wineboot had mapped a volume in since the
+        /// last run, and the person is entitled to know their disk was visible.
+        public var closedDrives: [String] = []
     }
 
     public func plan(game: Game, bottle: Bottle, runtime: RuntimeSpec,
@@ -91,12 +95,13 @@ public struct Launcher {
         }
 
         let scopes = game.scopes.isEmpty ? defaultScopes(for: game.exePath) : game.scopes
-        try pb.applyScopes(prefix: bottle.prefixPath, scopes: scopes)
+        let closed = try pb.applyScopes(prefix: bottle.prefixPath, scopes: scopes)
         let win = try windowsPath(for: game.exePath, scopes: scopes)
         let log = paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
         return Plan(runtime: runtime, bottle: bottle, env: env, winPath: win,
                     arguments: game.launchArguments ?? [],
-                    cwd: game.exePath.deletingLastPathComponent(), logFile: log)
+                    cwd: game.exePath.deletingLastPathComponent(), logFile: log,
+                    closedDrives: closed)
     }
 
     @discardableResult

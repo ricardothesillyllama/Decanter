@@ -16,9 +16,13 @@ isolation is free, no game can break another through a conflicting dependency.
 **Broken prefixes are re-derived, never repaired.** `decanter rederive <game>` throws the
 prefix away and rebuilds it. Repair heuristics are the thing that rots.
 
-**No `z: -> /`.** Whisky mapped the entire Mac filesystem into every bottle, so any
-Windows binary could read `~/Documents`, `~/.ssh` and iCloud. Decanter grants a game its
-own folder plus a shared games dir, and nothing else.
+**No `z: -> /`, and no drive Decanter did not create.** Whisky mapped the entire Mac
+filesystem into every bottle, so any Windows binary could read `~/Documents`, `~/.ssh` and
+iCloud. Removing `z:` alone was not enough: `wineboot` maps a drive letter at every mounted
+volume, plus a raw `/dev/rdisk` node beside it, so a prefix gained a door onto each external
+disk, network share and mounted image the moment one appeared. Before every launch Decanter
+now removes every letter that is not `c:` and not a granted scope, and records what it
+closed. A game sees its own folder plus a shared games dir, and nothing else.
 
 **Detection decides the runtime.** The binary's PE header gives bitness; sibling files
 (`UnityPlayer.dll`, `GameAssembly.dll`, `package.nw`, `renpy/`, `.pck`, Unreal layout,

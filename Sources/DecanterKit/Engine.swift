@@ -273,8 +273,14 @@ public final class Engine: @unchecked Sendable {
         guard let rt = store.runtime(bottle.runtimeID) else {
             throw DecanterError.noRuntime(bottle.runtimeID)
         }
+        // Say it rather than only doing it. A drive that appeared since the
+        // last launch is exactly the case the promise exists for, so it is
+        // recorded where "what set this, and when" can be answered.
         let plan = try launcher.plan(game: game, bottle: bottle, runtime: rt,
                                      verbose: verbose, showHUD: showHUD)
+        for d in plan.closedDrives {
+            note(bottle.id, "closed a drive this game should not have had: \(d)")
+        }
         try launcher.launch(plan)
         try store.mutate { s in
             if let i = s.games.firstIndex(where: { $0.id == game.id }) {
@@ -811,10 +817,32 @@ public final class Engine: @unchecked Sendable {
         public var backend: GraphicsBackend
         public var reasons: [String] = []
         public var caveats: [String] = []
-        public var confidence: String = "high"
+        /// Set when the person has already chosen this game's setup by hand.
+        /// `runtimeLocked` was written in two places and read in none, so a
+        /// deliberate choice was re-argued on every screen. An override is a
+        /// preference: it sticks, and it stops the app pushing back.
+        public var overriddenByUser = false
+        /// How much evidence stands behind this, not how strongly it is felt.
+        /// It used to default to "high", so a recommendation derived purely
+        /// from a static rule — nothing measured, nothing observed — wore the
+        /// same badge as one confirmed twice on this very Mac. The default is
+        /// now the honest one; the knowledge-base path raises it by earning it.
+        public var confidence: String = "medium"
+
+        public init(runtimeKind: RuntimeKind, backend: GraphicsBackend,
+                    reasons: [String] = [], caveats: [String] = [],
+                    overriddenByUser: Bool = false, confidence: String = "medium") {
+            self.runtimeKind = runtimeKind; self.backend = backend
+            self.reasons = reasons; self.caveats = caveats
+            self.overriddenByUser = overriddenByUser; self.confidence = confidence
+        }
     }
 
     /// Picks a configuration from what the files say, with no trial and error.
+    ///
+    /// A game whose runtime was set by hand still gets a recommendation — it
+    /// is worth being able to ask — but it is marked as overridden, and the
+    /// interface does not argue with a choice already made.
     ///
     /// The rules come from documented behaviour plus what has been observed on
     /// this machine:
@@ -908,6 +936,7 @@ public final class Engine: @unchecked Sendable {
             for bad in knowledge.knownBad(for: sig).prefix(3) where bad.setup != known.setup {
                 r.caveats.append("\(bad.setup.label): \(bad.failure.label)")
             }
+            r.overriddenByUser = game.runtimeLocked
             if known.confirmations > 0 || !known.seeded { return r }
         }
 
@@ -919,6 +948,7 @@ public final class Engine: @unchecked Sendable {
             r = Recommendation(runtimeKind: .wine, backend: .wined3d)
             r.reasons.append("\(d.engine.label) is 2D — WineD3D is sufficient and the most predictable")
             if d.bitness == .x86 { r.reasons.append("32-bit, so modern Wine's WoW64 is the safer host") }
+            r.overriddenByUser = game.runtimeLocked
             return r
         }
 
@@ -926,6 +956,7 @@ public final class Engine: @unchecked Sendable {
             r = Recommendation(runtimeKind: .wine, backend: .wined3d)
             r.reasons.append("32-bit: Wine 11's WoW64 handles these more reliably than GPTK's 2022 base")
             r.caveats.append("If it is a DirectX 9 game, DXVK is usually faster — worth trying second")
+            r.overriddenByUser = game.runtimeLocked
             return r
         }
 
@@ -934,6 +965,7 @@ public final class Engine: @unchecked Sendable {
             r.reasons.append("this game plays video, and D3DMetal has no ID3D11Multithread — video fails on it")
             r.reasons.append("WineD3D is a complete D3D11 implementation, so the video player works")
             r.caveats.append("WineD3D runs on OpenGL and is noticeably slower; if you never watch the cutscenes, D3DMetal will be faster")
+            r.overriddenByUser = game.runtimeLocked
             return r
         }
 
@@ -943,6 +975,7 @@ public final class Engine: @unchecked Sendable {
         }
         r.caveats.append("If the game turns out to play video, switch to WineD3D — D3DMetal cannot drive Unity's video player")
         if d.confidence < 0.6 { r.confidence = "low"; r.caveats.append("Detection confidence is low; treat this as a starting point") }
+        r.overriddenByUser = game.runtimeLocked
         return r
     }
 
@@ -952,7 +985,11 @@ public final class Engine: @unchecked Sendable {
         let rec = recommend(for: game)
         guard let rt = store.state.runtimes.first(where: { $0.kind == rec.runtimeKind })
                 ?? store.state.runtimes.first else { throw DecanterError.noRuntime("none pinned") }
-        try apply(Candidate(runtimeID: rt.id, backend: rec.backend, dxvkVersion: nil),
+        // Passing nil recorded a setup with no layer version, while
+        // Setup.layerVersion exists precisely because DXVK 1.10.3 and 2.x are
+        // not the same answer. Name the version that will actually be staged.
+        let version = rec.backend == .dxvk ? DXVKInstaller(paths: paths).defaultVersion : nil
+        try apply(Candidate(runtimeID: rt.id, backend: rec.backend, dxvkVersion: version),
                   to: game, progress: progress)
         return rec
     }
@@ -1052,13 +1089,19 @@ public final class Engine: @unchecked Sendable {
             progress("rebuilding prefix for \(c.runtimeID)")
             _ = try rederive(game, progress: { _ in })
         }
-        try store.mutate { s in
-            if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) {
-                s.bottles[i].backend = c.backend
-            }
-        }
+        // Writing the field directly changed what Decanter *said* the game was
+        // using without changing what the prefix actually had — no DXVK or DXMT
+        // install, no DXMT marker. That is the same "records one thing, runs
+        // another" fault already fixed in setRuntime. Go through setBackend, so
+        // there is one implementation of switching and it cannot drift.
+        // lockRuntime is false: Decanter applying its own recommendation is not
+        // the user making a choice, and must not read as one.
+        // Re-read the game: a rederive above replaced the bottle, and passing
+        // the caller's stale copy is how a switch lands on the old prefix.
+        let fresh = store.state.games.first { $0.id == game.id } ?? game
+        _ = try setBackend(fresh, c.backend, lockRuntime: false, progress: progress)
         if c.backend == .dxvk, let v = c.dxvkVersion {
-            _ = try? setDXVK(game, version: v)
+            _ = try? setDXVK(fresh, version: v)
         }
         note(game.bottleID, "autoconfig tried \(c.label)")
     }

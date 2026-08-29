@@ -267,6 +267,12 @@ func runAbuseTests(_ t: Harness) {
         try? fm.createSymbolicLink(atPath: dd.appending(path: "z:").path, withDestinationPath: "/")
         try? fm.createSymbolicLink(atPath: dd.appending(path: "z::").path, withDestinationPath: "/dev/rdisk1")
         try? fm.createSymbolicLink(atPath: dd.appending(path: "c:").path, withDestinationPath: "../drive_c")
+        // wineboot maps a letter at every mounted volume, and a raw device
+        // node beside it. Stripping only z: left every one of these behind —
+        // measured on a real install, not hypothetical.
+        try? fm.createSymbolicLink(atPath: dd.appending(path: "d:").path, withDestinationPath: "/Volumes/Backup")
+        try? fm.createSymbolicLink(atPath: dd.appending(path: "d::").path, withDestinationPath: "/dev/rdisk8s1")
+        try? fm.createSymbolicLink(atPath: dd.appending(path: "e:").path, withDestinationPath: "/Volumes/Photos")
         t.survives("descope removes the whole-filesystem mapping") { try pb.descope(prefix: prefix) }
         t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: "z:").path)) == nil,
                  "z: is gone")
@@ -274,6 +280,10 @@ func runAbuseTests(_ t: Harness) {
                  "the z:: device node is gone too")
         t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: "c:").path)) != nil,
                  "c: is left intact")
+        for gone in ["d:", "d::", "e:"] {
+            t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: gone).path)) == nil,
+                     "\(gone) — a mounted volume Decanter never granted — is gone")
+        }
 
         // Re-applying scopes must not resurrect z:.
         t.survives("applying scopes re-descopes first") {
@@ -281,6 +291,45 @@ func runAbuseTests(_ t: Harness) {
         }
         t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: "z:").path)) == nil,
                  "z: stays gone after applying scopes")
+        t.expect((try? fm.destinationOfSymbolicLink(atPath: dd.appending(path: "h:").path)) != nil,
+                 "a granted scope survives the descope that runs before it")
+
+        // A stray drive is not merely removed, it is reported — the promise is
+        // only worth leading with if the user can be told when it was kept.
+        try? fm.createSymbolicLink(atPath: dd.appending(path: "f:").path, withDestinationPath: "/Volumes/Late")
+        let closed = (try? pb.descope(prefix: prefix)) ?? []
+        t.expect(closed.contains { $0.hasPrefix("f:") },
+                 "descope reports what it closed rather than doing it silently")
+        t.expect(((try? pb.descope(prefix: prefix)) ?? ["x"]).isEmpty,
+                 "a prefix with nothing stray to close reports nothing")
+    }
+
+    t.suite("A guess does not wear a measurement's badge")
+    do {
+        // The field defaulted to "high", so a recommendation with nothing
+        // observed behind it claimed as much certainty as one confirmed twice
+        // on this very Mac. Only the knowledge-base path may raise it.
+        let fresh = Engine.Recommendation(runtimeKind: .wine, backend: .wined3d)
+        t.expect(fresh.confidence != "high",
+                 "a recommendation with no evidence behind it does not claim high confidence")
+        t.expect(!fresh.overriddenByUser,
+                 "and it does not claim the user chose it")
+    }
+
+    t.suite("A font warning is not an architecture refusal")
+    do {
+        let d = Diagnostics()
+        let freetype = """
+        Wine cannot find the FreeType font library.  To enable Wine to
+        use TrueType fonts please install a version of FreeType greater than
+        or equal to 2.0.5.
+        """
+        let f = d.analyse(text: freetype).findings
+        t.expect(f.contains(.fontLibraryMissing), "a missing font library is named as one")
+        t.expect(!f.contains(.bitnessRefused),
+                 "a 64-bit game is no longer sent looking for 32-bit support over a font")
+        t.expect(d.analyse(text: "Bad EXE format for foo.exe").findings.contains(.bitnessRefused),
+                 "a real architecture refusal is still caught")
     }
 
     t.suite("Diagnostics under load")

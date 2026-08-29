@@ -39,6 +39,11 @@ public struct Diagnostics {
         /// rather than rendering badly.
         case dxvkNeedsNewerVulkan
         case needsVisualCppRuntime(String)
+        /// The Wine build has no FreeType, so it can render no TrueType font.
+        /// Its message begins "Wine cannot find", which used to be matched as
+        /// an architecture refusal — sending a 64-bit game after 32-bit
+        /// support over a missing library.
+        case fontLibraryMissing
 
         public var summary: String {
             switch self {
@@ -46,6 +51,7 @@ public struct Diagnostics {
             case .vulkanUnavailable:        "Vulkan/MoltenVK unavailable — DXVK cannot start"
             case .d3dMetalUnavailable:      "D3DMetal libraries not found for this runtime"
             case .bitnessRefused:           "Runtime refused the executable's architecture"
+            case .fontLibraryMissing:       "This Windows environment cannot draw text — it has no font library"
             case .scopeDenied(let p):       "Blocked access outside allowed folders: \(p)"
             case .moduleNotFound(let m):    "Wine could not find module: \(m)"
             case .crashed(let s):           "Process crashed (\(s))"
@@ -82,6 +88,8 @@ public struct Diagnostics {
             case .vulkanUnavailable:     "Switch this game's backend to wined3d."
             case .d3dMetalUnavailable:   "Switch to the Wine runtime with the dxvk backend."
             case .bitnessRefused:        "Use a runtime with 32-bit support (Wine 11 has WoW64)."
+            case .fontLibraryMissing:
+                "This Wine build is missing libfreetype. Menus and dialogs will be blank or boxed. Use a different Windows environment, or replace this one with a complete build."
             case .scopeDenied(let p):    "If intended, grant that folder: decanter scope <game> --add \(p)"
             case .moduleNotFound:        "Re-derive the prefix; if it persists the game needs a dependency."
             case .crashed:               "Try backend wined3d, then the other runtime."
@@ -213,8 +221,17 @@ public struct Diagnostics {
             if l.contains("d3dmetal") && (l.contains("not found") || l.contains("dyld")) {
                 found.append(.d3dMetalUnavailable)
             }
-            if l.contains("wine cannot find") || l.contains("bad exe format")
-                || l.contains("not a valid win32 application") {
+            // "Wine cannot find the FreeType font library" also begins with
+            // "wine cannot find", and matching that as an architecture refusal
+            // told a 64-bit game to go looking for 32-bit support. The two
+            // messages mean entirely different things, so they are matched
+            // separately and neither is inferred from the other.
+            if l.contains("freetype") {
+                found.append(.fontLibraryMissing)
+            } else if l.contains("bad exe format")
+                || l.contains("not a valid win32 application")
+                || l.contains("wine cannot find the 32-bit")
+                || l.contains("unsupported architecture") {
                 found.append(.bitnessRefused)
             }
             if l.contains("operation not permitted") || l.contains("permission denied") {

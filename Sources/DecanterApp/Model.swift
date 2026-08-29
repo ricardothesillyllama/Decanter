@@ -305,10 +305,17 @@ final class AppModel: ObservableObject {
         recommendations = out
     }
 
+    /// Whether the recommendation banner should stay quiet.
+    ///
+    /// True when the setup already matches — and also when the person has set
+    /// this game's runtime or backend by hand. Choosing is not knowing, so an
+    /// override teaches the knowledge base nothing; but it does stop Decanter
+    /// pushing back on a decision already made.
     func isOnRecommended(_ game: Game) -> Bool {
         guard let rec = recommendations[game.id],
               let b = bottle(for: game),
               let rt = pinnedRuntimes.first(where: { $0.id == b.runtimeID }) else { return false }
+        if rec.overriddenByUser { return true }
         return rt.kind == rec.runtimeKind && b.backend == rec.backend
     }
 

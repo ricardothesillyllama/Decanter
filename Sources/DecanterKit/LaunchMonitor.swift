@@ -47,7 +47,12 @@ public struct LaunchMonitor {
     }
 
     /// Polls until the game renders, dies, or the deadline passes.
-    public func observe(game: Game, engineLog: URL?, timeout: TimeInterval = 45,
+    /// 45 seconds was too short and the window match was too narrow, so a game
+    /// that was on screen and playing could be reported as having exited early.
+    /// A first launch compiles shaders, a large game loads slowly, and a game
+    /// launched through a proxy loader draws its window from a process whose
+    /// name is not the executable's.
+    public func observe(game: Game, engineLog: URL?, timeout: TimeInterval = 120,
                         progress: (String) -> Void = { _ in }) -> Result {
         var r = Result()
         let started = Date()
@@ -61,8 +66,18 @@ public struct LaunchMonitor {
                 // under the same process, so a low threshold reports success
                 // when the game has drawn nothing. Require something big
                 // enough to be an actual game window, and take the largest.
+                // Matching on pid alone missed the real window: a mod loader
+                // or launcher draws from a process pgrep did not attribute to
+                // this executable. Accept a window whose owner names the game
+                // as well, and keep the size floor so Wine's own chrome and
+                // splash surfaces still do not count as "it rendered".
+                let stem = game.exePath.deletingPathExtension().lastPathComponent.lowercased()
                 let mine = Reporter.wineWindows()
-                    .filter { pids.contains($0.pid) && $0.width >= 640 && $0.height >= 480 }
+                    .filter { w in
+                        guard w.width >= 640, w.height >= 480 else { return false }
+                        return pids.contains(w.pid)
+                            || (!stem.isEmpty && w.owner.lowercased().contains(stem))
+                    }
                     .sorted { $0.width * $0.height > $1.width * $1.height }
                 if let w = mine.first {
                     r.outcome = .rendering(width: w.width, height: w.height)

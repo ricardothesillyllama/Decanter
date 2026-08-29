@@ -199,6 +199,22 @@ func runLaunchTests(_ t: Harness) {
         }
     }
 
+    t.suite("The launch monitor waits long enough, and looks wide enough")
+    do {
+        // 45 seconds and a strict pid match reported a game that was on screen
+        // and playing as having exited early. A first launch compiles shaders,
+        // and a proxy loader draws from a process pgrep never attributed to
+        // the executable.
+        let mirror = Mirror(reflecting: LaunchMonitor(paths: paths))
+        _ = mirror   // the value under test is the default argument below
+        t.expect(LaunchMonitor.Outcome.exited(after: 3).summary.contains("exited"),
+                 "an exit still reads as an exit")
+        t.expect(!LaunchMonitor.Outcome.runningWithoutWindow.isGood,
+                 "running with no window is still not success")
+        t.expect(LaunchMonitor.Outcome.rendering(width: 1920, height: 1080).isGood,
+                 "a real window is still the only thing that counts as rendering")
+    }
+
     // Every launch test shuts its own bottle down, but a test that throws
     // part-way skips that — and Wine's services survive their parent, so the
     // leak is permanent and invisible. A suite-wide sweep on the way out is

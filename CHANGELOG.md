@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.5.3 — 2026-08-29
+
+Eight defects, all found while writing down the rules the project actually runs
+on rather than by using the app. Each was confirmed against the source or a real
+log before it was fixed.
+
+- **A missing font library was diagnosed as an architecture refusal.** The
+  matcher keyed on the substring `wine cannot find`, which also begins Wine's
+  message "Wine cannot find the FreeType font library." A 64-bit Unity game was
+  therefore told its runtime had refused its architecture and to go and find
+  32-bit support. The two messages mean entirely different things and are now
+  matched separately, with a finding of their own for the real problem.
+- **A prefix could see every mounted volume.** Removing `z: -> /` was never
+  sufficient: `wineboot` maps a drive letter at every mounted volume and a raw
+  `/dev/rdisk` node beside it, and nothing removed them. Measured on a real
+  install, three prefixes each had doors onto two mounted images. Before every
+  launch Decanter now removes every letter that is not `c:` and not a folder you
+  granted, and records what it closed. The documented promise — a game sees its
+  own folder and nothing else — is now true rather than nearly true.
+- **Wine could not find libraries a runtime shipped.** Only the Game Porting
+  Toolkit had its library directory on the fallback search path, so a Wine build
+  carrying its own FreeType, GStreamer or FFmpeg could not load any of them —
+  the library sat in `lib/` and Wine announced it could not be found. Every
+  runtime's own `lib/` is now searchable.
+- **A guess wore a measurement's badge.** The confidence field defaulted to
+  `high`, so a recommendation derived purely from a static rule — nothing
+  observed, nothing measured — claimed as much certainty as one confirmed twice
+  on the same Mac. Only evidence raises it now.
+- **A game you configured by hand kept being argued with.** `runtimeLocked` was
+  written in two places and read in none, so the recommendation banner pushed
+  back on a decision already made, forever. Choosing is not knowing, so an
+  override still teaches the knowledge base nothing — but it does stop the app
+  disagreeing with you about a game you have already solved.
+- **A running game could be reported as having exited early.** Success required
+  a window of at least 640x480, owned by a process matched on the executable's
+  basename, within 45 seconds. A first launch compiling shaders, a game
+  fullscreen on another Space, or one started through a proxy loader all failed
+  that test while playing perfectly. The window can now also be matched by
+  owner, and the wait is 120 seconds.
+- **Applying a recommendation changed the label, not the environment.** It wrote
+  the backend field directly instead of going through the one code path that
+  installs DXVK or DXMT and writes the DXMT marker — the same
+  says-one-thing-runs-another fault fixed for `runtime set` in 0.5.2.
+- **An applied DXVK recommendation recorded no version.** It passed no version
+  at all, while the knowledge base distinguishes DXVK 1.10.3 from 2.x precisely
+  because they are not the same answer.
+
 ## v0.5.2 — 2026-08-28
 
 - **Backends are listed in one order everywhere.** Each list was built by

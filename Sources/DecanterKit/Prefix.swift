@@ -143,18 +143,44 @@ public struct PrefixBuilder {
 
     // MARK: Scoping
 
-    /// Removes `z: -> /`. Whisky mapped the entire Mac filesystem into every
-    /// bottle; a Windows binary from the open internet could read ~/Documents,
-    /// ~/.ssh and iCloud. Decanter grants specific folders instead.
-    public func descope(prefix: URL) throws {
+    /// Removes every drive Decanter did not create.
+    ///
+    /// Removing `z: -> /` was never sufficient. Whisky mapped the entire Mac
+    /// filesystem into every bottle, so a Windows binary from the open internet
+    /// could read ~/Documents, ~/.ssh and iCloud — but `wineboot` also maps a
+    /// drive letter at every mounted volume, and a raw `/dev/rdisk` node beside
+    /// it. A prefix quietly gained a door onto each external disk, network
+    /// share and mounted image the moment one appeared. Measured on a real
+    /// install: `d: -> /Volumes/...`, `e: -> /Volumes/...`, `d:: -> /dev/rdisk8s1`.
+    ///
+    /// The documented promise is that a game sees its own folder and nothing
+    /// else, so anything that is not `c:` and not a granted scope goes.
+    /// Returns what it closed, so this can be said in plain words rather than
+    /// discovered in a log.
+    @discardableResult
+    public func descope(prefix: URL, keeping scopes: [ScopeGrant] = []) throws -> [String] {
         let dd = prefix.appending(path: "dosdevices")
-        for name in ["z:", "z::"] {
-            let p = dd.appending(path: name)
-            if let _ = try? fm.destinationOfSymbolicLink(atPath: p.path) {
-                try? fm.removeItem(at: p)
-            }
+        // `c:` is the prefix's own drive; a granted letter is one the user
+        // asked for. Both spellings of a device node belong to their letter.
+        var keep: Set<String> = ["c:", "c::"]
+        for s in scopes {
+            keep.insert("\(s.letter.lowercased()):")
+            keep.insert("\(s.letter.lowercased())::")
+        }
+
+        var closed: [String] = []
+        let names = (try? fm.contentsOfDirectory(atPath: dd.path)) ?? []
+        for name in names.sorted() where !name.hasPrefix(".") {
+            guard !keep.contains(name.lowercased()) else { continue }
+            // Only a symlink is a drive mapping. Anything else is not ours to
+            // judge, and removing a real directory here would be destructive.
+            let link = dd.appending(path: name)
+            guard let dest = try? fm.destinationOfSymbolicLink(atPath: link.path) else { continue }
+            try? fm.removeItem(at: link)
+            closed.append("\(name) -> \(dest)")
         }
         try sandboxUserFolders(prefix: prefix)
+        return closed
     }
 
     /// Removing `z:` is NOT sufficient. Wine also points each Windows user
@@ -186,15 +212,19 @@ public struct PrefixBuilder {
         return fixed
     }
 
-    public func applyScopes(prefix: URL, scopes: [ScopeGrant]) throws {
+    @discardableResult
+    public func applyScopes(prefix: URL, scopes: [ScopeGrant]) throws -> [String] {
         let dd = prefix.appending(path: "dosdevices")
         try fm.createDirectory(at: dd, withIntermediateDirectories: true)
-        try descope(prefix: prefix)   // also re-seals the user folders
+        // Descope before the grants are written, so a letter the user asked
+        // for is created fresh rather than trusted from whatever was there.
+        let closed = try descope(prefix: prefix)   // also re-seals the user folders
         for s in scopes {
             let link = dd.appending(path: "\(s.letter):")
             try? fm.removeItem(at: link)
             try fm.createSymbolicLink(atPath: link.path, withDestinationPath: s.hostPath.path)
         }
+        return closed
     }
 
     /// Names of Windows user folders that currently escape the prefix.
@@ -224,11 +254,18 @@ public struct PrefixBuilder {
             "WINEDEBUG": "-all",
             "WINEDLLPATH": runtime.root.appending(path: "lib/wine").path,
         ]
-        // GPTK needs its D3DMetal libs on the external lib path.
-        if runtime.kind == .gptk {
-            e["DYLD_FALLBACK_LIBRARY_PATH"] = runtime.root.appending(path: "lib/external").path
-                + ":" + runtime.root.appending(path: "lib").path + ":/usr/lib"
-        }
+        // Every runtime's own lib directory has to be searchable, not just
+        // GPTK's. Wine dlopens libfreetype, GStreamer and friends by soname
+        // rather than linking them, so a build that ships its own copies in
+        // lib/ still cannot find them unless that directory is on the fallback
+        // path — and the symptom is Wine announcing it "cannot find the
+        // FreeType font library" while the library sits right there. GPTK
+        // keeps lib/external first because that is where D3DMetal lives.
+        var libPaths: [String] = []
+        if runtime.kind == .gptk { libPaths.append(runtime.root.appending(path: "lib/external").path) }
+        libPaths.append(runtime.root.appending(path: "lib").path)
+        libPaths.append("/usr/lib")
+        e["DYLD_FALLBACK_LIBRARY_PATH"] = libPaths.joined(separator: ":")
         return e
     }
 
