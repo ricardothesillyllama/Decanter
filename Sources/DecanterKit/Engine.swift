@@ -1010,8 +1010,71 @@ public final class Engine: @unchecked Sendable {
         }
     }
 
+    /// Turns a knowledge-base answer into a recommendation.
+    ///
+    /// Extracted so the same conversion serves both the path that runs before
+    /// the shipped "this cannot work" claim and the one that runs after it.
+    /// Two copies of this drifted apart once already.
+    func recommendation(from known: Knowledge.Answer, for game: Game,
+                        sig: Knowledge.Signature) -> Recommendation {
+        var r = Recommendation(runtimeKind: known.setup.runtimeKind, backend: known.setup.backend)
+        // An endorsement's provenance is already a sentence; a match count is a
+        // noun phrase that needs the lead-in. Running them through the same
+        // prefix produced "this worked for someone ran this and confirmed it".
+        r.reasons.append(known.tier == .verified
+                         ? known.provenance.prefix(1).uppercased() + known.provenance.dropFirst() + "."
+                         : "this worked for \(known.provenance)")
+        r.provenance = switch (known.tier, known.seeded, known.confirmations) {
+            case (.verified, _, _):  .verified
+            case (.local, _, _):     .seenHere
+            case (.community, true, 0): .shipped
+            case (.community, _, _): .sharedByOthers
+        }
+        // A note on an endorsed row is the maintainer speaking, so it is
+        // kept apart and shown as such rather than folded in with the
+        // reasoning, which is Decanter's own voice.
+        if let n = known.note {
+            if r.provenance == .verified { r.note = n } else { r.reasons.append(n) }
+        }
+        // Offered only when it is actually a different choice, which means a
+        // different runtime or a different graphics layer. Comparing whole
+        // setups instead compared the layer's *version* too, so "DXMT 0.80" and
+        // "DXMT, version unrecorded" came out as two options that read as the
+        // same words twice. The version is Decanter's business, not a choice
+        // anybody is being offered.
+        if let second = known.alsoConsidered,
+           second.setup.runtimeKind != known.setup.runtimeKind
+            || second.setup.backend != known.setup.backend {
+            r.alternative = Alternative(runtimeKind: second.setup.runtimeKind,
+                                        backend: second.setup.backend,
+                                        why: second.why)
+        }
+        for bad in knowledge.knownBad(for: sig).prefix(3) where bad.setup != known.setup {
+            r.caveats.append("\(bad.setup.label): \(bad.failure.label)")
+        }
+        r.overriddenByUser = game.runtimeLocked
+        return r
+    }
+
     public func recommend(for game: Game) -> Recommendation {
         let d = game.detection
+        let sig = Knowledge.Signature(d)
+        let known = knowledge.best(for: sig, excluding: game.id)
+
+        // Something that has actually run outranks something Decanter shipped
+        // an opinion about, and this check has to come first for that to be
+        // true. It did not, and the consequence was precise: a game confirmed
+        // working on this Mac — and endorsed — went on being described as "not
+        // known to run here", because the built-in claim that its engine needs
+        // a particular graphics layer answered before the record of it working
+        // was ever consulted. The rule was already written in a comment three
+        // lines further down; it just ran second.
+        //
+        // Only a confirmed or vouched-for answer gets this. A shipped starting
+        // assumption is not evidence and must not overrule another one.
+        if let known, known.confirmations > 0 || known.tier == .verified {
+            return recommendation(from: known, for: game, sig: sig)
+        }
 
         // Say plainly when nothing will work. Knowing a game cannot run is far
         // more useful than being invited to try five configurations that fail.
@@ -1045,34 +1108,11 @@ public final class Engine: @unchecked Sendable {
         // from "this engine, any Mac" is a weaker claim than one drawn from an
         // identical machine, and saying so is the difference between a
         // recommendation and a guess wearing one's clothes.
-        let sig = Knowledge.Signature(d)
-        if let known = knowledge.best(for: sig, excluding: game.id) {
-            var r = Recommendation(runtimeKind: known.setup.runtimeKind, backend: known.setup.backend)
-            r.reasons.append("this worked for \(known.provenance)")
-            r.provenance = switch (known.tier, known.seeded, known.confirmations) {
-                case (.verified, _, _):  .verified
-                case (.local, _, _):     .seenHere
-                case (.community, true, 0): .shipped
-                case (.community, _, _): .sharedByOthers
-            }
-            // A note on an endorsed row is the maintainer speaking, so it is
-            // kept apart and shown as such rather than folded in with the
-            // reasoning, which is Decanter's own voice.
-            if let n = known.note {
-                if r.provenance == .verified { r.note = n } else { r.reasons.append(n) }
-            }
-            if let second = known.alsoConsidered {
-                r.alternative = Alternative(runtimeKind: second.setup.runtimeKind,
-                                            backend: second.setup.backend,
-                                            why: second.why)
-            }
-            // Anything already known to break for this situation is worth
-            // stating outright — knowing what not to try saves more time than
-            // knowing what to.
-            for bad in knowledge.knownBad(for: sig).prefix(3) where bad.setup != known.setup {
-                r.caveats.append("\(bad.setup.label): \(bad.failure.label)")
-            }
-            r.overriddenByUser = game.runtimeLocked
+        // Anything the knowledge base has left — a shipped starting assumption,
+        // or a row from somebody else's export. Weaker than the check at the
+        // top, and it runs after the shipped claim rather than before it.
+        if let known {
+            let r = recommendation(from: known, for: game, sig: sig)
             if known.confirmations > 0 || !known.seeded { return r }
         }
 

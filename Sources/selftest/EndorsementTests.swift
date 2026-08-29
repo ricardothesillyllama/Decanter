@@ -186,6 +186,69 @@ func runEndorsementTests(_ t: Harness) {
     t.expect(localFail.best(for: sig())?.setup != dxvk,
              "while a single failure seen on this Mac rules it out immediately")
 
+    t.suite("a measurement outranks something Decanter shipped an opinion about")
+    // The fault this replaces: a game confirmed working on this Mac, and
+    // endorsed, went on being described as "not known to run here" because the
+    // built-in claim about its engine answered before the record of it working
+    // was ever consulted.
+    var settled = Knowledge()
+    let ownGame = UUID()
+    settled.record(.init(signature: sig(), setup: dxmt, worked: true, gameID: ownGame))
+    let answer = settled.best(for: sig(), verified: checkOurs)
+    t.equal(answer?.setup, dxmt, "a confirmed local run answers for this situation")
+    t.expect((answer?.confirmations ?? 0) > 0 || answer?.tier == .local,
+             "and it counts as something that happened, not something assumed")
+
+    t.suite("a game does not corroborate itself, endorsed or not")
+    var solo = Knowledge()
+    solo.record(signedWith(.init(signature: sig(), setup: dxmt, worked: true,
+                                 gameID: ownGame, imported: true)))
+    let selfAnswer = solo.best(for: sig(), excluding: ownGame, verified: checkOurs)
+    t.equal(selfAnswer?.tier, .verified, "the endorsement still answers")
+    t.equal(selfAnswer?.confirmations, 0,
+            "but the game being asked about is not counted as a game that agreed")
+
+    t.suite("an endorsement survives being exported and imported")
+    // An endorsement that stopped at the export boundary would arrive as an
+    // ordinary shared row, which is the one thing it is not.
+    var source = Knowledge()
+    source.record(signedWith(.init(signature: sig(), setup: dxmt, worked: true,
+                                   gameID: UUID(), note: "expect a black frame first")))
+    let shipped = source.exportable()
+    t.expect(shipped.observations.first?.endorsement != nil,
+             "the signature is carried in the export")
+    t.expect(shipped.observations.allSatisfy { $0.signature.chip != .unknown },
+             "alongside the situation it describes")
+    var destination = Knowledge()
+    _ = destination.merge(shipped, verified: checkOurs)
+    let arrived = destination.observations.first
+    t.expect(arrived?.imported == true, "the row arrives marked as somebody else's")
+    t.equal(arrived?.gameID == nil, true, "with no game id, as before")
+    t.expect(arrived.map { Endorsement.isVerified($0, publicKeyBase64: pair.publicKeyBase64) } == true,
+             "and its signature still checks out on the other side")
+    t.equal(arrived?.note, "expect a black frame first",
+            "so the note it was signed with is kept rather than dropped")
+
+    t.suite("an unsigned note is still dropped on arrival")
+    // The one free-text field in the format, and the obvious place a game title
+    // would leak in. Prose is allowed back only when a signature vouches for it.
+    var chatty = Knowledge()
+    chatty.record(.init(signature: sig(), setup: dxvk, worked: true, gameID: UUID(),
+                        note: "played MyGame 2 for six hours"))
+    var elsewhere = Knowledge()
+    _ = elsewhere.merge(chatty.exportable(), verified: checkOurs)
+    t.equal(elsewhere.observations.first?.note, nil,
+            "an unsigned note does not survive the crossing")
+    t.equal(elsewhere.observations.first?.endorsement, nil,
+            "and neither does an endorsement field that proves nothing")
+
+    var forgedNote = source.exportable()
+    forgedNote.observations[0].note = "edited in transit"
+    var wary = Knowledge()
+    _ = wary.merge(forgedNote, verified: checkOurs)
+    t.equal(wary.observations.first?.note, nil,
+            "a signed note edited in transit is dropped, because the signature covers it")
+
     t.suite("provenance says where an answer came from, not how it feels")
     t.equal(Engine.Provenance.inferred.label, "worked out from the files",
             "a rule with nothing behind it says so")

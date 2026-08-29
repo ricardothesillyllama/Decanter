@@ -389,7 +389,8 @@ public extension Knowledge {
         let local = observed(for: sig, excluding: gameID, verified: verified)
         // Their own machine, on their own hardware. Nothing goes above this.
         if let local, local.level <= .thisChip { return local }
-        guard let endorsed = endorsedAnswer(for: sig, verified: verified) else { return local }
+        guard let endorsed = endorsedAnswer(for: sig, excluding: gameID, verified: verified)
+        else { return local }
         guard let local else { return endorsed }
         guard local.setup != endorsed.setup else { return endorsed }
         var winner = endorsed
@@ -402,7 +403,7 @@ public extension Knowledge {
     ///
     /// Endorsed rows are searched down the same ladder, so an endorsement made
     /// about this exact chip beats one made about the engine in general.
-    func endorsedAnswer(for sig: Signature,
+    func endorsedAnswer(for sig: Signature, excluding gameID: UUID? = nil,
                         verified: (Observation) -> Bool = { Endorsement.isVerified($0) }) -> Answer? {
         for level in Level.allCases {
             let here = observations(matching: sig, at: level)
@@ -411,12 +412,15 @@ public extension Knowledge {
             var a = Answer(setup: row.setup, level: level, confirmations: 0, failures: 0,
                            note: row.note, seeded: false)
             a.tier = .verified
-            // How many distinct games here have since agreed. An endorsement is
-            // a claim in its own right; corroboration is worth saying, and its
-            // absence is not a mark against it.
+            // How many *other* games here have since agreed. The game being
+            // asked about does not corroborate itself — the same rule the
+            // ordinary walk applies, and leaving it out here read as "1 game
+            // has since agreed" about the game doing the asking, which is an
+            // echo rather than a confirmation.
             a.confirmations = Set(observations(matching: sig, at: level)
                 .filter { $0.worked && $0.setup == row.setup }
-                .compactMap(\.gameID)).count
+                .compactMap(\.gameID)
+                .filter { $0 != gameID }).count
             return a
         }
         return nil
@@ -692,11 +696,30 @@ public extension Knowledge {
             public var worked: Bool
             public var failure: Failure?
             public var note: String?
+            /// The signature over this row's own contents.
+            ///
+            /// Travels, and has to: an endorsement that stopped at the export
+            /// boundary would arrive as an ordinary shared row, which is the
+            /// one thing it is not. It is checked on arrival, never trusted —
+            /// the field is bytes anybody can write.
+            public var endorsement: String?
 
             public init(signature: Signature, setup: Setup, worked: Bool,
-                        failure: Failure? = nil, note: String? = nil) {
+                        failure: Failure? = nil, note: String? = nil,
+                        endorsement: String? = nil) {
                 self.signature = signature; self.setup = setup
                 self.worked = worked; self.failure = failure; self.note = note
+                self.endorsement = endorsement
+            }
+
+            public init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                signature = try c.decode(Signature.self, forKey: .signature)
+                setup = try c.decode(Setup.self, forKey: .setup)
+                worked = (try? c.decode(Bool.self, forKey: .worked)) ?? false
+                failure = try? c.decodeIfPresent(Failure.self, forKey: .failure)
+                note = try? c.decodeIfPresent(String.self, forKey: .note)
+                endorsement = try? c.decodeIfPresent(String.self, forKey: .endorsement)
             }
         }
     }
@@ -709,22 +732,40 @@ public extension Knowledge {
     /// second row for a situation already answered adds a duplicate, not
     /// weight, and a stranger's claim cannot outvote what was seen here.
     ///
-    /// Notes are dropped. A note is the one free-text field in the format, and
-    /// an unsigned one cannot be attributed to anybody — which makes it both
-    /// the obvious place for a game title to leak in and impossible to hold
-    /// anyone to. Prose comes back when there is a signature to check it
-    /// against.
+    /// An unsigned note is dropped. A note is the one free-text field in the
+    /// format, and an unsigned one cannot be attributed to anybody — which
+    /// makes it both the obvious place for a game title to leak in and
+    /// impossible to hold anyone to.
+    ///
+    /// A note whose signature checks out is kept, which is what that rule was
+    /// always waiting for. The signature covers the note itself, so text that
+    /// arrives with a valid one is exactly the text the key holder wrote: it
+    /// cannot have been edited in transit, and nobody without the key can
+    /// attach prose to a row at all. That is the whole reason prose is allowed
+    /// back in, and why it is allowed back in only here.
     @discardableResult
-    mutating func merge(_ e: Export) -> (added: Int, skipped: Int) {
+    mutating func merge(_ e: Export,
+                        verified: (Observation) -> Bool = { Endorsement.isVerified($0) })
+        -> (added: Int, skipped: Int) {
         var have = Set(observations.map { Pair($0.signature, $0.setup) })
         var added = 0, skipped = 0
         for row in e.observations {
             let key = Pair(row.signature, row.setup)
             guard !have.contains(key) else { skipped += 1; continue }
             have.insert(key)
+            // Built with the note in place, because the signature covers it —
+            // verifying a row with the prose stripped would check different
+            // bytes than the ones that were signed, and always fail.
+            let candidate = Observation(signature: row.signature, setup: row.setup,
+                                        worked: row.worked, failure: row.failure,
+                                        gameID: nil, seeded: false, imported: true,
+                                        note: row.note, endorsement: row.endorsement)
+            let vouched = verified(candidate)
             observations.append(.init(signature: row.signature, setup: row.setup,
                                       worked: row.worked, failure: row.failure,
-                                      gameID: nil, seeded: false, imported: true, note: nil))
+                                      gameID: nil, seeded: false, imported: true,
+                                      note: vouched ? row.note : nil,
+                                      endorsement: vouched ? row.endorsement : nil))
             added += 1
         }
         return (added, skipped)
@@ -740,7 +781,8 @@ public extension Knowledge {
             guard !seen.contains(key) else { continue }
             seen.insert(key)
             e.observations.append(.init(signature: o.signature, setup: o.setup,
-                                        worked: o.worked, failure: o.failure, note: o.note))
+                                        worked: o.worked, failure: o.failure, note: o.note,
+                                        endorsement: o.endorsement))
         }
         return e
     }

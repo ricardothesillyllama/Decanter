@@ -67,6 +67,26 @@ Three faults in this work, each caught by measuring rather than reasoning:
   tell a rule nobody has ever tested from an observation on an identical
   machine. Provenance says what happened and lets you decide what it is worth.
 
+- **A measurement now outranks an assumption Decanter shipped with.** A game
+  confirmed working on this Mac, and endorsed, went on being described as *"not
+  known to run here"*: the built-in claim that its engine needs a particular
+  graphics layer answered before the record of it working was ever consulted.
+  The rule was already written as a comment three lines below the check that
+  contradicted it. Only a confirmed or vouched-for answer gets this — a shipped
+  starting assumption is not evidence and does not overrule another one.
+- **An endorsement survives export.** It used to stop at the boundary and arrive
+  as an ordinary shared row, which is the one thing it is not. Its note travels
+  with it and is kept **only** when the signature checks out on arrival — the
+  signature covers the note, so text edited in transit is dropped. Unsigned
+  notes are still dropped entirely, which is what has always kept a game title
+  out of anything that travels.
+- **A game no longer corroborates itself through an endorsement.** The ordinary
+  walk had this rule; the endorsement path did not, so a lone endorsed row read
+  as "1 game has since agreed" about the game doing the asking.
+- Two wording faults with it: "this worked for someone ran this and confirmed
+  it", and a second option offered that was the same option with a different
+  layer version attached.
+
 **Two ways back from a launch that went wrong.**
 
 - **A game remembers the setup it last worked on**, with a date, and offers to
