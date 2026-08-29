@@ -278,9 +278,7 @@ public final class Engine: @unchecked Sendable {
         // recorded where "what set this, and when" can be answered.
         let plan = try launcher.plan(game: game, bottle: bottle, runtime: rt,
                                      verbose: verbose, showHUD: showHUD)
-        for d in plan.closedDrives {
-            note(bottle.id, "closed a drive this game should not have had: \(d)")
-        }
+        recordClosures(plan, bottle: bottle)
         try launcher.launch(plan)
         try store.mutate { s in
             if let i = s.games.firstIndex(where: { $0.id == game.id }) {
@@ -350,6 +348,7 @@ public final class Engine: @unchecked Sendable {
         }
 
         let plan = try launcher.plan(game: game, bottle: bottle, runtime: rt)
+        recordClosures(plan, bottle: bottle)
         rep.winPath = plan.winPath
         let dd = bottle.prefixPath.appending(path: "dosdevices")
         rep.scopesApplied = ((try? FileManager.default.contentsOfDirectory(atPath: dd.path)) ?? []).sorted()
@@ -667,6 +666,19 @@ public final class Engine: @unchecked Sendable {
     }
 
     /// Appends a dated line to a bottle's change log.
+    /// Writes down every drive the descope closed on the way to a plan.
+    ///
+    /// Building a plan is what descopes, and three separate paths build one —
+    /// launching, `check`, and the autoconfigure attempts. Recording it at only
+    /// the launch site meant a stray volume found by `check` was closed in
+    /// silence, which is the half of the promise that is not merely doing the
+    /// right thing but being able to say it was done.
+    func recordClosures(_ plan: Launcher.Plan, bottle: Bottle) {
+        for d in plan.closedDrives {
+            note(bottle.id, "closed a drive this game should not have had: \(d)")
+        }
+    }
+
     func note(_ bottleID: UUID, _ text: String) {
         try? store.mutate { s in
             guard let i = s.bottles.firstIndex(where: { $0.id == bottleID }) else { return }
@@ -806,6 +818,7 @@ public final class Engine: @unchecked Sendable {
             temp.scopes = launcher.defaultScopes(for: exe)
         }
         let plan = try launcher.plan(game: temp, bottle: bottle, runtime: rt)
+        recordClosures(plan, bottle: bottle)
         try launcher.launch(plan)
         return plan
     }

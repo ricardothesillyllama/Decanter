@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.4 — 2026-08-29
+
+- **Closing a stray drive is now recorded wherever it happens.** 0.5.3 removed
+  every drive Decanter did not create, but only wrote down what it had closed on
+  the launch path — and three paths build a launch plan, so a volume found by
+  `check` was closed in silence. Doing the right thing and being able to say it
+  was done are two halves of the same promise; both now hold.
+
 ## v0.5.3 — 2026-08-29
 
 Eight defects, all found while writing down the rules the project actually runs
