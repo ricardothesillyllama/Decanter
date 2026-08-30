@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.1 — 2026-08-30
+
+- **0.7.0's build was red.** `switch someOptionalBool { case true: … case nil: … }`
+  is exhaustive to Swift 6.3 and is not to the compiler on macOS 15, which is
+  what CI builds with. The local gate did not catch it and could not: `STRICT=1`
+  passes CI's flags to a different toolchain, so it proves the code has no
+  warnings and says nothing about whether it compiles there. Written as
+  `.some(true)` / `.none`, and there is now a rule looking for the shape.
+
 ## v0.7.0 — 2026-08-30
 
 Setup's remaining honesty problem, and the machinery to fix it.

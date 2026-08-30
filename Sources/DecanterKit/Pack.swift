@@ -274,12 +274,21 @@ public enum Pack {
                 return "\(name) did not arrive intact — \(problems.count) "
                      + "problem\(problems.count == 1 ? "" : "s"). It has not been installed."
             }
+            // `.some(true)` rather than `true`. Swift 6.3 accepts the bare
+            // literals as exhaustive over `Bool?`; the compiler on macOS 15,
+            // which is what CI builds with, does not — and this shipped red
+            // because `STRICT=1` runs the same flags as CI against a different
+            // toolchain, so "the release build has warnings" was checked and
+            // "the release build compiles there" was not.
             switch signedByMaintainer {
-            case true:  return "\(name) is complete, and is the pack Decanter published."
-            case false: return "\(name) is complete, but its signature is not one Decanter recognises. "
-                             + "The files are intact; who assembled them is unestablished."
-            case nil:   return "\(name) is complete. It carries no signature, so it is a pack "
-                             + "somebody assembled — the files match what its own manifest says they should be."
+            case .some(true):
+                return "\(name) is complete, and is the pack Decanter published."
+            case .some(false):
+                return "\(name) is complete, but its signature is not one Decanter recognises. "
+                     + "The files are intact; who assembled them is unestablished."
+            case .none:
+                return "\(name) is complete. It carries no signature, so it is a pack "
+                     + "somebody assembled — the files match what its own manifest says they should be."
             }
         }
     }

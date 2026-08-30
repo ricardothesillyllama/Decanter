@@ -110,6 +110,22 @@ if [ -n "$UNSCOPED" ]; then
   note "an action names a game but has no scope — its result will show on every page"
 fi
 
+# 8c. Match an Optional with Optional patterns.
+#
+#    `switch someBoolOptional { case true: … case false: … case nil: … }` is
+#    accepted as exhaustive by Swift 6.3 and rejected by the compiler on
+#    macOS 15, which is what CI builds with. That is how 0.7.0 shipped red: a
+#    STRICT=1 run passes the same flags as CI against a different toolchain, so
+#    it proves the code has no warnings and says nothing about whether it
+#    compiles there. A grep cannot know a value's type, so this looks for the
+#    shape that only occurs over an Optional — a `case nil:` sitting with bare
+#    `true`/`false` arms.
+BARE=$(grep -rn --include='*.swift' -B4 '^\s*case nil:' Sources/ 2>/dev/null        | grep -E '^\S+[-:][0-9]+[-:]\s*case (true|false):' || true)
+if [ -n "$BARE" ]; then
+  printf '%s\n' "$BARE"
+  note "a switch over an Optional uses bare true/false with case nil — write .some(true)/.none"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a
