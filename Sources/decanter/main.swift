@@ -897,16 +897,19 @@ case "pack":
             case "--wine": archives[.wine] = URL(filePath: (nextValue("--wine") as NSString).expandingTildeInPath)
             case "--dxvk": archives[.dxvk] = URL(filePath: (nextValue("--dxvk") as NSString).expandingTildeInPath)
             case "--dxmt": archives[.dxmt] = URL(filePath: (nextValue("--dxmt") as NSString).expandingTildeInPath)
+            case "--media": archives[.media] = URL(filePath: (nextValue("--media") as NSString).expandingTildeInPath)
             case "--wine-origin": origins[.wine] = nextValue("--wine-origin")
             case "--dxvk-origin": origins[.dxvk] = nextValue("--dxvk-origin")
             case "--dxmt-origin": origins[.dxmt] = nextValue("--dxmt-origin")
+            case "--media-origin": origins[.media] = nextValue("--media-origin")
             default: die(DecanterError.usage("decanter pack build: unknown option \(rest[i])"))
             }
             i += 1
         }
         guard let outDir else {
             die(DecanterError.usage("""
-            usage: decanter pack build --out <dir> --wine <archive> [--dxvk <archive>] [--dxmt <archive>]
+            usage: decanter pack build --out <dir> --wine <archive> [--media <archive>]
+                                   [--dxvk <archive>] [--dxmt <archive>]
                                        [--name N] [--notes TEXT] [--sign] [--allow-incomplete-wine]
                                        [--wine-origin TEXT] [--dxvk-origin TEXT] [--dxmt-origin TEXT]
             """))
@@ -921,6 +924,10 @@ case "pack":
             .wine: "LGPL-2.1-or-later",   // Wine, and every macOS build of it
             .dxvk: "Zlib",                // github.com/doitsujin/dxvk
             .dxmt: "LGPL-2.1-or-later",   // github.com/3Shain/dxmt
+            // GStreamer and the FFmpeg libraries beside it. LGPL is the
+            // binding one and is what the licences file has to state; the
+            // permissive pieces travelling with them do not weaken it.
+            .media: "LGPL-2.1-or-later",  // Sikarugir-App/gstreamer
         ]
         let ingredients = Pack.Piece.allCases.compactMap { piece -> Pack.Ingredient? in
             guard let a = archives[piece] else { return nil }

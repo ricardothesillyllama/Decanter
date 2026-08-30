@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.7.6 — 2026-08-31
+
+A pack can now carry the libraries a Wine build needs to play audio and video
+and does not always have.
+
+- **A fourth component kind, `media`.** The archive is offered to the existing
+  repair as a *donor* rather than copied wholesale, and that is the whole design:
+  copying everything would put two versions of the same library inside one Wine —
+  the exact failure `repair` was written to avoid — and would make the result
+  impossible to undo cleanly. So the build is audited, only what is genuinely
+  missing is taken, the fixed point is worked so a copied library arrives with
+  its own dependencies, architecture is matched, writes outside the build are
+  refused, and every file lands in the manifest that makes `repair --undo` exact.
+  On the build this was written for that is six files out of several hundred.
+- **Verified against the real failure, not a fixture.** A Sikarugir Wine 10 with
+  its seven borrowed libraries removed audits as seven missing and reports that
+  video will not play. It installs the pack, and comes back with six filled and
+  the seventh named as one the pack could not supply — which is the right
+  behaviour for a gap it cannot close, and better than a silent partial fix.
+- Media installs after the Wine build and before either graphics layer: it goes
+  *into* a build, so there has to be one, and whether that build can host DXMT
+  is the wrong thing to measure while it is still incomplete.
+- Where the libraries sit inside an archive is found rather than assumed. The
+  build these come from puts them at `GStreamer.framework/Versions/1.0/lib`; the
+  next one will put them somewhere else. A `lib/` holding no libraries is not a
+  library root — a Wine build's `lib/wine` is full of Windows binaries and would
+  match a looser test.
+
+**Pack v1 does not need any of it.** Gcenx's Wine 11 audits completely clean as
+upstream ships it, so the first pack is Wine 11 + DXVK 1.10.3 + DXMT 0.80 —
+complete, redistributable, no Game Porting Toolkit content anywhere in it. That
+should have been checked before the component was built; it was one command
+away. The component is still what makes a Sikarugir pack possible later, and
+repairing from a supplied archive rather than only from another pinned runtime
+is a capability worth having on its own.
+
 ## v0.7.5 — 2026-08-31
 
 - **The stale-build banner never appeared, and the reason was where it lived.**

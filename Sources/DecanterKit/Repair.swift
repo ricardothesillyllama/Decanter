@@ -262,6 +262,53 @@ public struct RuntimeRepair {
         return nil
     }
 
+    /// A directory of dylibs, dressed as a donor.
+    ///
+    /// `plan` searches donors by walking `<root>/lib`, and that is the only
+    /// thing it needs from a `RuntimeSpec` — so an unpacked archive of media
+    /// libraries can be one, and the whole of `plan` and `apply` then works
+    /// unchanged: the fixed-point closure that stops a copied library arriving
+    /// without its own siblings, the architecture match, the refusal to write
+    /// outside the build, and the manifest that makes `--undo` exact.
+    ///
+    /// Writing a second copy routine for the pack was the obvious thing and the
+    /// wrong one. The first version of `plan` closed six gaps and opened three,
+    /// because a library moved out of its own directory can no longer find its
+    /// neighbours; a fresh implementation would have had to learn that again.
+    public static func donor(unpackedAt root: URL, id: String) -> RuntimeSpec {
+        RuntimeSpec(id: id, kind: .wine, version: "supplied", root: root,
+                    winePath: root.appending(path: "bin/wine"),
+                    wineserverPath: root.appending(path: "bin/wineserver"),
+                    supports32Bit: false, backends: [])
+    }
+
+    /// Where the libraries are inside an unpacked archive.
+    ///
+    /// Found rather than assumed: the GStreamer build these come from puts them
+    /// at `GStreamer.framework/Versions/1.0/lib`, and the next archive will put
+    /// them somewhere else. What is constant is a directory with a `lib` in it
+    /// holding Mach-O files, so that is what is looked for.
+    public static func findLibraryRoot(under url: URL, depth: Int = 4) -> URL? {
+        let fm = FileManager.default
+        let lib = url.appending(path: "lib")
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: lib.path, isDirectory: &isDir), isDir.boolValue,
+           let names = try? fm.contentsOfDirectory(atPath: lib.path),
+           names.contains(where: { $0.hasSuffix(".dylib") }) {
+            return url
+        }
+        guard depth > 0 else { return nil }
+        let kids = (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey],
+                                                options: [.skipsHiddenFiles])) ?? []
+        // Deterministic: two candidates in one archive must always resolve to
+        // the same one, or a second attempt installs something different.
+        for kid in kids.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard (try? kid.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            if let found = findLibraryRoot(under: kid, depth: depth - 1) { return found }
+        }
+        return nil
+    }
+
     /// Carries out a plan that was agreed to, and records it.
     ///
     /// Repeats the audit afterwards: a borrowed library brings its own

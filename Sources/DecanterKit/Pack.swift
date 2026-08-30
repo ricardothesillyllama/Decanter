@@ -51,12 +51,30 @@ public enum Pack {
     /// arbitrary "kind" is a pack that can carry an installer.
     public enum Piece: String, Codable, Sendable, CaseIterable {
         case wine, dxvk, dxmt
+        /// The libraries a Wine build needs to play a game's audio and video
+        /// and does not always carry.
+        ///
+        /// This kind exists because of a specific, measured gap. The one Wine
+        /// build on this platform that can host DXMT ships without seven
+        /// libraries its own GStreamer and FFmpeg chain asks for by name, and
+        /// `repair` closed that gap here from the only donor available — Apple's
+        /// Game Porting Toolkit, which is licensed for use on this Mac and not
+        /// for redistribution. That made the one runtime worth publishing the
+        /// one runtime that could not be published.
+        ///
+        /// Six of the seven turn out to be in the GStreamer build Sikarugir
+        /// publish themselves, under the LGPL, each an x86_64 Mach-O whose
+        /// install name is exactly the `@rpath/<name>.dylib` the Wine binaries
+        /// ask for; the seventh ships in Gcenx's Wine 11, also LGPL. So the
+        /// pack can be whole with no toolkit content in it at all.
+        case media
 
         public var label: String {
             switch self {
             case .wine: "Windows support"
             case .dxvk: "Vulkan graphics"
             case .dxmt: "Metal graphics"
+            case .media: "Audio and video support"
             }
         }
     }
@@ -155,8 +173,12 @@ public enum Pack {
     public static func installRank(_ p: Piece) -> Int {
         switch p {
         case .wine: 0
-        case .dxvk: 1
-        case .dxmt: 2
+        // Straight after the Wine build and before either graphics layer: it
+        // is applied *into* that build, so there has to be one, and a build
+        // still missing pieces is the wrong thing to then measure for DXMT.
+        case .media: 1
+        case .dxvk: 2
+        case .dxmt: 3
         }
     }
 

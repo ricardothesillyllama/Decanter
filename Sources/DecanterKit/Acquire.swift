@@ -518,17 +518,29 @@ public extension Engine {
             Pack.installRank($0.piece) < Pack.installRank($1.piece)
         }
         var done: [String] = []
+        // The runtime this pack just pinned. Media libraries go *into* a Wine
+        // build, and the one they belong in is the one that arrived with them —
+        // not whatever else happens to be in the library.
+        var pinnedByThisPack: RuntimeSpec?
         for c in ordered {
             let file = root.appending(path: c.file)
             switch c.piece {
             case .wine:
                 progress("unpacking \(c.file)")
-                let line = try acq.withWineRoot(inArchive: file) { wineRoot in
+                let spec = try acq.withWineRoot(inArchive: file) { wineRoot in
                     let cand = try runtimes.inspect(wineRoot: wineRoot)
-                    let spec = try runtimes.pin(cand, store: store)
-                    return Self.friendly(spec)
+                    return try runtimes.pin(cand, store: store)
                 }
-                done.append(line)
+                pinnedByThisPack = spec
+                done.append(Self.friendly(spec))
+
+            case .media:
+                guard let target = pinnedByThisPack
+                        ?? store.state.runtimes.sorted(by: { $0.version > $1.version }).first else {
+                    throw DecanterError.notFound(
+                        "\(c.file) holds audio and video libraries, and there is no Wine build to put them in")
+                }
+                done.append(try installMedia(archive: file, into: target, progress: progress))
             case .dxvk:
                 let version = try DXVKInstaller(paths: paths).stage(tarball: file, progress: progress)
                 done.append("Vulkan graphics (DXVK \(version))")
@@ -538,6 +550,59 @@ public extension Engine {
             }
         }
         return v.summary + "\nInstalled: " + done.joined(separator: ", ") + "."
+    }
+
+    /// Puts the media libraries a Wine build is missing into it, and nothing else.
+    ///
+    /// The archive holds a whole GStreamer distribution — hundreds of files,
+    /// most of which this build already has or has no use for. Copying all of
+    /// it would be the easy thing and would be wrong twice over: it puts two
+    /// versions of the same library inside one Wine, which is the failure
+    /// `repair` was written to avoid, and it makes the result impossible to
+    /// undo cleanly.
+    ///
+    /// So the archive is offered as a *donor* and the existing repair decides
+    /// what to take: it audits the build, finds what is genuinely missing,
+    /// works to a fixed point so a copied library arrives with its own
+    /// dependencies, matches architecture, refuses to write outside the build,
+    /// and records every file in the manifest that makes `--undo` exact. On the
+    /// build this was written for that is seven files out of several hundred.
+    private func installMedia(archive: URL, into target: RuntimeSpec,
+                              progress: (String) -> Void) throws -> String {
+        let fm = FileManager.default
+        let tmp = paths.root.appending(path: "tmp-media")
+        try? fm.removeItem(at: tmp)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        progress("unpacking \(archive.lastPathComponent)")
+        let name = archive.lastPathComponent.lowercased()
+        let r: (code: Int32, out: String, err: String)
+        if name.hasSuffix(".zip") {
+            r = try Shell.run(URL(filePath: "/usr/bin/unzip"), ["-q", archive.path, "-d", tmp.path], timeout: 900)
+        } else {
+            r = try Shell.run(URL(filePath: "/usr/bin/tar"), ["xf", archive.path, "-C", tmp.path], timeout: 900)
+        }
+        guard r.code == 0 else { throw DecanterError.cloneFailed("unpack: \(r.err)") }
+        guard let libRoot = RuntimeRepair.findLibraryRoot(under: tmp) else {
+            throw DecanterError.notFound(
+                "\(archive.lastPathComponent) unpacked, but there are no libraries inside it")
+        }
+
+        let repair = RuntimeRepair()
+        let donor = RuntimeRepair.donor(unpackedAt: libRoot, id: "pack-media")
+        let offer = repair.plan(for: target, donors: [donor])
+        guard !offer.isEmpty else {
+            return "Audio and video support — \(target.id) already has everything it needs"
+        }
+        progress("filling \(offer.borrows.count) missing pieces in \(target.id)")
+        let applied = try repair.apply(offer, to: target, progress: progress)
+        var line = "Audio and video support — put \(applied.count) missing "
+                 + "\(applied.count == 1 ? "piece" : "pieces") into \(target.id)"
+        if !offer.unfillable.isEmpty {
+            line += ", and \(offer.unfillable.count) it could not supply"
+        }
+        return line
     }
 
     /// Plain name first, real name in brackets. Used anywhere a runtime is

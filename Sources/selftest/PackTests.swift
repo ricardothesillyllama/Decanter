@@ -268,3 +268,55 @@ func runPackTests(_ t: Harness) {
     t.equal(Pack.versionFromName("something.tar.gz"), "unknown",
             "a name with no version in it says so rather than inventing one")
 }
+
+/// The media component, which exists because of one measured situation: the
+/// only Wine build on this platform that can host DXMT ships without seven
+/// libraries its own GStreamer and FFmpeg chain asks for by name, and the only
+/// donor on this Mac was Apple's Game Porting Toolkit — legitimate to use here,
+/// not ours to redistribute. That made the one runtime worth publishing the one
+/// runtime that could not be published.
+func runPackMediaTests(_ t: Harness) {
+    t.suite("Packs — the media component")
+
+    t.equal(Pack.installRank(.wine), 0, "the Wine build is pinned first")
+    t.expect(Pack.installRank(.media) > Pack.installRank(.wine),
+             "media goes into a Wine build, so there has to be one")
+    t.expect(Pack.installRank(.media) < Pack.installRank(.dxmt),
+             "and it goes in before DXMT is measured, or the build is judged while incomplete")
+    t.equal(Pack.Piece.media.label, "Audio and video support",
+            "named for what it does, not for the project it came from")
+
+    t.suite("Packs — finding libraries inside an archive")
+
+    // Where they sit is found, not assumed: the GStreamer build these come from
+    // puts them at GStreamer.framework/Versions/1.0/lib, and the next archive
+    // will put them somewhere else.
+    let nested = Fixture.dir("media-nested")
+    Fixture.write(nested, "GStreamer.framework/Versions/1.0/lib/libffi.7.dylib", Data([0xCF, 0xFA, 0xED, 0xFE]))
+    let found = RuntimeRepair.findLibraryRoot(under: nested)
+    t.equal(found?.lastPathComponent, "1.0", "the directory holding lib/ is found several levels down")
+
+    let flat = Fixture.dir("media-flat")
+    Fixture.write(flat, "lib/liborc-0.4.0.dylib", Data([0xCF, 0xFA, 0xED, 0xFE]))
+    t.equal(RuntimeRepair.findLibraryRoot(under: flat)?.pathKey, flat.pathKey,
+            "a flat archive works too")
+
+    // A directory with a lib/ that holds no dylibs is not a library root — a
+    // Wine build's lib/wine is full of PE files and would match a looser test.
+    let decoy = Fixture.dir("media-decoy")
+    Fixture.write(decoy, "lib/readme.txt", Data("no".utf8))
+    t.equal(RuntimeRepair.findLibraryRoot(under: decoy), nil,
+            "a lib/ with no libraries in it is not a library root")
+
+    t.suite("Packs — the donor is only a donor")
+
+    // The archive is offered to the existing repair rather than copied wholesale.
+    // Copying everything would put two versions of the same library inside one
+    // Wine, which is the failure `repair` was written to avoid, and would make
+    // the result impossible to undo cleanly.
+    let donor = RuntimeRepair.donor(unpackedAt: flat, id: "pack-media")
+    t.equal(donor.id, "pack-media", "the donor is named for what it is")
+    t.equal(donor.root.pathKey, flat.pathKey, "and points at the unpacked archive")
+    t.expect(donor.backends.isEmpty, "it offers no graphics backends — it is not a runtime")
+    t.expect(!donor.supports32Bit, "and claims no capability it cannot demonstrate")
+}
