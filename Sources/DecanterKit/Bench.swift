@@ -332,6 +332,18 @@ public struct Bench: Sendable {
         public func finding(_ b: GraphicsBackend) -> Finding? {
             findings.first { $0.backend == b }
         }
+
+        /// What this build cannot provide, and the reason, weakest claim last.
+        ///
+        /// The counterpart to `backends`, and the half nothing displayed. A
+        /// picker that lists what is available says nothing about what is not,
+        /// so "where is Metal graphics?" had no answer anywhere — while this
+        /// had already been measured and written down.
+        public var unavailable: [(backend: GraphicsBackend, reason: String)] {
+            findings.filter { !$0.provided }
+                .sorted { $0.backend.rank < $1.backend.rank }
+                .map { ($0.backend, $0.reason) }
+        }
     }
 
     public struct Table: Sendable, Codable {

@@ -348,6 +348,25 @@ public final class Engine: @unchecked Sendable {
             problems.isEmpty && exeVisibleToWine && !fullFilesystemExposed
                 && escapingUserFolders.isEmpty
         }
+
+        /// The report as one sentence anyone can act on.
+        ///
+        /// Lives here rather than in the app so the answer to "would this
+        /// start?" is the same wherever it is asked, and so it can be tested
+        /// without a Wine build. Blockers are said in preference to problems:
+        /// a game whose graphics option its runtime cannot provide does not
+        /// fail loudly — Wine's own D3D loads instead and the game dies with
+        /// nothing in the log — so naming an untidy drive mapping ahead of that
+        /// would answer a question nobody asked.
+        public var plainSummary: String {
+            if ok { return "Everything it needs is in place — it should start." }
+            let said = blockers.isEmpty ? problems : blockers
+            if !said.isEmpty { return said.joined(separator: "  ") }
+            return exeVisibleToWine
+                ? "Something is not right, but Decanter could not name it. Press Play, then Diagnose."
+                : "Wine cannot see the game's program file. Rebuild the environment, or re-inspect the folder."
+        }
+
         public init() {}
     }
 

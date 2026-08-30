@@ -129,10 +129,18 @@ func runHygieneTests(_ t: Harness) {
     t.equal(red.components(separatedBy: "~").count - 1, 3, "each occurrence became a tilde")
     t.expect(red.contains("Games/Thing/Thing.exe"), "the rest of the path is untouched")
 
-    // A report from a source build has to be traceable to a commit.
-    t.expect(!Build.commit.isEmpty, "the build records a commit")
+    // A report has to be traceable. For a build made from a modified tree that
+    // means a commit; for a clean one the version is the whole of it, and the
+    // hash that used to be stamped there always named the commit before the
+    // tag — install.sh cannot know a commit that does not exist yet.
     t.expect(Build.summary.contains(Build.version), "the summary names the version")
-    t.expect(Build.summary.contains(Build.commit), "…and the commit")
+    if Build.commit.isEmpty {
+        t.equal(Build.summary, "Decanter \(Build.version)",
+                "a clean build is identified by its version alone")
+    } else {
+        t.expect(Build.summary.contains(Build.commit),
+                 "a build from a modified tree names the commit it came from")
+    }
 
     // Redaction must be safe on text that contains no paths at all.
     t.equal(Reporter.redactHome("nothing to redact"), "nothing to redact",

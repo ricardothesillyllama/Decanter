@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.6.2 — 2026-08-30
+
+Decanter did things and did not say what happened. The activity list at the
+bottom of the page answered "what has been done", which is a different question
+from "did the thing I just clicked work" — and it was answering the second one
+from six inches away, on whichever game's page you happened to be looking at.
+
+- **A control says what happened, where it was pressed.** Every keyed action now
+  reports back on its own button: a tick and the result for a few seconds, or a
+  warning and the reason, which stays until something else is pressed because it
+  is the thing still needing attention.
+- **Activity belongs to the game it was about.** The list was global, so a
+  problem report collected for one game sat on another game's page presenting
+  itself as that game's history. A game's page now shows its own actions plus
+  what was done to the Mac — repairing a runtime is part of the story of why a
+  game started working — and the Windows Environments and Setup pages show only
+  the Mac's.
+- **The escape hatch is a button.** "This game is not known to run here" named
+  the one setup that could work, in prose, and then left the reader to find it.
+  Where that setup is one Decanter can reach, it is now offered in the card
+  itself; where it is not, the missing piece is named instead. The separate
+  recommendation banner no longer appears alongside it — two cards recommending
+  different things, one of them a setup known to fail, is worse than either.
+- **Test Launch.** `decanter check` has answered "would this start?" since the
+  beginning and the app had no way to ask; the alternative on offer was to press
+  Play and watch for a black window. It resolves the path, applies the drive
+  scopes and asks Wine whether it can see the program — everything a launch does
+  except the launch. The sentence it gives back is written in the shared library
+  and used by both surfaces, so they cannot drift.
+- **The graphics list says what is missing from it.** It showed what a build
+  provides and nothing about what it does not, so "where is Metal graphics?" had
+  no answer in the app — while `decanter bench` had measured one and written it
+  down. The unavailable options are now listed under the picker with the reason,
+  as explanations rather than choices.
+- **A release build reports its version and stops.** The commit stamped beside
+  it could never have been right: install.sh runs from release.sh, before the
+  release commit exists, so the hash it wrote always named the commit *before*
+  the tag — v0.6.0 shipped saying `7f1ffae` while the tag pointed at `bde58b5`.
+  A clean tree now stamps nothing and the version is the whole attribution,
+  which also terminates: the second run over the release commit produces no diff
+  at all. A build from a modified tree still carries its hash, which is the case
+  the hash was for.
+
+
 ## v0.6.1 — 2026-08-30
 
 A release about telling the truth. Everything here is something Decanter

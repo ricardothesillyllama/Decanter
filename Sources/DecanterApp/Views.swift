@@ -282,6 +282,7 @@ struct StrayWineCard: View {
                 Text("This also stops any game you are playing.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            ReactionNote(key: "reap")
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -461,18 +462,47 @@ struct ActionButton: View {
     var body: some View {
         let mine = model.isRunning(key)
         let otherBusy = model.busy != nil && !mine
+        // What happened last time this control was pressed, said here rather
+        // than at the bottom of the page. The activity list answers "what has
+        // been done"; that is a different question from "did the thing I just
+        // clicked work", and it was answering the second one from six inches
+        // away.
+        let result = mine ? nil : model.reaction(key)
         return Button(role: role, action: action) {
             HStack(alignment: .top, spacing: 9) {
                 Group {
-                    if mine { ProgressView().controlSize(.small).scaleEffect(0.7) }
-                    else { Image(systemName: systemImage).imageScale(.medium) }
+                    if mine {
+                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                    } else if let r = result {
+                        Image(systemName: r.succeeded ? "checkmark.circle.fill"
+                                                      : "exclamationmark.triangle.fill")
+                            .imageScale(.medium)
+                            .foregroundStyle(r.succeeded ? Palette.running : Palette.danger)
+                    } else {
+                        Image(systemName: systemImage).imageScale(.medium)
+                    }
                 }
                 .frame(width: 18, height: 18)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(mine ? "\(title)…" : title).font(.callout.weight(.medium))
-                    Text(blurb).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
+                    // The result replaces the blurb rather than sitting under
+                    // it: the blurb says when to reach for this, which is no
+                    // longer the question once it has been reached for.
+                    if let r = result {
+                        let fallback: String = r.succeeded ? "Done." : "It did not work."
+                        let line: String = r.detail ?? fallback
+                        let tint: Color = r.succeeded ? .secondary : Palette.danger
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(tint)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                            .textSelection(.enabled)
+                    } else {
+                        Text(blurb).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -481,13 +511,50 @@ struct ActionButton: View {
         }
         .buttonStyle(.plain)
         .padding(9)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(Color.primary.opacity(mine ? 0.09 : 0.04)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(fill(result, running: mine)))
         .overlay(RoundedRectangle(cornerRadius: 8)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+            .strokeBorder(edge(result), lineWidth: 0.5))
         .opacity(otherBusy ? 0.45 : 1)
         .disabled(model.busy != nil)
         .animation(.easeInOut(duration: 0.15), value: mine)
+        .animation(.easeInOut(duration: 0.2), value: result?.succeeded)
+    }
+
+    private func fill(_ r: AppModel.Reaction?, running: Bool) -> Color {
+        guard let r else { return Color.primary.opacity(running ? 0.09 : 0.04) }
+        return (r.succeeded ? Palette.running : Palette.danger).opacity(0.10)
+    }
+
+    private func edge(_ r: AppModel.Reaction?) -> Color {
+        guard let r else { return Color.primary.opacity(0.08) }
+        return r.succeeded ? Palette.running.opacity(0.35) : Palette.danger.opacity(0.40)
+    }
+}
+
+/// The result of a keyed action, for controls that are not `ActionButton`s.
+///
+/// Same rule as the buttons: what happened belongs beside what was pressed. A
+/// success clears itself after a few seconds; a failure stays until something
+/// else is pressed, because it is the thing still needing attention.
+struct ReactionNote: View {
+    @EnvironmentObject var model: AppModel
+    let key: String
+
+    var body: some View {
+        if let r = model.reaction(key) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: r.succeeded ? "checkmark.circle.fill"
+                                              : "exclamationmark.triangle.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(r.succeeded ? Palette.running : Palette.danger)
+                Text(r.detail ?? (r.succeeded ? "Done." : "It did not work."))
+                    .font(.caption)
+                    .foregroundStyle(r.succeeded ? Color.secondary : Palette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            .transition(.opacity)
+        }
     }
 }
 
@@ -498,10 +565,14 @@ struct ActionButton: View {
 /// so. Entries survive navigation and keep full error text.
 struct ActivityList: View {
     @EnvironmentObject var model: AppModel
+    /// What to show. A game's page passes that game's history plus everything
+    /// done to the Mac; this was global everywhere, so a report collected for
+    /// one game sat on another game's page claiming to be about it.
+    var entries: [AppModel.Activity]? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ForEach(model.activity) { a in
+            ForEach(entries ?? model.activity) { a in
                 HStack(alignment: .top, spacing: 8) {
                     icon(a)
                     VStack(alignment: .leading, spacing: 2) {
@@ -651,8 +722,23 @@ struct ComponentsCard: View {
 /// the app showed it nowhere — so a Unity 6 game looked entirely normal, said
 /// "Ready to play", and simply failed. Telling someone after they have spent an
 /// hour on it is worse than not detecting it at all.
+/// Why a game is not expected to run, and the one thing that could change that.
+///
+/// The prose already named the escape hatch — "only on a Wine build whose Mac
+/// driver exports the Metal view API" — and then left the reader to find it. A
+/// warning that names a fix and does not offer it is a worse failure than one
+/// that knows of none, so when the fix is a setup Decanter can actually reach,
+/// it is a button here. When it is not, the missing piece is named instead.
 struct UnsupportedCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
     let text: String
+
+    private var escape: Engine.Recommendation? {
+        guard let rec = model.recommendation(for: game),
+              rec.provenance == .onlyOption else { return nil }
+        return rec
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -660,10 +746,30 @@ struct UnsupportedCard: View {
                 Image(systemName: "exclamationmark.octagon.fill")
                     .foregroundStyle(Palette.caution)
                 Text("This game is not known to run here").font(.headline)
+                Spacer()
+                if let e = escape {
+                    Button("Switch to \(Help.plainName(e.backend)) Graphics") {
+                        model.applyRecommendation(game)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(model.busy != nil)
+                    .help("The only setup that implements what this game asks for. Nothing is launched.")
+                }
             }
             Markdown(text: text)
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let e = escape {
+                Text("\(Help.plainName(e.backend)) graphics is the one setup that implements what this game needs. Decanter has not seen it succeed here — it is the only thing that can work, not a thing known to.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let missing = model.recommendation(for: game)?.caveats.first {
+                // No button, because there is nothing to press. Naming the
+                // piece that is absent is the only useful thing left to say.
+                Text(missing).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ReactionNote(key: "recommend")
             Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
@@ -694,8 +800,9 @@ struct GameDetail: View {
                 header
 
                 // Problems surface themselves. Everything else waits to be asked.
-                if let blocker = model.blocker(for: game) {
-                    UnsupportedCard(text: blocker)
+                let blocked = model.blocker(for: game)
+                if let blocker = blocked {
+                    UnsupportedCard(game: game, text: blocker)
                 }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
                 if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
@@ -709,7 +816,11 @@ struct GameDetail: View {
                     EnvironmentHealthCard(runtimeID: id, report: health)
                 }
                 if let good = model.restorable(game) { RestoreCard(game: game, good: good) }
-                if !model.isOnRecommended(game) { recommendationBanner }
+                // Not while the blocker card is up: that card now carries the
+                // recommendation itself, and two cards recommending different
+                // things — one of them a setup known to fail — is worse than
+                // either alone.
+                if blocked == nil, !model.isOnRecommended(game) { recommendationBanner }
 
                 DetailSection(title: "Graphics", systemImage: "square.stack.3d.up",
                               subtitle: bottle.map { Help.plainName($0.backend) }) {
@@ -730,9 +841,12 @@ struct GameDetail: View {
                               subtitle: "Add only if a game asks for one") {
                     ComponentsCard(game: game)
                 }
-                if !model.activity.isEmpty {
+                let mine = model.activity(for: game.id)
+                if !mine.isEmpty {
                     DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
-                                  subtitle: model.lastActivity?.detail) { ActivityList() }
+                                  subtitle: mine.first { $0.outcome != .running }?.detail) {
+                        ActivityList(entries: mine)
+                    }
                 }
             }
             .padding(26)
@@ -855,6 +969,30 @@ struct GameDetail: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     InfoButton(text: Help.backendPicker, title: "Graphics explained")
+                }
+
+                // What is missing from the list, and why. The picker showed
+                // only what this build provides and said nothing about the
+                // rest, so "where is Metal graphics?" had no answer in the app
+                // — while `decanter bench` had measured one and written it
+                // down. These are not choices, so they are not rows: they are
+                // the reason a row is not there.
+                let absent = model.unavailableBackends(for: game)
+                if !absent.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Not offered on this Wine build")
+                            .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                        ForEach(absent, id: \.backend) { item in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "minus.circle")
+                                    .imageScale(.small).foregroundStyle(.tertiary)
+                                Text("**\(Help.plainName(item.backend)) graphics** — \(item.reason)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: 460, alignment: .leading)
                 }
 
                 if b.backend == .dxvk && !dxvkReallyPresent {
@@ -1046,6 +1184,7 @@ struct GameDetail: View {
                     Text(Help.oneLiner(rec.backend))
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                ReactionNote(key: onIt ? "remember" : "recommend")
                 // Someone signed for this and wrote a line about what to
                 // expect. Kept apart from Decanter's own reasoning, because it
                 // is a different voice and reads as one.
@@ -1105,6 +1244,9 @@ struct GameDetail: View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ActionButton(title: "Test Launch", systemImage: "checkmark.shield",
+                             key: "check",
+                             blurb: "Check it would start, without starting it.") { model.testLaunch(game) }
                 ActionButton(title: "Import Saves", systemImage: "square.and.arrow.down",
                              key: "import",
                              blurb: "Bring in saves from a backup, or from another copy of the game.") { importing = true }
@@ -1337,6 +1479,7 @@ struct EnvironmentHealthCard: View {
                 Text("Nothing is downloaded — the pieces come from builds already here.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
+            ReactionNote(key: "repair")
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1396,10 +1539,12 @@ struct StorageView: View {
                         .frame(maxWidth: 320)
                 }
 
-                if !model.activity.isEmpty {
+                if !model.globalActivity.isEmpty {
                     DetailSection(title: "Activity", systemImage: "clock.arrow.circlepath",
-                                  subtitle: model.lastActivity?.detail) { ActivityList() }
-                        .frame(maxWidth: 640)
+                                  subtitle: model.globalActivity.first { $0.outcome != .running }?.detail) {
+                        ActivityList(entries: model.globalActivity)
+                    }
+                    .frame(maxWidth: 640)
                 }
             }
             .padding(26)

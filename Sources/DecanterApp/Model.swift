@@ -24,9 +24,47 @@ final class AppModel: ObservableObject {
         var outcome: Outcome = .running
         var detail: String?
         var finished: Date?
+        /// The game this was done to, when it was done to one.
+        ///
+        /// Without it the list was global, so a report collected for one game
+        /// sat on top of another game's page claiming to be about it. What was
+        /// done to this Mac — pinning a runtime, cleaning up, ending stray
+        /// processes — has no game and belongs everywhere.
+        var scope: UUID?
         var duration: TimeInterval { (finished ?? Date()).timeIntervalSince(started) }
     }
     @Published var activity: [Activity] = []
+
+    /// What has been done to one game, and to the Mac. A game's page shows
+    /// both, because "the runtime was repaired" is part of the story of why a
+    /// game started working; another game's page shows neither.
+    func activity(for gameID: UUID) -> [Activity] {
+        activity.filter { $0.scope == nil || $0.scope == gameID }
+    }
+
+    /// What was done to this Mac rather than to any one game.
+    var globalActivity: [Activity] { activity.filter { $0.scope == nil } }
+
+    /// What happened the last time a keyed control was pressed.
+    ///
+    /// The activity list answers "what has been done", which is a different
+    /// question from "did the thing I just clicked work" — and it was answering
+    /// the second one badly, because it lives at the bottom of the page and
+    /// stays there. A reaction belongs on the control that was pressed.
+    struct Reaction: Sendable {
+        var succeeded: Bool
+        var detail: String?
+    }
+    @Published var reactions: [String: Reaction] = [:]
+
+    func reaction(_ key: String) -> Reaction? { reactions[key] }
+
+    /// How long a success stays on its button. Long enough to read, short
+    /// enough that it is plainly about the press that just happened and not a
+    /// permanent change of state. A failure is not cleared on a timer: it is
+    /// the thing the user still has to deal with, and it goes when they press
+    /// something again.
+    private static let reactionLinger: Duration = .seconds(4)
     /// Key of the action currently running, so its own button can show a
     /// spinner instead of the whole pane going quietly disabled.
     @Published var activeAction: String?
@@ -85,6 +123,11 @@ final class AppModel: ObservableObject {
             // underneath still hold together. Both are cheap to ask for and
             // both are things somebody would want to see without going looking.
             pendingVerdict = Verdict(paths: e.paths).pending()
+            // Reading a small JSON file. Nothing is measured here — `bench` is
+            // the command that measures, and it starts every Wine build to do
+            // it.
+            benchRows = Dictionary(uniqueKeysWithValues:
+                Bench(paths: e.paths).load().rows.map { ($0.runtimeID, $0) })
             if runtimeSoundness.isEmpty { refreshSoundness() }
         } catch {
             lastError = error.localizedDescription
@@ -95,12 +138,16 @@ final class AppModel: ObservableObject {
 
     /// One entry point for every long operation, so the UI can never get out
     /// of sync with the engine and errors always surface in the same place.
-    private func perform(_ label: String, key: String? = nil,
+    private func perform(_ label: String, key: String? = nil, scope: UUID? = nil,
                          _ work: @escaping @Sendable (Engine) throws -> String?,
                          then: (@MainActor () -> Void)? = nil) {
         guard let e = engine else { return }
         busy = label; lastError = nil; activeAction = key
-        let entry = Activity(label: label)
+        // Pressing something clears what the last press said. Two results on
+        // screen at once, one of them stale, is how a user ends up acting on
+        // the wrong one.
+        if let key { reactions[key] = nil }
+        let entry = Activity(label: label, scope: scope)
         activity.insert(entry, at: 0)
         if activity.count > 50 { activity.removeLast(activity.count - 50) }
         Task.detached(priority: .userInitiated) {
@@ -116,6 +163,23 @@ final class AppModel: ObservableObject {
                 }
                 self.lastError = failure
                 self.busy = nil; self.activeAction = nil
+                if let key {
+                    self.reactions[key] = Reaction(succeeded: failure == nil,
+                                                   detail: failure ?? summary)
+                    if failure == nil {
+                        // Only the success fades. Cleared by identity so a
+                        // second press during the wait does not have its own
+                        // result wiped by the first one's timer.
+                        let stamp = self.reactions[key]
+                        Task { @MainActor in
+                            try? await Task.sleep(for: Self.reactionLinger)
+                            if self.reactions[key]?.detail == stamp?.detail,
+                               self.reactions[key]?.succeeded == true {
+                                self.reactions[key] = nil
+                            }
+                        }
+                    }
+                }
                 self.reload(); self.refreshSaves(); then?()
             }
         }
@@ -269,21 +333,21 @@ final class AppModel: ObservableObject {
     }
 
     func rederive(_ game: Game) {
-        perform("Rebuilding \(game.name)'s Windows environment…", key: "rebuild") { e in
+        perform("Rebuilding \(game.name)'s Windows environment…", key: "rebuild", scope: game.id) { e in
             let b = try e.rederive(game)
             return "Windows environment rebuilt from the \(b.runtimeID) template; saves kept"
         }
     }
 
     func importSaves(_ game: Game, from url: URL) {
-        perform("Importing saves into \(game.name)…", key: "import") { e in
+        perform("Importing saves into \(game.name)…", key: "import", scope: game.id) { e in
             let r = try e.importSaves(into: game, from: url)
             return "Imported \(plural(r.filesCopied, "save file"))"
         }
     }
 
     func setBackend(_ game: Game, _ backend: GraphicsBackend) {
-        perform("Switching \(game.name) to \(Help.plainName(backend)) graphics…", key: "backend") { e in
+        perform("Switching \(game.name) to \(Help.plainName(backend)) graphics…", key: "backend", scope: game.id) { e in
             // Through the engine, not by setting the field: DXVK and DXMT are
             // real DLLs in the prefix and swapping between them needs an
             // install, not a relabel.
@@ -293,7 +357,7 @@ final class AppModel: ObservableObject {
     }
 
     func setRuntime(_ game: Game, _ runtimeID: String) {
-        perform("Switching \(game.name)'s engine…", key: "runtime") { e in
+        perform("Switching \(game.name)'s engine…", key: "runtime", scope: game.id) { e in
             _ = try e.setRuntime(game, to: runtimeID)
             return "Engine is now \(runtimeID)"
         }
@@ -411,8 +475,37 @@ final class AppModel: ObservableObject {
     /// The setup this game last worked on, when it is on something else now.
     func restorable(_ game: Game) -> Game.KnownGood? { engine?.restorable(game) }
 
+    /// Whether the game would start, without starting it.
+    ///
+    /// `decanter check` has answered this since the beginning and the app had
+    /// no way to ask. The alternative on offer was to press Play and watch:
+    /// a black window, or nothing at all, and then a hunt through a log. This
+    /// resolves the DOS path, applies the drive scopes and asks Wine itself
+    /// whether it can see the executable — everything a launch does except the
+    /// launch.
+    func testLaunch(_ game: Game) {
+        perform("Checking whether \(game.name) would start…", key: "check", scope: game.id) { e in
+            try e.preflight(game).plainSummary
+        }
+    }
+
+    /// What this game's runtime cannot provide, and why, measured rather than
+    /// assumed.
+    ///
+    /// The picker lists what is available and says nothing about what is not,
+    /// so "where is Metal graphics?" had no answer anywhere in the app —
+    /// `decanter bench` held one the whole time. Read from the stored table
+    /// only: measuring starts each Wine build in turn, which is not something
+    /// to do because a section was opened.
+    func unavailableBackends(for game: Game) -> [(backend: GraphicsBackend, reason: String)] {
+        guard let b = bottle(for: game), let row = benchRows[b.runtimeID] else { return [] }
+        return row.unavailable
+    }
+
+    @Published var benchRows: [String: Bench.RuntimeRow] = [:]
+
     func restoreKnownGood(_ game: Game) {
-        perform("Putting \(game.name) back on what worked…", key: "restore") { e in
+        perform("Putting \(game.name) back on what worked…", key: "restore", scope: game.id) { e in
             let good = try e.restoreKnownGood(game)
             return "Back on \(good.label)"
         }
@@ -441,7 +534,7 @@ final class AppModel: ObservableObject {
     }
 
     func applyRecommendation(_ game: Game) {
-        perform("Applying the recommended setup for \(game.name)…", key: "recommend") { e in
+        perform("Applying the recommended setup for \(game.name)…", key: "recommend", scope: game.id) { e in
             let r = try e.applyRecommendation(game)
             return "Now using \(Help.plainName(r.backend)) graphics"
         }
@@ -508,7 +601,7 @@ final class AppModel: ObservableObject {
         // The old list stays on screen until the new one lands. Clearing it up
         // front made the picker disappear for good: nothing re-scanned, and
         // .task only fires when the view first appears.
-        perform("Switching \(game.name) to \(url.lastPathComponent)…", key: "setexe") { e in
+        perform("Switching \(game.name) to \(url.lastPathComponent)…", key: "setexe", scope: game.id) { e in
             _ = try e.setExecutable(game, to: url)
             return "Launches \(url.lastPathComponent) from now on"
         } then: { [weak self] in
@@ -527,14 +620,14 @@ final class AppModel: ObservableObject {
     }
 
     func redetect(_ game: Game) {
-        perform("Re-inspecting \(game.name)…", key: "redetect") { e in
+        perform("Re-inspecting \(game.name)…", key: "redetect", scope: game.id) { e in
             let d = try e.redetect(game)
             return "\(d.engine.label), \(d.bitness.label)\(d.modded ? ", modded" : "")"
         }
     }
 
     func markWorking(_ game: Game) {
-        perform("Remembering this setup…", key: "remember") { e in
+        perform("Remembering this setup…", key: "remember", scope: game.id) { e in
             try e.rememberWorking(game)
             return "Recorded as working for games with this profile"
         }
@@ -543,7 +636,7 @@ final class AppModel: ObservableObject {
     /// Builds the pasteable bundle and puts it on the clipboard, because the
     /// whole point is having something to hand over.
     func makeReport(_ game: Game) {
-        perform("Collecting diagnostics…", key: "report") { e in
+        perform("Collecting diagnostics…", key: "report", scope: game.id) { e in
             let rep = try e.report(game)
             let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
             Task { @MainActor in
@@ -600,7 +693,7 @@ final class AppModel: ObservableObject {
     }
 
     func snapshotSaves(_ game: Game) {
-        perform("Snapshotting \(game.name)…", key: "snapshot") { e in
+        perform("Snapshotting \(game.name)…", key: "snapshot", scope: game.id) { e in
             _ = try e.snapshotSaves(game, note: "manual")
             return "Snapshot taken"
         }
@@ -615,7 +708,7 @@ final class AppModel: ObservableObject {
     }
 
     func externaliseSaves(_ game: Game) {
-        perform("Protecting \(game.name)'s saves…", key: "externalise") { e in
+        perform("Protecting \(game.name)'s saves…", key: "externalise", scope: game.id) { e in
             let r = try e.externaliseSaves(game)
             return r.moved.isEmpty
                 ? "Already protected — \(plural(r.alreadyLinked.count, "folder")) kept outside"
@@ -632,14 +725,14 @@ final class AppModel: ObservableObject {
     }
 
     func restoreSnapshot(_ game: Game, _ name: String) {
-        perform("Restoring \(game.name)…", key: "restore") { e in
+        perform("Restoring \(game.name)…", key: "restore", scope: game.id) { e in
             let n = try e.restoreSaves(game, snapshot: name)
             return "Restored \(plural(n, "file")) from \(name)"
         }
     }
 
     func remove(_ game: Game, keepSaves: Bool) {
-        perform("Removing \(game.name)…", key: "remove") { e in
+        perform("Removing \(game.name)…", key: "remove", scope: game.id) { e in
             _ = try e.remove(game, keepSaves: keepSaves)
             return keepSaves ? "Removed; saves kept" : "Removed, saves deleted"
         }
@@ -679,7 +772,7 @@ final class AppModel: ObservableObject {
     /// plainly in the UI rather than buried, because the whole project
     /// otherwise downloads nothing.
     func installComponents(_ game: Game, _ verbs: [String], label: String) {
-        perform("Installing \(label)…", key: "components") { e in
+        perform("Installing \(label)…", key: "components", scope: game.id) { e in
             let tool = e.recipes.tooling()
             guard tool.missing.isEmpty else {
                 throw DecanterError.notFound("missing helper(s): \(tool.missing.joined(separator: ", "))")
@@ -700,7 +793,7 @@ final class AppModel: ObservableObject {
     /// clipboard. Telling someone to "open an issue" without saying where is
     /// how bug reports do not get written.
     func reportProblem(_ game: Game) {
-        perform("Preparing a problem report…", key: "reportIssue") { e in
+        perform("Preparing a problem report…", key: "reportIssue", scope: game.id) { e in
             let rep = try e.report(game)
             let text = (try? String(contentsOf: rep, encoding: .utf8)) ?? ""
             Task { @MainActor in
@@ -715,7 +808,7 @@ final class AppModel: ObservableObject {
     }
 
     func stop(_ game: Game) {
-        perform("Stopping \(game.name)…", key: "stop") { e in
+        perform("Stopping \(game.name)…", key: "stop", scope: game.id) { e in
             let n = try e.stop(game)
             return n == 0 ? "Nothing left running" : "Ended \(plural(n, "process", "processes"))"
         } then: { [weak self] in
@@ -729,7 +822,7 @@ final class AppModel: ObservableObject {
     /// absent, because the game had never been run — nothing appeared, so the
     /// button looked broken. Saying "nothing to report" is a result too.
     func diagnose(_ game: Game) {
-        perform("Reading the last run's log…", key: "diagnose") { e in
+        perform("Reading the last run's log…", key: "diagnose", scope: game.id) { e in
             let log = e.paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
             let exists = FileManager.default.fileExists(atPath: log.path)
             let rep = Diagnostics().analyse(logAt: log)

@@ -11,8 +11,27 @@ cd "$(dirname "$0")"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 APP=.build/Decanter.app
 
-# Stamp the commit so a problem report from a source build is attributable.
-COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+# Stamp the commit so a problem report from a source build is attributable —
+# but only when there is something to attribute that the version does not
+# already say.
+#
+# Stamping a hash into a release could never be right. install.sh runs from
+# release.sh, before the release commit exists, so the hash it wrote always
+# named the commit *before* the tag: v0.6.0 shipped reporting 7f1ffae while the
+# tag pointed at bde58b5. Writing it afterwards is not possible either, because
+# writing it changes the commit it would have to name.
+#
+# A clean tree stamps nothing, and that terminates: the second run over the
+# release commit produces the same empty stamp and so no diff at all. A clean
+# tree is also a tree whose contents are public, and the version identifies it.
+# A dirty one is the case the hash was for, and it still gets one.
+if [ -n "$(git status --porcelain 2>/dev/null | grep -v 'Sources/DecanterKit/Model.swift')" ]; then
+  COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
+elif git rev-parse HEAD >/dev/null 2>&1; then
+  COMMIT=""
+else
+  COMMIT="dev"
+fi
 /usr/bin/sed -i '' -E "s/public static let version = \".*\"/public static let version = \"$VERSION\"/; s/public static let commit = \".*\"/public static let commit = \"$COMMIT\"/" Sources/DecanterKit/Model.swift
 
 echo "building Decanter $VERSION (release)"

@@ -51,14 +51,14 @@ struct SetupView: View {
                         HStack(alignment: .top, spacing: 18) {
                             VStack(alignment: .leading, spacing: 18) {
                                 if let r = model.readiness { piecesCard(r) }
-                                ActivityList()
+                                ActivityList(entries: model.globalActivity)
                             }
                             aside.frame(width: 268)
                         }
                     } else {
                         if let r = model.readiness { piecesCard(r) }
                         aside
-                        ActivityList()
+                        ActivityList(entries: model.globalActivity)
                     }
                 }
                 .padding(22)

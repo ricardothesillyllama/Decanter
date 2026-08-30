@@ -938,7 +938,10 @@ case "check":
     let (e, g) = requireGame(rest.first)
     do {
         let r = try e.preflight(g)
-        out("preflight: \(g.name)")
+        // The plain answer first, then the working. Same sentence the app
+        // shows, from the same place, so the two cannot drift.
+        out("\(g.name): \(r.plainSummary)")
+        out("")
         out("  runtime:  \(r.runtimeID)   backend: \(r.backend)")
         out("  dos path: \(r.winPath)")
         out("  drives:   \(r.scopesApplied.joined(separator: " "))")
@@ -948,7 +951,7 @@ case "check":
                                       : "  \u{2713} whole-filesystem access is blocked")
         out("  graphics: \(r.effectiveD3D)")
         for p in r.problems { warn(p) }
-        if r.ok { ok("ready to run") } else { warn("preflight found problems") }
+        if !r.ok { warn("this would not go well \u{2014} see above") }
     } catch { die(error) }
 
 case "report":
