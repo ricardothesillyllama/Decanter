@@ -229,6 +229,52 @@ public enum Endorsement {
         try key.signature(for: canonical(o)).base64EncodedString()
     }
 
+    // MARK: - Signing things that are not observations
+
+    /// Signs arbitrary bytes with the maintainer's key.
+    ///
+    /// Added for runtime packs, and deliberately kept as a separate pair of
+    /// calls rather than by widening `canonical`. One key that signs two kinds
+    /// of document must keep them apart, or a signature made over one can be
+    /// presented as a signature over the other; the caller supplies bytes that
+    /// already carry a domain prefix of its own (see `Pack.signedForm`), and
+    /// the observation form is left untouched so that every endorsement
+    /// already published stays valid.
+    public static func sign(bytes: Data) throws -> String {
+        try loadPrivateKey().signature(for: bytes).base64EncodedString()
+    }
+
+    /// Signs against a named key rather than this Mac's, so the suite can prove
+    /// the mechanism — including that a signature over one kind of document
+    /// cannot be replayed as a signature over the other — without a real secret
+    /// needing to exist.
+    public static func sign(bytes: Data, privateKeyBase64: String) throws -> String {
+        guard let raw = Data(base64Encoded: privateKeyBase64),
+              let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: raw) else {
+            throw KeyError.badKey("the key given")
+        }
+        return try key.signature(for: bytes).base64EncodedString()
+    }
+
+    /// The counterpart. False rather than throwing for every ordinary failure,
+    /// for the same reason `isVerified` is: an unsigned artifact is not a
+    /// broken one.
+    public static func isSignatureValid(_ signature: String, over bytes: Data) -> Bool {
+        guard !signature.isEmpty, let sig = Data(base64Encoded: signature),
+              let key = try? loadPublicKey() else { return false }
+        return key.isValidSignature(sig, for: bytes)
+    }
+
+    /// Checks against a named key rather than this build's, so the suite can
+    /// prove the mechanism without a real secret existing.
+    public static func isSignatureValid(_ signature: String, over bytes: Data,
+                                        publicKeyBase64: String) -> Bool {
+        guard !signature.isEmpty, let sig = Data(base64Encoded: signature),
+              let raw = Data(base64Encoded: publicKeyBase64),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: raw) else { return false }
+        return key.isValidSignature(sig, for: bytes)
+    }
+
     /// Whether a row's signature is genuinely this build's maintainer's.
     ///
     /// Returns false rather than throwing for every ordinary failure — no key

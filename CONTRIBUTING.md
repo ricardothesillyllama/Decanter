@@ -44,6 +44,7 @@ broke:
     swift run selftest bench               # what a build can provide, and what it is missing
     swift run selftest repair              # filling a build's gaps without breaking it differently
     swift run selftest endorse             # signing knowledge, and what a tier is allowed to do
+    swift run selftest pack                # a runtime pack: what it claims, and what the claim is worth
     swift run selftest verdict             # asking only what could not be seen, and going back
     swift run selftest reload              # adopting another process's writes, and what a shell is told
     swift run selftest kb                  # the knowledge base: matching ladder, seeds, export

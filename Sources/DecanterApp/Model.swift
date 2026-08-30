@@ -259,6 +259,67 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What Decanter can see in the Downloads folder, and what the user chose
+    /// to take from it.
+    ///
+    /// Kept separate from `accept(path:)` on purpose. Dropping a folder means
+    /// "use what is in here"; Downloads is not a folder anyone assembled, and
+    /// a button that pinned whatever Wine build happens to be sitting in it
+    /// would be doing something nobody asked for. So this looks, shows what it
+    /// found, and waits.
+    ///
+    /// It also decides when the system's folder-access prompt appears. macOS
+    /// asks the first time Decanter reads Downloads; asking because the app
+    /// went looking on its own reads as overreach, and asking one beat after
+    /// someone pressed "Look in Downloads" reads as the thing they asked for.
+    @Published var downloadFindings: [Engine.Finding] = []
+    @Published var chosenDownloads: Set<String> = []
+    /// Distinguishes "not looked yet" from "looked and found nothing", which
+    /// are different sentences.
+    @Published var lookedInDownloads = false
+
+    var downloadsFolder: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads")
+    }
+
+    /// Deliberately not routed through `perform`.
+    ///
+    /// `perform` exists for work that takes seconds: it sets `busy`, opens an
+    /// activity entry, and writes the reaction when the detached task finishes.
+    /// Looking in Downloads classifies each immediate child by name and by one
+    /// `stat` — measured at 0.2 seconds on a real Downloads folder, opening no
+    /// archive — so all of that machinery buys nothing, and the first version
+    /// of this had it both ways: it called `perform` for the spinner and then
+    /// set the reaction itself, so `perform`'s own completion overwrote the
+    /// sentence saying what had been found.
+    func lookInDownloads() {
+        guard let e = engine else { return }
+        let found = e.look(in: downloadsFolder)
+        downloadFindings = found
+        chosenDownloads = Set(found.map(\.id))
+        lookedInDownloads = true
+        var entry = Activity(label: "Looked in Downloads")
+        entry.outcome = .succeeded
+        entry.finished = Date()
+        entry.detail = found.isEmpty
+            ? "Nothing there is something Decanter can use."
+            : "Found \(found.count) thing\(found.count == 1 ? "" : "s"). Nothing has been installed."
+        activity.insert(entry, at: 0)
+        reactions["look"] = Reaction(succeeded: true, detail: entry.detail)
+    }
+
+    func acceptChosenDownloads() {
+        let chosen = downloadFindings.filter { chosenDownloads.contains($0.id) }
+        guard !chosen.isEmpty else { return }
+        perform("Taking in \(chosen.count) item\(chosen.count == 1 ? "" : "s")…", key: "acceptChosen") { e in
+            try e.accept(chosen)
+        } then: { [weak self] in
+            self?.downloadFindings = []
+            self?.chosenDownloads = []
+            self?.lookedInDownloads = false
+        }
+    }
+
     func chooseSetupFile() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true

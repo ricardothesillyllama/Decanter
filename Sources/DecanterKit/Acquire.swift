@@ -19,6 +19,14 @@ public struct Acquisition {
     /// called — because the names differ between every source people get
     /// these from.
     public enum Piece: Sendable, Equatable {
+        /// A directory holding a `pack.json`. Checked before anything else,
+        /// because a pack directory also contains archives that would each
+        /// classify on their own — and taking them one at a time would install
+        /// the same bytes without ever checking them against the manifest.
+        case pack(URL)
+        /// An archive that unpacks to one. Named rather than sniffed: deciding
+        /// properly means unpacking a gigabyte, and this runs as the user drags.
+        case packArchive(URL)
         case wineRoot(URL)
         case diskImage(URL)
         /// An archive that is named like a Wine build. Whether it really is
@@ -31,6 +39,8 @@ public struct Acquisition {
 
         public var summary: String {
             switch self {
+            case .pack(let u): "the runtime pack \(u.lastPathComponent)"
+            case .packArchive(let u): "the runtime pack \(u.lastPathComponent)"
             case .wineRoot(let u): "a Wine build at \(u.lastPathComponent)"
             case .diskImage(let u): "the disk image \(u.lastPathComponent)"
             case .wineArchive(let u): "the Wine archive \(u.lastPathComponent)"
@@ -115,8 +125,21 @@ public struct Acquisition {
     /// `wineSearchDepth` is lowered when scanning the contents of a dropped
     /// folder: three levels per child is fine for one deliberate drop and is a
     /// visible pause across every item in a Downloads folder.
+    /// A pack is recognised by its manifest, not its name. The name is a
+    /// convenience for the archive, which cannot be looked inside cheaply.
+    public func isPack(_ u: URL) -> Bool {
+        fm.fileExists(atPath: u.appending(path: Pack.manifestName).path)
+    }
+
+    public func looksLikePackArchive(_ u: URL) -> Bool {
+        let n = u.lastPathComponent.lowercased()
+        return n.contains("decanter-pack") && Self.archiveSuffixes.contains { n.hasSuffix($0) }
+    }
+
     public func classify(_ url: URL, wineSearchDepth: Int = 3) -> Piece {
         let n = url.lastPathComponent.lowercased()
+        if looksLikePackArchive(url) { return .packArchive(canonical(url)) }
+        if isPack(url) { return .pack(canonical(url)) }
         if n.hasSuffix(".dmg") { return .diskImage(canonical(url)) }
         if looksLikeDXVK(url) { return .dxvkArchive(canonical(url)) }
         if looksLikeDXMT(url) { return .dxmtArchive(canonical(url)) }
@@ -161,10 +184,14 @@ public struct Acquisition {
     static func inDependencyOrder(_ pieces: [Piece]) -> [Piece] {
         func rank(_ p: Piece) -> Int {
             switch p {
-            case .wineRoot, .diskImage, .wineArchive: 0
-            case .dxvkArchive: 1
-            case .dxmtArchive: 2
-            case .unrecognised: 3
+            // A pack installs a runtime and its graphics layers together and
+            // in the right order internally, so it goes before the loose
+            // pieces it may duplicate.
+            case .pack, .packArchive: 0
+            case .wineRoot, .diskImage, .wineArchive: 1
+            case .dxvkArchive: 2
+            case .dxmtArchive: 3
+            case .unrecognised: 4
             }
         }
         // Sorting in Swift is not stable, and two archives of the same kind
@@ -260,6 +287,54 @@ public struct Acquisition {
         return try body(root)
     }
 
+    /// Finds the pack directory inside an unpacked archive. Two levels,
+    /// because the only layouts that occur are "the manifest is at the top"
+    /// and "the manifest is one directory down", and searching further would
+    /// mean a folder full of unrelated things could be read as a pack.
+    public func findPackRoot(under u: URL, depth: Int = 2) -> URL? {
+        if isPack(u) { return canonical(u) }
+        guard depth > 0 else { return nil }
+        let kids = (try? fm.contentsOfDirectory(at: u, includingPropertiesForKeys: [.isDirectoryKey],
+                                                options: [.skipsHiddenFiles])) ?? []
+        for kid in kids.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard (try? kid.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            if let found = findPackRoot(under: kid, depth: depth - 1) { return found }
+        }
+        return nil
+    }
+
+    /// Unpacks a pack archive into scratch space and hands the pack directory
+    /// to `body`, clearing up however the call ends.
+    ///
+    /// The scratch copy is deliberate and is not a cost worth optimising away:
+    /// the manifest's checksums are checked against the files as unpacked, so
+    /// a pack is verified in the same state it will be installed from, not in
+    /// a compressed form that a later step re-derives.
+    public func withPack<T>(inArchive archive: URL, _ body: (URL) throws -> T) throws -> T {
+        if let size = DiskSpace.sizeOfFile(at: archive) {
+            try DiskSpace.require(DiskSpace.unpackEstimate(forArchiveOf: size), at: paths.root,
+                                  toDo: "Unpacking \(archive.lastPathComponent)")
+        }
+        let tmp = paths.root.appending(path: "tmp-pack")
+        try? fm.removeItem(at: tmp)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let name = archive.lastPathComponent.lowercased()
+        let r: (code: Int32, out: String, err: String)
+        if name.hasSuffix(".zip") {
+            r = try Shell.run(URL(filePath: "/usr/bin/unzip"), ["-q", archive.path, "-d", tmp.path], timeout: 900)
+        } else {
+            r = try Shell.run(URL(filePath: "/usr/bin/tar"), ["xf", archive.path, "-C", tmp.path], timeout: 900)
+        }
+        guard r.code == 0 else { throw DecanterError.cloneFailed("unpack: \(r.err)") }
+        guard let root = findPackRoot(under: tmp) else {
+            throw DecanterError.notFound(
+                "\(archive.lastPathComponent) unpacked, but there is no \(Pack.manifestName) inside it")
+        }
+        return try body(root)
+    }
+
     public func withWineRoot<T>(inDiskImage dmg: URL, _ body: (URL) throws -> T) throws -> T {
         // The tree inside is copied out onto this volume, and a disk image is
         // the one source that is always a different filesystem — so the copy
@@ -301,11 +376,75 @@ public extension Engine {
              + (failed.isEmpty ? "" : "\n\nNot taken: " + failed.joined(separator: "; "))
     }
 
+    /// What Decanter can see in a folder, without taking any of it in.
+    ///
+    /// Two steps rather than one, and the split is the whole point. `accept`
+    /// on a folder installs everything it recognises, which is right when
+    /// someone has deliberately dragged that folder onto the window. It is
+    /// wrong for the Downloads folder, which is not a folder anyone assembled
+    /// — it is where six months of unrelated files have landed, and a button
+    /// that silently pins whatever Wine build is in there is a button that
+    /// does something nobody asked for.
+    ///
+    /// It also puts the system's folder-access prompt in the right place. macOS
+    /// asks the first time an app reads Downloads, and a dialog that appears
+    /// because the app decided to go looking reads as an app overreaching. One
+    /// that appears immediately after a person pressed "Look in Downloads"
+    /// reads as the thing they just asked for.
+    struct Finding: Sendable, Identifiable, Equatable {
+        public var url: URL
+        public var piece: Acquisition.Piece
+        public var id: String { url.pathKey }
+        /// The sentence shown beside the checkbox.
+        public var summary: String { piece.summary }
+    }
+
+    func look(in folder: URL) -> [Finding] {
+        let acq = Acquisition(paths: paths)
+        var out: [Finding] = []
+        for piece in acq.classifyAll(folder) {
+            switch piece {
+            case .pack(let u), .packArchive(let u), .wineRoot(let u), .diskImage(let u),
+                 .wineArchive(let u), .dxvkArchive(let u), .dxmtArchive(let u):
+                out.append(Finding(url: u, piece: piece))
+            case .unrecognised:
+                continue
+            }
+        }
+        return out
+    }
+
+    /// Takes in exactly what was chosen, and nothing else.
+    @discardableResult
+    func accept(_ findings: [Finding], progress: (String) -> Void = { _ in }) throws -> String {
+        guard !findings.isEmpty else { throw DecanterError.notFound("nothing was chosen") }
+        let acq = Acquisition(paths: paths)
+        var done: [String] = []
+        var failed: [String] = []
+        for f in Acquisition.inDependencyOrder(findings.map(\.piece)) {
+            do { done.append(try apply(f, acq: acq, progress: progress)) }
+            catch { failed.append(error.localizedDescription) }
+        }
+        guard !done.isEmpty else { throw DecanterError.notFound(failed.joined(separator: "; ")) }
+        return done.joined(separator: "\n")
+             + (failed.isEmpty ? "" : "\n\nNot taken: " + failed.joined(separator: "; "))
+    }
+
     /// One piece, taken in. Split out of `accept` so a folder holding three of
     /// them runs the same code three times rather than a second implementation.
     private func apply(_ piece: Acquisition.Piece, acq: Acquisition,
                        progress: (String) -> Void) throws -> String {
         switch piece {
+        case .packArchive(let archive):
+            progress("opening \(archive.lastPathComponent)")
+            let acqLocal = acq
+            return try acq.withPack(inArchive: archive) { root in
+                try installPack(at: root, acq: acqLocal, progress: progress)
+            }
+
+        case .pack(let root):
+            return try installPack(at: root, acq: acq, progress: progress)
+
         case .wineRoot(let root):
             let c = try runtimes.inspect(wineRoot: root)
             progress("found \(c.kind.rawValue) \(c.version)")
@@ -351,6 +490,54 @@ public extension Engine {
         case .unrecognised(let why):
             throw DecanterError.notFound(why)
         }
+    }
+
+    /// Verifies a pack and then installs every component in it.
+    ///
+    /// Verification is not optional and there is no flag to skip it. A pack is
+    /// the one thing Decanter takes in that came off the internet as a single
+    /// unit and claims to be complete, and the claim is worth exactly as much
+    /// as the check — an unverified pack is three loose downloads with extra
+    /// steps. So the whole thing is hashed before a single component is
+    /// touched, and a pack that fails installs nothing at all rather than
+    /// leaving a half-installed runtime behind.
+    private func installPack(at root: URL, acq: Acquisition,
+                             progress: (String) -> Void) throws -> String {
+        let located = try Pack.read(at: root)
+        progress("checking \(located.manifest.name)")
+        let v = Pack.verify(located, progress: progress)
+        guard v.isSound else {
+            throw DecanterError.notFound(v.summary + "\n" + v.problems.joined(separator: "\n"))
+        }
+
+        // Components are applied in the pack's own dependency order rather than
+        // the order they are listed in: staging DXMT reports whether anything
+        // here can host it, and that answer is wrong if the Wine build in the
+        // same pack has not been pinned yet.
+        let ordered = located.manifest.components.sorted {
+            Pack.installRank($0.piece) < Pack.installRank($1.piece)
+        }
+        var done: [String] = []
+        for c in ordered {
+            let file = root.appending(path: c.file)
+            switch c.piece {
+            case .wine:
+                progress("unpacking \(c.file)")
+                let line = try acq.withWineRoot(inArchive: file) { wineRoot in
+                    let cand = try runtimes.inspect(wineRoot: wineRoot)
+                    let spec = try runtimes.pin(cand, store: store)
+                    return Self.friendly(spec)
+                }
+                done.append(line)
+            case .dxvk:
+                let version = try DXVKInstaller(paths: paths).stage(tarball: file, progress: progress)
+                done.append("Vulkan graphics (DXVK \(version))")
+            case .dxmt:
+                let version = try DXMTInstaller(paths: paths).stage(archive: file, progress: progress)
+                done.append("Metal graphics (DXMT \(version))")
+            }
+        }
+        return v.summary + "\nInstalled: " + done.joined(separator: ", ") + "."
     }
 
     /// Plain name first, real name in brackets. Used anywhere a runtime is

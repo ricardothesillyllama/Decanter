@@ -1,5 +1,75 @@
 # Changelog
 
+## v0.7.0 — 2026-08-30
+
+Setup's remaining honesty problem, and the machinery to fix it.
+
+Decanter fetches nothing, which is the whole argument: Whisky's installed copies
+died when the runtime it downloaded was deleted upstream. But that guarantee was
+being paid for by the user, who was sent to three strangers' releases pages to
+collect a Wine build, a DXVK tarball and a DXMT archive, and had to know which of
+the files on each page was the right one. That is the same dependency Whisky had,
+moved onto a person.
+
+- **Runtime packs.** One file holding what a first run needs, assembled once and
+  published, with a manifest naming every component, its version, its licence,
+  its upstream and its SHA-256. Decanter still fetches nothing — the browser
+  downloads it and Decanter reads it off the disk, exactly as it reads a dropped
+  Wine build. What is new is that there is one file instead of three, and that
+  Decanter can say whether the copy that arrived is the copy that was published.
+  A pack is verified in full before a single component is touched, and one that
+  fails installs nothing at all rather than leaving half a runtime behind.
+  Installing one is `decanter use`, like everything else: there is no second verb,
+  because a second verb is a second place for "what did it just do with my file"
+  to be answered differently.
+- **A manifest is treated as a stranger's document.** Every field decodes by
+  hand, a component whose file name is a path rather than a leaf is refused
+  outright, a pack claiming a newer format is refused rather than half-read, and
+  a component of an unknown kind stops the read instead of being skipped over.
+- **Packs can be signed, with the key that already exists.** The endorsement key
+  signs the manifest, and the manifest covers every component by hash, so one
+  signature stands for the whole pack and cannot be forgotten after a component
+  changes. The signed bytes carry a domain of their own: one key that signs two
+  kinds of document without separating them is a key whose signature over one
+  can be presented as a signature over the other. Endorsements are untouched, so
+  every signature already published stays valid.
+- **The assembler audits what it is about to publish.** The sixth rule of this
+  project is that once Decanter hands someone a runtime, a missing library inside
+  it is Decanter's defect and not upstream's — and that rule means nothing unless
+  the thing assembling the pack checks. The Wine build is unpacked and audited
+  before it goes in, and a hard gap stops the build with the count in the message.
+  `--allow-incomplete-wine` overrides it, and has to be typed.
+- **A pack carries upstream archives, byte for byte, never a tree re-packed from
+  this Mac.** The first sketch tarred up the pinned runtimes, and it was wrong in
+  a way that only became visible when the licences file was written. A re-packed
+  tree matches no hash anyone upstream publishes, so "is this really DXVK 2.7"
+  has no answer. It can also quietly contain repairs: `repair` borrows missing
+  libraries from any pinned build, and on the machine this was written on, the
+  one runtime that can host DXMT is complete only because seven files were copied
+  out of Apple's Game Porting Toolkit — legitimate there, not ours to hand on,
+  and invisible once copied. And "unmodified binaries from the projects below"
+  would then be a false statement in a licences file, which is the one thing a
+  licences file may not be.
+- **Redistribution has a check with teeth.** `Pack.redistributionBlockers` reads
+  the record `repair` leaves inside a build it changed and names, in a sentence,
+  what may not be published and why. It counts files rather than listing them,
+  and it survives the donor being removed from the library — the record outlives
+  the runtime it came from.
+- **"Look in Downloads."** The instruction on the setup page is to drag a file
+  onto the window, and that is the part of setup that goes wrong: the file is in
+  Downloads, the window is behind the browser, and the thing being dragged is a
+  `.tar.xz` the browser may have half-unpacked into a folder beside it. Decanter
+  can now look, list what it recognises with each item switched on, and wait.
+  Looking is separate from taking on purpose — Downloads is not a folder anyone
+  curated, and a button that pinned whatever Wine build happened to be sitting
+  in it would be doing something nobody asked for. It is also where the system's
+  folder-access prompt belongs: one beat after a deliberate press, rather than at
+  launch because the app went looking. `decanter use --look <folder>` at the
+  prompt.
+- **`decanter pack check <path>`** reads a pack, says what is inside it, hashes
+  every component, reports whether the manifest carries a signature Decanter
+  recognises, and exits 1 if anything is wrong.
+
 ## v0.6.6 — 2026-08-30
 
 The rest of 0.6.x: the settings that only ever existed at the prompt, behind one

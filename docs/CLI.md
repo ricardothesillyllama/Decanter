@@ -22,6 +22,8 @@ does — plus a few diagnostics that only exist here.
 | `decanter endorse list` | Endorsed rows, and whether each signature still checks out |
 | `decanter endorse revoke <game>` | Take an endorsement back. What was seen here stays recorded; the vouching and its note do not |
 | `decanter endorse keygen` | Make an endorsement key pair. The private half never leaves this Mac |
+| `decanter pack check <path>` | Read a runtime pack: what is inside it, whether every file matches its checksum, and whether the manifest carries a signature Decanter recognises. Exits 1 if anything is wrong |
+| `decanter pack build --out <dir> --wine <archive> [--dxvk …] [--dxmt …]` | Assemble a pack from upstream archives — maintainer only. Audits the Wine build first and refuses a build with missing libraries unless `--allow-incomplete-wine` is given. `--sign` signs the manifest with the endorsement key |
 | `decanter audit deps <file>` | The load commands of one binary: what it needs and where it will look |
 | `decanter runtime set <game> <id>` | Move a game to another runtime (rebuilds its environment; saves are kept) |
 | `decanter runtime remove <id>` | Forget a pinned runtime and delete Decanter's copy. Refused while a game still uses it; takes its DXMT clone with it |
@@ -33,6 +35,12 @@ does — plus a few diagnostics that only exist here.
 | `decanter dxmt list` | Staged DXMT builds, and which pinned runtimes can host one |
 | `decanter dxmt stage <archive>` | Stage a DXMT build you supply |
 | `decanter dxmt use <game>` | Move one game to Metal graphics — the Unity 6 path |
+
+> **A pack installs with `decanter use`, like anything else.** There is no
+> `pack install`: `use` already takes in every piece a person can be handed and
+> works out what it is by looking inside, and a pack is a piece. It is verified
+> in full before a single component is touched, and a pack that fails installs
+> nothing at all.
 
 > **Get DXVK 1.10.3, not the newest.** 2.x and 3.x need Vulkan 1.3 features
 > MoltenVK does not fully implement, so they fail on macOS in ways that look

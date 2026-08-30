@@ -51,12 +51,14 @@ struct SetupView: View {
                         HStack(alignment: .top, spacing: 18) {
                             VStack(alignment: .leading, spacing: 18) {
                                 if let r = model.readiness { piecesCard(r) }
+                                if model.readiness?.ready == false { downloadsCard }
                                 ActivityList(entries: model.globalActivity)
                             }
                             aside.frame(width: 268)
                         }
                     } else {
                         if let r = model.readiness { piecesCard(r) }
+                        if model.readiness?.ready == false { downloadsCard }
                         aside
                         ActivityList(entries: model.globalActivity)
                     }
@@ -137,6 +139,77 @@ struct SetupView: View {
         .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 8)
         .background(Palette.hairline.opacity(0.35))
         .overlay(alignment: .top) { Divider() }
+    }
+
+    /// The shortcut past the drag.
+    ///
+    /// Dragging a file onto a window is the instruction on this page, and it is
+    /// the part of setup that goes wrong: the file is in Downloads, the window
+    /// is behind the browser, and the thing being dragged is a `.tar.xz` that
+    /// Safari may have half-unpacked into a folder next to it. Nothing about
+    /// that is hard once you have done it; all of it is friction the first time.
+    ///
+    /// Looking is separate from taking, and the separation is the design.
+    /// Downloads is not a folder anyone curated — it is where months of
+    /// unrelated files landed — so a button that installed whatever Wine build
+    /// it found there would be doing something nobody asked for. This shows
+    /// what it found, with each item switched on, and waits. It is also where
+    /// the system's folder-access prompt belongs: one beat after a deliberate
+    /// press, rather than at launch because the app went looking.
+    private var downloadsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Already downloaded it?", systemImage: "folder")
+                .font(.callout).bold()
+            Text("Decanter can look in your Downloads folder and show you what it recognises. It reads the names and nothing else, and installs nothing until you say so.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !model.downloadFindings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(model.downloadFindings) { f in
+                        Toggle(isOn: Binding(
+                            get: { model.chosenDownloads.contains(f.id) },
+                            set: { on in
+                                if on { model.chosenDownloads.insert(f.id) }
+                                else { model.chosenDownloads.remove(f.id) }
+                            })) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(f.summary).font(.callout)
+                                Text(f.url.lastPathComponent)
+                                    .font(.caption).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .padding(.vertical, 2)
+            } else if model.lookedInDownloads {
+                Text("Nothing in Downloads is something Decanter can use. The file to look for is named in the steps above.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ActionButton(title: model.lookedInDownloads ? "Look Again" : "Look in Downloads",
+                             systemImage: "magnifyingglass", key: "look",
+                             blurb: "Reads the file names in your Downloads folder. Installs nothing.") {
+                    model.lookInDownloads()
+                }
+                if !model.downloadFindings.isEmpty {
+                    ActionButton(title: "Use \(model.chosenDownloads.count) Selected",
+                                 systemImage: "square.and.arrow.down",
+                                 key: "acceptChosen",
+                                 blurb: "Takes Decanter's own copy of each one, so nothing later can move it.") {
+                        model.acceptChosenDownloads()
+                    }
+                    .disabled(model.chosenDownloads.isEmpty)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 
     /// The column beside the steps: the question people ask next, then the

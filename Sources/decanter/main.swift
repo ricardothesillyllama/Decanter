@@ -73,7 +73,7 @@ let commandNames = [
     "diagnose", "dll", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "fonts", "gc",
     "help", "import", "info", "install", "knowledge", "list", "mods", "pin",
     "recipes", "recommend", "redetect", "rederive", "remove", "reap", "repair",
-    "report", "restore", "run", "runtime", "saves", "setup", "template", "use",
+    "pack", "report", "restore", "run", "runtime", "saves", "setup", "template", "use",
     "verdict", "version", "worked",
 ]
 
@@ -90,13 +90,16 @@ func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
 
     SETUP
       decanter setup                  what Decanter has, what it needs, where to get it
-      decanter use <file>             hand over a Wine build, a GPTK disk image, or DXVK
+      decanter use <file>             hand over a Wine build, a GPTK disk image, DXVK, or a pack
+      decanter use --look <folder>    say what Decanter can see in a folder, and install nothing
       decanter doctor                 check the stack (Rosetta, runtimes, template)
       decanter pin                    take Decanter's own copy of every Wine build found
       decanter runtime list           show pinned runtimes
       decanter bench                  measure what each Wine build can actually provide
       decanter audit [runtime]        what a build is missing, and what stops working
       decanter repair <runtime>       offer to fill the gaps from builds already here
+      decanter pack check <path>      is this runtime pack whole, and is it ours
+      decanter pack build             assemble a pack from upstream archives (maintainer)
       decanter verdict                answer the one thing Decanter could not see for itself
       decanter restore <game>         put a game back on the last setup that worked
       decanter endorse <game>         vouch for a setup you have actually run
@@ -357,13 +360,28 @@ case "use":
     // Wine .app, a Game Porting Toolkit .dmg, or a DXVK tarball. Decanter
     // works out which it is by looking inside, because the names differ
     // between every source these come from.
-    guard let p = rest.first else {
-        die(DecanterError.usage("usage: decanter use <wine folder | .app | .dmg | dxvk-*.tar.gz>"))
+    let look = rest.contains("--look")
+    guard let p = rest.first(where: { !$0.hasPrefix("--") }) else {
+        die(DecanterError.usage("usage: decanter use [--look] <wine folder | .app | .dmg | dxvk-*.tar.gz | pack>"))
     }
     let e = engine()
+    let target = URL(filePath: (p as NSString).expandingTildeInPath)
+    // `--look` reports and stops. It is here for the folder case — pointing
+    // `use` at ~/Downloads takes in everything it recognises, and that is a
+    // reasonable thing to want and an unreasonable thing to discover.
+    if look {
+        let found = e.look(in: target)
+        if found.isEmpty {
+            warn("nothing in \(target.lastPathComponent) is something Decanter can use")
+            exit(1)
+        }
+        for f in found { out("  \(f.summary)") }
+        out("")
+        out("  Nothing has been installed. Run the same command without --look to take these in.")
+        exit(0)
+    }
     do {
-        let summary = try e.accept(droppedPath: URL(filePath: (p as NSString).expandingTildeInPath),
-                                   progress: step)
+        let summary = try e.accept(droppedPath: target, progress: step)
         ok(summary)
     } catch { die(error) }
 
@@ -810,6 +828,123 @@ case "repair":
             out("")
             out("  Nothing has been changed. Run `decanter repair \(target.id) --do` to go ahead.")
         }
+    }
+
+case "pack":
+    // A runtime pack is one file holding the Wine build and the graphics
+    // layers a first run needs, with checksums and licences beside them.
+    // Reading one is for everybody; building one is for whoever publishes it.
+    //
+    // Installing one is deliberately not here. `decanter use <file>` already
+    // takes in every piece a person can be handed and works out what it is by
+    // looking, and a pack is a piece. A second verb that installs would be a
+    // second place for "what did Decanter just do with my file" to be
+    // answered differently.
+    switch rest.first ?? "check" {
+    case "check":
+        guard rest.count > 1 else {
+            die(DecanterError.usage("usage: decanter pack check <pack directory>"))
+        }
+        let root = URL(filePath: (rest[1] as NSString).expandingTildeInPath)
+        do {
+            let located = try Pack.read(at: root)
+            out("\(located.manifest.name)")
+            out("  assembled \(located.manifest.createdAt.formatted(date: .abbreviated, time: .shortened))"
+                + " by \(located.manifest.createdBy)")
+            for c in located.manifest.components.sorted(by: { $0.piece.rawValue < $1.piece.rawValue }) {
+                out("  \(c.piece.label) \(c.version) — \(c.file)")
+                out("      \(ByteCountFormatter.string(fromByteCount: c.bytes, countStyle: .file))"
+                    + ", \(c.licence), from \(c.origin)")
+            }
+            if !located.manifest.notes.isEmpty {
+                out("")
+                out("  \(located.manifest.notes)")
+            }
+            out("")
+            let v = Pack.verify(located, progress: step)
+            for line in v.checked { ok(line) }
+            for line in v.problems { warn(line) }
+            out("")
+            out("  \(v.summary)")
+            if !v.isSound { exit(1) }
+        } catch { die(error) }
+
+    case "build":
+        // Every archive is named on the command line rather than discovered.
+        // Assembling a pack is the one operation here whose output other people
+        // install, and a file picked up because it happened to be in a folder
+        // is exactly the mistake that must not be possible.
+        var name = "decanter-pack"
+        var outDir: URL? = nil
+        var notes = ""
+        var sign = false
+        var allowIncomplete = false
+        var archives: [Pack.Piece: URL] = [:]
+        var origins: [Pack.Piece: String] = [:]
+        var i = 1
+        func nextValue(_ flag: String) -> String {
+            guard i + 1 < rest.count else { die(DecanterError.usage("\(flag) needs a value")) }
+            i += 1
+            return rest[i]
+        }
+        while i < rest.count {
+            switch rest[i] {
+            case "--name": name = nextValue("--name")
+            case "--out": outDir = URL(filePath: (nextValue("--out") as NSString).expandingTildeInPath)
+            case "--notes": notes = nextValue("--notes")
+            case "--sign": sign = true
+            case "--allow-incomplete-wine": allowIncomplete = true
+            case "--wine": archives[.wine] = URL(filePath: (nextValue("--wine") as NSString).expandingTildeInPath)
+            case "--dxvk": archives[.dxvk] = URL(filePath: (nextValue("--dxvk") as NSString).expandingTildeInPath)
+            case "--dxmt": archives[.dxmt] = URL(filePath: (nextValue("--dxmt") as NSString).expandingTildeInPath)
+            case "--wine-origin": origins[.wine] = nextValue("--wine-origin")
+            case "--dxvk-origin": origins[.dxvk] = nextValue("--dxvk-origin")
+            case "--dxmt-origin": origins[.dxmt] = nextValue("--dxmt-origin")
+            default: die(DecanterError.usage("decanter pack build: unknown option \(rest[i])"))
+            }
+            i += 1
+        }
+        guard let outDir else {
+            die(DecanterError.usage("""
+            usage: decanter pack build --out <dir> --wine <archive> [--dxvk <archive>] [--dxmt <archive>]
+                                       [--name N] [--notes TEXT] [--sign] [--allow-incomplete-wine]
+                                       [--wine-origin TEXT] [--dxvk-origin TEXT] [--dxmt-origin TEXT]
+            """))
+        }
+        guard !archives.isEmpty else { die(DecanterError.usage("a pack needs at least one archive")) }
+
+        // Licences are constants, not options. They are a statement about what
+        // the bytes are, checked once against each project's own LICENSE file,
+        // and a command-line flag that can set them wrong is a command-line
+        // flag that can publish a false claim.
+        let licences: [Pack.Piece: String] = [
+            .wine: "LGPL-2.1-or-later",   // Wine, and every macOS build of it
+            .dxvk: "Zlib",                // github.com/doitsujin/dxvk
+            .dxmt: "LGPL-2.1-or-later",   // github.com/3Shain/dxmt
+        ]
+        let ingredients = Pack.Piece.allCases.compactMap { piece -> Pack.Ingredient? in
+            guard let a = archives[piece] else { return nil }
+            return Pack.Ingredient(piece: piece, archive: a,
+                                   licence: licences[piece] ?? "unstated",
+                                   origin: origins[piece] ?? a.lastPathComponent)
+        }
+        let e = engine()
+        do {
+            let built = try Pack.assemble(ingredients, named: name, into: outDir, notes: notes,
+                                          paths: e.paths, signWithMaintainerKey: sign,
+                                          allowIncompleteWine: allowIncomplete, progress: step)
+            for w in built.warnings { warn(w) }
+            ok(built.summary)
+            out("  \(built.root.path)")
+            if !sign {
+                out("")
+                out("  Unsigned. Whoever installs it can check the files against the manifest,")
+                out("  but not that the manifest is yours. Pass --sign on the machine holding")
+                out("  the endorsement key.")
+            }
+        } catch { die(error) }
+
+    default: usage(to: true, exitCode: 2)
     }
 
 case "endorse":
