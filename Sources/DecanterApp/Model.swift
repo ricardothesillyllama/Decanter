@@ -133,6 +133,7 @@ final class AppModel: ObservableObject {
             // underneath still hold together. Both are cheap to ask for and
             // both are things somebody would want to see without going looking.
             pendingVerdict = Verdict(paths: e.paths).pending()
+            checkForReplacedBundle()
             // Reading a small JSON file. Nothing is measured here — `bench` is
             // the command that measures, and it starts every Wine build to do
             // it.
@@ -145,6 +146,33 @@ final class AppModel: ObservableObject {
     }
 
     func bottle(for game: Game) -> Bottle? { bottles.first { $0.id == game.bottleID } }
+
+    /// The version sitting in the app bundle on disk, when it is not the one
+    /// running.
+    ///
+    /// A Decanter installed while the old one is still open keeps running the
+    /// old one, indefinitely, and nothing on screen says so. That is not a
+    /// hypothetical: this app was open across four releases without being
+    /// quit once, and every screenshot taken from it was read as a bug in the
+    /// build that had just shipped. Twice it sent the maintainer looking for a
+    /// fault that had already been fixed.
+    ///
+    /// The compiled-in version is what this process is; the bundle's plist is
+    /// what would run if it were started now. When they differ the process is
+    /// the stale one, and only quitting fixes it — closing the window does not
+    /// end the process, which is exactly why this keeps happening.
+    @Published var newerVersionInstalled: String?
+
+    func checkForReplacedBundle() {
+        let plist = Bundle.main.bundleURL.appending(path: "Contents/Info.plist")
+        guard let d = try? Data(contentsOf: plist),
+              let any = try? PropertyListSerialization.propertyList(from: d, format: nil),
+              let dict = any as? [String: Any],
+              let onDisk = dict["CFBundleShortVersionString"] as? String,
+              !onDisk.isEmpty
+        else { newerVersionInstalled = nil; return }
+        newerVersionInstalled = onDisk == Build.version ? nil : onDisk
+    }
 
     /// One entry point for every long operation, so the UI can never get out
     /// of sync with the engine and errors always surface in the same place.
@@ -592,8 +620,8 @@ final class AppModel: ObservableObject {
     }
 
     /// Fills a build's gaps from builds already on this Mac. Never automatic.
-    func repairRuntime(_ runtimeID: String) {
-        perform("Repairing \(runtimeID)…", key: "repair") { e in
+    func repairRuntime(_ runtimeID: String, from game: Game? = nil) {
+        perform("Repairing \(runtimeID)…", key: "repair", scope: game?.id) { e in
             guard let rt = e.store.state.runtimes.first(where: { $0.id == runtimeID }) else {
                 throw DecanterError.notFound(runtimeID)
             }
@@ -835,8 +863,12 @@ final class AppModel: ObservableObject {
 
     /// Applies to every template and bottle at once. The mapping is registry
     /// data, so this is idempotent and nothing is launched.
-    func fixFonts() {
-        perform("Fixing fonts…", key: "fonts") { e in
+    /// Applies to every template and bottle, and is almost always pressed from
+    /// one game's page. The effect is global; the *report* belongs where the
+    /// button was, which is why the caller says who asked. Without that, a
+    /// result about one game turned up on Setup, which is nobody's page.
+    func fixFonts(from game: Game? = nil) {
+        perform("Fixing fonts…", key: "fonts", scope: game?.id) { e in
             let r = e.provisionFonts()
             let n = r.reduce(0) { $0 + $1.plan.mapped.count }
             return n == 0

@@ -96,6 +96,20 @@ if grep -n 'gameID' Sources/DecanterKit/Knowledge.swift | grep -i 'export' >/dev
   note "the knowledge export references gameID — it must not leave this machine"
 fi
 
+# 8b. An action about one game reports on that game's page.
+#
+#    `perform` takes a scope, and the activity list is filtered by it: a scoped
+#    entry appears on its game and nowhere else, an unscoped one appears
+#    everywhere. Forgetting the scope is silent and looks like nothing until a
+#    report collected for one game turns up on Setup, which is nobody's page.
+#    So: anything whose label names a game must say which one.
+UNSCOPED=$(grep -n 'perform("' Sources/DecanterApp/Model.swift \
+           | grep 'game\.name' | grep -v 'scope:' || true)
+if [ -n "$UNSCOPED" ]; then
+  printf '%s\n' "$UNSCOPED"
+  note "an action names a game but has no scope — its result will show on every page"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a

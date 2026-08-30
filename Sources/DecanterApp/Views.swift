@@ -58,6 +58,7 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottom) { BusyBar() }
+        .safeAreaInset(edge: .top, spacing: 0) { StaleBuildBanner() }
         // First run lands on the Setup page rather than raising a sheet over
         // it. A sheet taller than the window spills past its edges, and it put
         // the same content in two places — the page has to exist anyway,
@@ -531,6 +532,40 @@ struct ActionButton: View {
     }
 }
 
+/// This window is running a Decanter that is no longer the one installed.
+///
+/// Installing over a running app replaces the bundle and leaves the process
+/// alone, so the old build keeps drawing the old interface for as long as the
+/// window stays open — and closing the window does not end it. Nothing said so,
+/// and the result was four releases' worth of screenshots reported against
+/// builds that had already fixed what they showed.
+///
+/// Deliberately not offered as a "Restart Now" button. Relaunching would
+/// discard whatever is in flight, and the app has no business quitting itself
+/// on the strength of a version string.
+struct StaleBuildBanner: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        if let newer = model.newerVersionInstalled {
+            HStack(spacing: 9) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                Text("Decanter \(newer) is installed. This window is still running \(Build.version).")
+                    .font(.callout)
+                Text("Quit and reopen — closing the window is not enough.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.caution.opacity(0.16))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Palette.caution.opacity(0.35)).frame(height: 0.5)
+            }
+        }
+    }
+}
+
 /// What to do about this game's setup — the whole of it, in one place.
 ///
 /// This replaced three cards that appeared together: a warning that the game
@@ -914,7 +949,7 @@ struct GameDetail: View {
                 }
                 if let id = bottle?.runtimeID, let health = model.runtimeSoundness[id],
                    !health.isSound {
-                    EnvironmentHealthCard(runtimeID: id, report: health)
+                    EnvironmentHealthCard(runtimeID: id, report: health, game: game)
                 }
 
 
@@ -1274,7 +1309,7 @@ struct GameDetail: View {
                              blurb: "Check the game again after installing mods or an update.") { model.redetect(game) }
                 ActionButton(title: "Fix Fonts", systemImage: "textformat",
                              key: "fonts",
-                             blurb: "For when text is missing but the buttons are the right size.") { model.fixFonts() }
+                             blurb: "For when text is missing but the buttons are the right size.") { model.fixFonts(from: game) }
                 ActionButton(title: "Reveal in Finder", systemImage: "folder",
                              key: "reveal",
                              blurb: "Open this game's Windows files.") { model.revealPrefix(game) }
@@ -1450,6 +1485,9 @@ struct EnvironmentHealthCard: View {
     @EnvironmentObject var model: AppModel
     let runtimeID: String
     let report: RuntimeAudit.Report
+    /// Who asked. The repair is to a runtime several games may share; the
+    /// report of it belongs on the page it was started from.
+    var game: Game? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1460,7 +1498,7 @@ struct EnvironmentHealthCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Button("Fix This") { model.repairRuntime(runtimeID) }
+                Button("Fix This") { model.repairRuntime(runtimeID, from: game) }
                     .buttonStyle(.borderedProminent).controlSize(.small)
                     .disabled(model.busy != nil)
                     .help("Copies the missing pieces from builds already on this Mac. Nothing is downloaded, and it can be undone.")
@@ -1550,14 +1588,55 @@ struct EvidenceInspector: View {
             // Status first. The pane used to open with detection weights, which
             // answer a question nobody has yet — "how is this game doing right
             // now" is the one they do have.
+            // What this game is, right now, in the order somebody wants it:
+            // what it is running on, whether that has been vouched for, whether
+            // its environment is sound, and what state its saves are in. The
+            // pane used to open with detection weights — the answer to "how did
+            // Decanter identify this?", asked once, ever — and led with
+            // confidence to two decimal places, which is not a fact anyone acts
+            // on. The thing it never said at all was which runtime and graphics
+            // layer the game is actually on, and that is the first thing
+            // anybody looks for.
             Section {
                 LabeledContent("State") {
                     Text(model.running.contains(game.id) ? "Running" : "Not running")
                 }
+                if let b = model.bottle(for: game) {
+                    LabeledContent("Graphics") {
+                        Text(Help.plainName(b.backend)
+                             + (b.backend == .dxvk ? (b.dxvkVersion.map { " \($0)" } ?? "") : ""))
+                    }
+                    .help(Help.backend(b.backend))
+                    LabeledContent("Runs on", value: b.runtimeID)
+                        .help("The Wine build this game's Windows environment was made from.")
+                    LabeledContent("Environment") {
+                        Text("\(b.health.label) · generation \(b.generation)")
+                            .foregroundStyle(b.health == .healthy ? Color.primary : Palette.caution)
+                    }
+                    .help(Help.generation)
+                }
+                if model.isEndorsed(game) {
+                    LabeledContent("Vouched for") {
+                        Label("verified", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(Palette.running).font(.callout)
+                    }
+                    .help(model.endorsementNote(game)
+                          ?? "Somebody ran this setup and signed for it.")
+                }
+                if let st = model.mods[game.id], st.installed {
+                    LabeledContent("Mods") {
+                        Text(st.errors.isEmpty ? "\(st.plugins.count) loaded"
+                             : "\(st.errors.count) failed")
+                            .foregroundStyle(st.errors.isEmpty ? Color.primary : Palette.caution)
+                    }
+                }
                 if let ov = model.saveOverview[game.id] {
                     LabeledContent("Saves") {
-                        Text(ov.files == 0 ? "none yet" : plural(ov.files, "file"))
+                        Text(ov.files == 0 ? "none yet"
+                             : "\(plural(ov.files, "file")) · \(ByteCountFormatter.string(fromByteCount: Int64(ov.bytes), countStyle: .file))")
                     }
+                    LabeledContent("Snapshots", value: "\(ov.snapshots)")
+                        .help("Copies Decanter took before anything destructive.")
                     LabeledContent("Protected") {
                         Text(model.externalised.contains(game.id) ? "yes" : "not yet")
                             .foregroundStyle(model.externalised.contains(game.id)
@@ -1569,13 +1648,6 @@ struct EvidenceInspector: View {
                             .controlSize(.small).disabled(model.busy != nil)
                     }
                 }
-                if let st = model.mods[game.id], st.installed {
-                    LabeledContent("Mods") {
-                        Text(st.errors.isEmpty ? "\(st.plugins.count) loaded"
-                             : "\(st.errors.count) failed")
-                            .foregroundStyle(st.errors.isEmpty ? Color.primary : Palette.caution)
-                    }
-                }
                 if let d = game.lastPlayed {
                     LabeledContent("Last played") {
                         Text(d.formatted(date: .abbreviated, time: .shortened))
@@ -1583,11 +1655,6 @@ struct EvidenceInspector: View {
                 }
             } header: {
                 Text("Right now")
-            }
-            Section {
-                Text(Help.inspectorPane)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Section {
                 LabeledContent("Confidence", value: String(format: "%.2f", game.detection.confidence))
@@ -1607,13 +1674,23 @@ struct EvidenceInspector: View {
             }
 
             Section {
-                ForEach(Array(game.detection.signals.enumerated()), id: \.offset) { _, sig in
-                    HStack(alignment: .top, spacing: 6) {
-                        Text(String(format: "%.2f", sig.weight))
-                            .font(.evidence).foregroundStyle(.tertiary)
-                        Text(sig.rule).font(.caption)
+                // Closed by default. It answers "why did Decanter decide
+                // this?", which is worth having and is asked about once per
+                // game — and it is long enough to push everything anybody looks
+                // at regularly off the bottom of the pane.
+                DisclosureGroup("How Decanter decided") {
+                    ForEach(Array(game.detection.signals.enumerated()), id: \.offset) { _, sig in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(String(format: "%.2f", sig.weight))
+                                .font(.evidence).foregroundStyle(.tertiary)
+                            Text(sig.rule).font(.caption)
+                        }
+                        .help("Weight \(String(format: "%.2f", sig.weight)) — heavier evidence counted for more.")
                     }
-                    .help("Weight \(String(format: "%.2f", sig.weight)) — heavier evidence counted for more.")
+                    Text(Help.inspectorPane)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
                 }
             } header: {
                 HStack(spacing: 5) { Text("Evidence"); InfoButton(text: Help.evidenceWeights, title: "Evidence weights") }

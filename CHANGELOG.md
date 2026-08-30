@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.6.5 — 2026-08-30
+
+- **The app says when it is not the app that is installed.** Installing over a
+  running Decanter replaces the bundle and leaves the process alone, so the old
+  build keeps drawing the old interface for as long as the window is open — and
+  closing the window does not end it. Nothing said so. One window stayed open
+  across four releases, and every screenshot from it was reported against the
+  build that had just shipped; twice it sent someone looking for a fault that
+  had already been fixed. A banner now compares the version compiled into this
+  process with the one in the bundle on disk and says plainly that quitting is
+  what fixes it. Deliberately not a "Restart Now" button: relaunching would
+  discard whatever is in flight, and the app has no business quitting itself on
+  the strength of a version string.
+- **An action about one game no longer reports on every page.** Fixing fonts and
+  repairing a runtime are global in effect and almost always pressed from one
+  game's page, so their results went to the unscoped list and turned up on
+  Setup — nobody's page. They now report where the button was. A rule in
+  `check-rules.sh` fails the build if an action names a game and has no scope,
+  because forgetting it is silent and looks like nothing until it does not.
+- **The details pane says what this game is running on.** It never did. It
+  opened on detection weights and a confidence to two decimal places — the
+  answer to "how did Decanter identify this?", asked once per game, ever — while
+  the first thing anybody actually looks for, which Wine build and which
+  graphics layer, was not in it anywhere. It now leads with that, plus whether
+  the setup has been vouched for, whether the environment is sound and which
+  generation it is on, and how much the saves come to. The detection evidence is
+  still there, behind a disclosure, where a question asked once belongs.
+
+
 ## v0.6.4 — 2026-08-30
 
 One fix, and it is the one that matters: **the knowledge base is written under a
