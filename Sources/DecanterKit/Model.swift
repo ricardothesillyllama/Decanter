@@ -473,10 +473,13 @@ public enum DecanterError: LocalizedError {
 
 
 /// Build identity, so a problem report from a source build can be traced to a
-/// commit. Stamped by install.sh; "dev" when built some other way.
+/// commit. Stamped by install.sh: empty for a build made from a clean tree,
+/// where the version is the whole of the attribution; the short hash when the
+/// tree was modified, which is the case a hash was ever for; "dev" outside a
+/// repository.
 public enum Build {
     public static let version = "0.6.2"
-    public static let commit = "94bd3d7"
+    public static let commit = ""
     /// A released build says its version and stops. The version is the whole
     /// of the attribution when the source it was built from is public and
     /// unmodified, and a hash there was worse than nothing: it named the commit
