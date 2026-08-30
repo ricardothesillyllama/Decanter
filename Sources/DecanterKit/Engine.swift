@@ -835,6 +835,48 @@ public final class Engine: @unchecked Sendable {
     /// Locale presets. Japanese and Chinese games frequently crash outright
     /// under a Western locale, because their text handling assumes the system
     /// codepage — a near-null dereference shortly after startup is typical.
+    /// Tell Wine to prefer a particular DLL, or stop preferring it.
+    ///
+    /// `Game.dllOverrides` has been honoured by the launcher since it existed
+    /// and set by nothing: no command, no screen, no default beyond the empty
+    /// dictionary in the initialiser. A capability that only the launcher can
+    /// see is not a capability. This is the same fault as `runtimeLocked` —
+    /// written in two places and read in none — with the halves swapped.
+    ///
+    /// Mode is Wine's own vocabulary: `n` native first, `b` builtin first,
+    /// `n,b` native then builtin, and the empty string disables the DLL
+    /// entirely. Kept as Wine writes it rather than translated, because anyone
+    /// who needs this is reading a forum post that uses those letters.
+    @discardableResult
+    public func setDLLOverride(_ game: Game, dll: String, mode: String?) throws -> [String: String] {
+        let name = dll.lowercased()
+            .replacingOccurrences(of: ".dll", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            throw DecanterError.usage("'\(dll)' is not a DLL name. Use something like winhttp or version.")
+        }
+        if let mode, !["n", "b", "n,b", "b,n", ""].contains(mode) {
+            throw DecanterError.usage(
+                "'\(mode)' is not a Wine override mode. Use n (native), b (builtin), n,b, or an empty value to disable the DLL.")
+        }
+        var result: [String: String] = [:]
+        try store.mutate { s in
+            guard let i = s.games.firstIndex(where: { $0.id == game.id }) else { return }
+            if let mode { s.games[i].dllOverrides[name] = mode }
+            else { s.games[i].dllOverrides.removeValue(forKey: name) }
+            result = s.games[i].dllOverrides
+        }
+        note(game.bottleID, "dll override \(name) -> \(mode ?? "(removed)")")
+        return result
+    }
+
+    /// The proxy DLLs a mod loader beside this game will try to load through.
+    /// Named so the interface can say which one it found rather than assuming
+    /// winhttp, which is only the most common choice.
+    public func modLoaderProxies(_ game: Game) -> [String] {
+        Launcher.doorstopProxies(besideExecutable: game.exePath)
+    }
+
     public static let localePresets: [String: (vars: [String: String], blurb: String)] = [
         "japanese": (["LANG": "ja_JP.UTF-8", "LC_ALL": "ja_JP.UTF-8"],
                      "Japanese locale. Try this first for a JP game that crashes just after the splash."),

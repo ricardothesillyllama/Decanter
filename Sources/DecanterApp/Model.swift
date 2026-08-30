@@ -140,6 +140,7 @@ final class AppModel: ObservableObject {
             benchRows = Dictionary(uniqueKeysWithValues:
                 Bench(paths: e.paths).load().rows.map { ($0.runtimeID, $0) })
             if runtimeSoundness.isEmpty { refreshSoundness() }
+            refreshFonts()
         } catch {
             lastError = error.localizedDescription
         }
@@ -530,6 +531,121 @@ final class AppModel: ObservableObject {
             for (id, root) in roots { out[id] = RuntimeAudit().audit(root: root) }
             await MainActor.run { self.runtimeSoundness = out }
         }
+    }
+
+    /// Whether this game's Windows environment still needs font names mapped.
+    ///
+    /// "Fix Fonts" was an action with no diagnosis beside it: a button you press
+    /// on a hunch, that may do nothing, and tells you so only afterwards.
+    /// `decanter fonts --check` has answered this all along. Two registry
+    /// files per prefix, so it costs nothing to keep current.
+    @Published var fontStatus: [UUID: String] = [:]
+    /// Games where pressing it would change nothing.
+    @Published var fontsSettled: Set<UUID> = []
+
+    func refreshFonts() {
+        guard engine != nil else { return }
+        let prefixes = games.compactMap { g -> (UUID, URL)? in
+            bottle(for: g).map { (g.id, $0.prefixPath) }
+        }
+        Task.detached(priority: .utility) {
+            let fp = FontProvisioner()
+            var lines: [UUID: String] = [:], settled: Set<UUID> = []
+            for (id, prefix) in prefixes {
+                let plan = fp.plan(for: prefix)
+                if plan.mapped.isEmpty {
+                    lines[id] = "Every Windows font name already resolves here."
+                    settled.insert(id)
+                } else if plan.pending.isEmpty {
+                    lines[id] = "All \(plan.mapped.count) names are already mapped."
+                    settled.insert(id)
+                } else {
+                    lines[id] = "\(plan.pending.count) of \(plan.mapped.count) Windows font names are not mapped yet."
+                }
+            }
+            await MainActor.run { self.fontStatus = lines; self.fontsSettled = settled }
+        }
+    }
+
+    /// Throws away snapshots past the retention count, for every game.
+    ///
+    /// `decanter saves gc` did this and the app did not, so snapshots
+    /// accumulated with nothing on any screen offering to stop them.
+    func pruneSnapshots() {
+        perform("Pruning old snapshots…", key: "savesGC") { e in
+            var removed = 0
+            for g in e.store.state.games {
+                removed += (try? e.saves.prune(game: g, keep: e.snapshotRetention)) ?? 0
+            }
+            return removed == 0
+                ? "Nothing to prune — every game is within \(e.snapshotRetention) snapshots."
+                : "Pruned \(plural(removed, "old snapshot"))."
+        }
+    }
+
+    // MARK: - Advanced
+
+    /// Engine switches, locale, and the graphics layer's exact version.
+    ///
+    /// All three existed only at the prompt. They are here now because the
+    /// people who need them cannot be told to open a terminal by an app whose
+    /// whole argument is that you should not have to — and they are behind a
+    /// door because someone who does not know what `-force-d3d12` is has no use
+    /// for it and every chance of being harmed by it.
+    func setLaunchArguments(_ game: Game, _ args: [String]) {
+        perform(args.isEmpty ? "Clearing launch switches…" : "Setting launch switches…",
+                key: "args", scope: game.id) { e in
+            let set = try e.setLaunchArguments(game, args)
+            return set.isEmpty ? "No switches. The game starts as it ships."
+                               : "Starts with \(set.joined(separator: " "))."
+        }
+    }
+
+    func setLocalePreset(_ game: Game, _ name: String) {
+        perform("Setting the language environment…", key: "locale", scope: game.id) { e in
+            guard let preset = Engine.localePresets[name] else {
+                throw DecanterError.notFound("no locale preset called \(name)")
+            }
+            _ = try e.setEnvironment(game, preset.vars)
+            return preset.blurb
+        }
+    }
+
+    func clearLocale(_ game: Game) {
+        perform("Clearing the language environment…", key: "locale", scope: game.id) { e in
+            _ = try e.setEnvironment(game, [:], clear: true)
+            return "Cleared. The game runs in whatever your Mac's language is."
+        }
+    }
+
+    func setDXVKVersion(_ game: Game, _ version: String) {
+        perform("Switching to DXVK \(version)…", key: "dxvkVersion", scope: game.id) { e in
+            let v = try e.setDXVK(game, version: version)
+            return "Now on DXVK \(v)."
+        }
+    }
+
+    /// Engine switches worth trying for this game, from its detection.
+    func argumentSuggestions(for game: Game) -> [(flag: String, blurb: String)] {
+        LaunchPresets.suggestions(for: game.detection)
+    }
+
+    func setDLLOverride(_ game: Game, dll: String, mode: String?) {
+        perform(mode == nil ? "Removing the override…" : "Setting the DLL override…",
+                key: "dll", scope: game.id) { e in
+            let all = try e.setDLLOverride(game, dll: dll, mode: mode)
+            return all.isEmpty ? "No overrides set by hand. Takes effect next launch."
+                               : "\(all.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "  ")) — next launch."
+        }
+    }
+
+    /// Which proxy DLL the mod loader beside this game loads through. Named so
+    /// the interface can say what it found rather than assuming winhttp.
+    func modLoaderProxies(_ game: Game) -> [String] { engine?.modLoaderProxies(game) ?? [] }
+
+    var stagedDXVKVersions: [String] {
+        guard let e = engine else { return [] }
+        return DXVKInstaller(paths: e.paths).stagedVersions()
     }
 
     func answerVerdict(worked: Bool, failure: Knowledge.Failure = .unspecified,

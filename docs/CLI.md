@@ -57,6 +57,7 @@ does — plus a few diagnostics that only exist here.
 | `decanter autoconfig <game>` | Try each setup for real and keep the one that works |
 | `decanter args <game> [flags]` | Engine switches like `-force-d3d12`. No arguments lists suggestions |
 | `decanter env <game> [japanese]` | Environment and locale overrides, for CJK games |
+| `decanter dll <game> [name=n,b]` | Tell Wine which copy of a DLL to load — `n` the game's own, `b` Wine's built-in. Mod-loader proxies are handled automatically |
 | `decanter install <game> <verb>` | Windows components — presets, or raw winetricks verbs |
 | `decanter recipes` | Available presets, helper status, and what each game has installed |
 

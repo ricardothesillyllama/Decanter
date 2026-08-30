@@ -315,3 +315,59 @@ func runConcurrentKnowledgeTests(_ t: Harness) {
     t.expect(kept.map { Endorsement.isVerified($0, publicKeyBase64: pair.publicKeyBase64) } == true,
              "and the signature still verifies after somebody else wrote the file")
 }
+
+/// A capability the launcher honoured and nothing could set.
+///
+/// `Game.dllOverrides` was applied at every launch, defaulted in the
+/// initialiser, and written by no command and no screen — the same fault as
+/// `runtimeLocked` (written twice, read never) with the halves swapped. These
+/// check the setter, and that it refuses input Wine would not understand rather
+/// than storing it and failing silently at launch.
+func runDLLOverrideTests(_ t: Harness) {
+    t.suite("DLL overrides can be set, and validated")
+
+    let root = Fixture.dir("dll-root")
+    guard let e = try? Engine(paths: Paths(root: root)) else {
+        t.expect(false, "an engine can be made"); return
+    }
+    let bottleID = UUID()
+    let game = Game(name: "Fixture", exePath: root.appending(path: "g.exe"),
+                    bottleID: bottleID, detection: DetectionResult())
+    try? e.store.mutate { s in
+        s.games = [game]
+        s.bottles = [Bottle(id: bottleID, prefixPath: root, runtimeID: "r", backend: .dxvk)]
+    }
+
+    let set = try? e.setDLLOverride(game, dll: "winhttp", mode: "n,b")
+    t.equal(set?["winhttp"], "n,b", "an override is stored")
+    t.equal(e.store.state.games.first?.dllOverrides["winhttp"], "n,b",
+            "and survives into the library, so the launcher will see it")
+
+    // Written as people copy it out of a forum post.
+    _ = try? e.setDLLOverride(game, dll: "Version.DLL", mode: "n")
+    t.equal(e.store.state.games.first?.dllOverrides["version"], "n",
+            "a name pasted with its extension and capitals is normalised")
+
+    t.throwsError("a mode Wine does not understand is refused") {
+        _ = try e.setDLLOverride(game, dll: "winhttp", mode: "native-please")
+    }
+    t.throwsError("and so is something that is not a DLL name") {
+        _ = try e.setDLLOverride(game, dll: "../../etc/passwd", mode: "n")
+    }
+    // Refusing has to leave the good value alone, or a typo would quietly
+    // delete a working override.
+    t.equal(e.store.state.games.first?.dllOverrides["winhttp"], "n,b",
+            "a refused edit does not disturb what was already there")
+
+    _ = try? e.setDLLOverride(game, dll: "winhttp", mode: nil)
+    t.expect(e.store.state.games.first?.dllOverrides["winhttp"] == nil,
+             "and an override can be taken back off")
+
+    // Disabling a DLL outright is a real Wine mode and has to survive the
+    // validator, which nearly rejected it for being empty.
+    t.survives("disabling a DLL entirely is allowed") {
+        _ = try e.setDLLOverride(game, dll: "mshtml", mode: "")
+    }
+    t.equal(e.store.state.games.first?.dllOverrides["mshtml"], "",
+            "and is stored as the empty mode Wine expects")
+}

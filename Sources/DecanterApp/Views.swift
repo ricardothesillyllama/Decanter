@@ -728,6 +728,184 @@ struct EndorsementBadge: View {
     }
 }
 
+/// Settings that were only ever at the prompt, behind one door.
+///
+/// The charter's rule: one gated section, second click, behind an escape-hatch
+/// sentence. The reason for the door is not secrecy — everything in here is
+/// documented and reachable from `decanter` — it is that a switch someone does
+/// not understand is worse than no switch, and the cost of showing it to the
+/// wrong person is that they change something and cannot get back.
+///
+/// The interstitial is shown once and then never again. A warning that appears
+/// every time is a warning people learn to click past, and then it is not there
+/// when it matters.
+struct AdvancedCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    @AppStorage("advancedAcknowledged") private var acknowledged = false
+    @State private var newDLL = ""
+    @State private var newMode = "n,b"
+
+    private var bottle: Bottle? { model.bottle(for: game) }
+
+    var body: some View {
+        if acknowledged { controls } else { doorway }
+    }
+
+    private var doorway: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("These change how the game starts", systemImage: "hand.raised")
+                .font(.headline)
+            Text("Everything below is a setting Decanter would otherwise choose for you. They exist because some games need one, and nothing on this page can work out which — you have to know, or be told by someone who does.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Nothing here can lose a save or damage your Mac. It can stop a game starting, and Decanter will not always be able to say why.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("I understand — show them") { acknowledged = true }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+            Text("Asked once, not every time.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Palette.caution.opacity(0.09)))
+    }
+
+    @ViewBuilder private var controls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Engine switches. The suggestions come from detection, so the list
+            // is about this game rather than a catalogue of every flag.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Launch switches").font(.callout.weight(.medium))
+                let current = game.launchArguments ?? []
+                Text(current.isEmpty ? "None. The game starts as it ships."
+                                     : current.joined(separator: " "))
+                    .font(.evidence).foregroundStyle(current.isEmpty ? .secondary : .primary)
+                let suggestions = model.argumentSuggestions(for: game)
+                if suggestions.isEmpty {
+                    Text("Decanter knows no switches worth trying for this engine.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                } else {
+                    ForEach(suggestions, id: \.flag) { s in
+                        HStack(alignment: .top, spacing: 8) {
+                            Toggle(isOn: Binding(
+                                get: { current.contains(s.flag) },
+                                set: { on in
+                                    var next = current.filter { $0 != s.flag }
+                                    if on { next.append(s.flag) }
+                                    model.setLaunchArguments(game, next)
+                                })) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(s.flag).font(.evidence)
+                                    Text(s.blurb).font(.caption).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .toggleStyle(.switch).controlSize(.mini)
+                            .disabled(model.busy != nil)
+                        }
+                    }
+                }
+                if !current.isEmpty {
+                    Button("Clear switches") { model.setLaunchArguments(game, []) }
+                        .controlSize(.small).disabled(model.busy != nil)
+                }
+                ReactionNote(key: "args")
+            }
+
+            Divider()
+
+            // Locale. Not really advanced for the person who needs it — a CJK
+            // game crashing after its splash screen is a beginner's problem —
+            // but it is meaningless to everyone else.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Language environment").font(.callout.weight(.medium))
+                Text("Some Japanese, Chinese and Korean games crash just after the splash screen unless the environment says which language they are in.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    ForEach(Engine.localePresets.keys.sorted(), id: \.self) { key in
+                        Button(key.capitalized) { model.setLocalePreset(game, key) }
+                            .controlSize(.small).disabled(model.busy != nil)
+                            .help(Engine.localePresets[key]?.blurb ?? "")
+                    }
+                    if !game.envOverrides.isEmpty {
+                        Button("Clear") { model.clearLocale(game) }
+                            .controlSize(.small).disabled(model.busy != nil)
+                    }
+                }
+                if !game.envOverrides.isEmpty {
+                    Text(game.envOverrides.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "  "))
+                        .font(.evidence).foregroundStyle(.secondary)
+                }
+                ReactionNote(key: "locale")
+            }
+
+            Divider()
+
+            // Which copy of a DLL Wine loads. Honoured by the launcher since it
+            // existed and settable from nowhere — the same fault as a field
+            // written twice and read never, with the halves swapped.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("DLL overrides").font(.callout.weight(.medium))
+                let proxies = model.modLoaderProxies(game)
+                if !proxies.isEmpty {
+                    Label("Mod loader proxy found: \(proxies.joined(separator: ", ")). Decanter already tells Wine to prefer \(proxies.count == 1 ? "it" : "them") at launch — you do not need to add \(proxies.count == 1 ? "it" : "them") here.",
+                          systemImage: "checkmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("`n` loads the game's own copy, `b` loads Wine's built-in, `n,b` tries the game's first. Follow whatever a game's forum thread tells you.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(game.dllOverrides.sorted(by: { $0.key < $1.key }), id: \.key) { entry in
+                    HStack(spacing: 8) {
+                        Text("\(entry.key) = \(entry.value)").font(.evidence)
+                        Button("Remove") { model.setDLLOverride(game, dll: entry.key, mode: nil) }
+                            .controlSize(.mini).disabled(model.busy != nil)
+                    }
+                }
+                HStack(spacing: 6) {
+                    TextField("winhttp", text: $newDLL).frame(width: 130)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("", selection: $newMode) {
+                        ForEach(["n", "b", "n,b"], id: \.self) { Text($0).tag($0) }
+                    }.labelsHidden().frame(width: 78)
+                    Button("Add") {
+                        model.setDLLOverride(game, dll: newDLL, mode: newMode)
+                        newDLL = ""
+                    }
+                    .controlSize(.small)
+                    .disabled(newDLL.trimmingCharacters(in: .whitespaces).isEmpty || model.busy != nil)
+                }
+                ReactionNote(key: "dll")
+            }
+
+            // The exact DXVK build. Only shown when the game is on DXVK and
+            // there is more than one staged, because otherwise it is a picker
+            // with one entry and no consequence.
+            if bottle?.backend == .dxvk, model.stagedDXVKVersions.count > 1 {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Vulkan graphics version").font(.callout.weight(.medium))
+                    Text("DXVK 1.10.3 is the last version that works on macOS for most games; newer ones need Vulkan features MoltenVK does not have. Change this only if you know a game needs a different one.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Picker("", selection: Binding(
+                        get: { bottle?.dxvkVersion ?? model.stagedDXVKVersions.first ?? "" },
+                        set: { model.setDXVKVersion(game, $0) })) {
+                        ForEach(model.stagedDXVKVersions, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 160)
+                    .disabled(model.busy != nil)
+                    ReactionNote(key: "dxvkVersion")
+                }
+            }
+        }
+    }
+}
+
 /// The result of a keyed action, for controls that are not `ActionButton`s.
 ///
 /// Same rule as the buttons: what happened belongs beside what was pressed. A
@@ -971,6 +1149,10 @@ struct GameDetail: View {
                 DetailSection(title: "Windows Components", systemImage: "puzzlepiece.extension",
                               subtitle: "Add only if a game asks for one") {
                     ComponentsCard(game: game)
+                }
+                DetailSection(title: "Advanced", systemImage: "slider.horizontal.3",
+                              subtitle: "Launch switches, language, graphics version") {
+                    AdvancedCard(game: game)
                 }
                 let mine = model.activity(for: game.id)
                 if !mine.isEmpty {
@@ -1307,9 +1489,15 @@ struct GameDetail: View {
                 ActionButton(title: "Re-inspect", systemImage: "magnifyingglass",
                              key: "redetect",
                              blurb: "Check the game again after installing mods or an update.") { model.redetect(game) }
+                // The blurb carries the diagnosis when there is one. An action
+                // with no diagnosis beside it is a button pressed on a hunch,
+                // which then reports afterwards that it did nothing.
                 ActionButton(title: "Fix Fonts", systemImage: "textformat",
                              key: "fonts",
-                             blurb: "For when text is missing but the buttons are the right size.") { model.fixFonts(from: game) }
+                             blurb: model.fontStatus[game.id]
+                                 ?? "For when text is missing but the buttons are the right size.") {
+                    model.fixFonts(from: game)
+                }
                 ActionButton(title: "Reveal in Finder", systemImage: "folder",
                              key: "reveal",
                              blurb: "Open this game's Windows files.") { model.revealPrefix(game) }
@@ -1559,10 +1747,19 @@ struct StorageView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Housekeeping").font(.headline)
-                    ActionButton(title: "Clean Up Leftovers", systemImage: "trash",
-                                 key: "gc",
-                                 blurb: "Delete Windows environments left behind by games you removed.") { model.gc() }
-                        .frame(maxWidth: 320)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                        GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                        ActionButton(title: "Clean Up Leftovers", systemImage: "trash",
+                                     key: "gc",
+                                     blurb: "Delete Windows environments left behind by games you removed.") { model.gc() }
+                        // `decanter saves gc` did this and the app did not, so
+                        // snapshots accumulated with nothing on any screen
+                        // offering to stop them.
+                        ActionButton(title: "Prune Old Snapshots", systemImage: "clock.badge.xmark",
+                                     key: "savesGC",
+                                     blurb: "Keep the recent save snapshots for each game and delete the rest.") { model.pruneSnapshots() }
+                    }
+                    .frame(maxWidth: 660)
                 }
 
                 if !model.globalActivity.isEmpty {

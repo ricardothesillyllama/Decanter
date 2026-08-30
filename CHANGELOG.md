@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.6.6 — 2026-08-30
+
+The rest of 0.6.x: the settings that only ever existed at the prompt, behind one
+door, and two things the app knew and would not say.
+
+- **Advanced, gated once.** Launch switches, the language environment and the
+  graphics layer's exact version were reachable only from a terminal — by an app
+  whose whole argument is that you should not have to open one. They are here
+  now, in a section that is closed by default and asks once, not every time: a
+  warning that appears on every visit is one people learn to click past, and
+  then it is not there when it matters. The switches offered are the ones
+  detection says are worth trying for *this* game, not a catalogue.
+- **DLL overrides can be set.** `Game.dllOverrides` has been honoured at every
+  launch since it existed and written by nothing — no command, no screen, no
+  default past the empty dictionary in the initialiser. That is the same fault
+  as `runtimeLocked`, which was written in two places and read in none, with the
+  halves swapped. `decanter dll <game> winhttp=n,b`, and an editor in Advanced.
+  Wine's own vocabulary is kept rather than translated, because anyone who needs
+  this is following a forum thread that says `n,b`. Input Wine would not
+  understand is refused rather than stored and left to fail silently at launch.
+  Mod-loader proxies are still detected and overridden automatically — the
+  interface now says which one it found, instead of leaving people to guess
+  whether it was winhttp.
+- **"Fix Fonts" says whether it would do anything.** `decanter fonts --check`
+  has answered that all along; the button was an action with no diagnosis beside
+  it, pressed on a hunch, reporting afterwards that it had done nothing. It now
+  carries the count — two registry files per prefix, so it costs nothing to keep
+  current.
+- **Prune Old Snapshots.** `decanter saves gc` existed and the app had no
+  equivalent, so snapshots accumulated with nothing on any screen offering to
+  stop them.
+- **The `--detail` promise is scoped to what honours it.** The help offered it
+  on "any of these" and five commands implemented it. A flag that silently does
+  nothing teaches people to stop trying flags.
+- **The README no longer says Decanter cannot do DXMT.** It has since 0.5, which
+  is most of what 0.5 and 0.6 were about. The line sat in the comparison table,
+  which is the part people read first.
+
+
 ## v0.6.5 — 2026-08-30
 
 - **The app says when it is not the app that is installed.** Installing over a

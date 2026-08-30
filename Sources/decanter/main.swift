@@ -70,7 +70,7 @@ func printBenchRow(_ row: Bench.RuntimeRow, stale: Bool) {
 /// new command is added to both or to neither.
 let commandNames = [
     "add", "args", "audit", "autoconfig", "backend", "bench", "bottles", "check",
-    "diagnose", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "fonts", "gc",
+    "diagnose", "dll", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "fonts", "gc",
     "help", "import", "info", "install", "knowledge", "list", "mods", "pin",
     "recipes", "recommend", "redetect", "rederive", "remove", "reap", "repair",
     "report", "restore", "run", "runtime", "saves", "setup", "template", "use",
@@ -103,7 +103,8 @@ func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
       decanter endorse list           what is endorsed, and whether it still checks out
       decanter endorse revoke <game>  take an endorsement back (--note "" just clears the note)
       decanter endorse keygen         make an endorsement key pair on this Mac
-        add --detail to any of these   the reasoning behind the answer, not just the answer
+        --detail on bench, audit, repair, recommend and mods
+                                      the reasoning behind the answer, not just the answer
       decanter runtime set <game> <id>  move a game to another runtime
       decanter template build [rt]    build the golden template for a runtime
       decanter template list          which runtimes have a template
@@ -124,6 +125,7 @@ func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
       decanter redetect [game]        re-inspect with the current rules (all games if omitted)
       decanter args <game> [flags]    engine switches like -force-d3d12 (no args = show suggestions)
       decanter env <game> [japanese]  environment/locale overrides for CJK games
+      decanter dll <game> [name=n,b]  tell Wine which copy of a DLL to load
       decanter recommend <game>       which setup to use, and why (launches nothing)
       decanter worked <game>          remember the current setup as working
       decanter knowledge              what Decanter has learned so far
@@ -1147,6 +1149,46 @@ case "args":
         let args = rest.contains("--none") ? [] : Array(rest.dropFirst())
         do { _ = try e2.setLaunchArguments(g, args)
              ok(args.isEmpty ? "cleared launch arguments" : "set: \(args.joined(separator: " "))") }
+        catch { die(error) }
+    }
+
+case "dll":
+    // Wine's own vocabulary, deliberately untranslated: anybody who needs this
+    // is following a forum post that says n,b.
+    let (e2, g) = requireGame(rest.first)
+    let proxies = e2.modLoaderProxies(g)
+    if rest.count == 1 {
+        let cur = g.dllOverrides
+        out("\(g.name) DLL overrides: \(cur.isEmpty ? "(none set by hand)" : cur.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
+        if !proxies.isEmpty {
+            out("")
+            out("  mod loader proxy found: \(proxies.joined(separator: ", "))")
+            out("  these are overridden automatically at launch \u{2014} nothing to set")
+        }
+        out("")
+        out("  n    load the game's own copy")
+        out("  b    load Wine's built-in")
+        out("  n,b  the game's copy, then Wine's")
+        out("  =    with nothing after it, disable the DLL entirely")
+        out("")
+        out("  set with:   decanter dll \(g.name) winhttp=n,b")
+        out("  remove:     decanter dll \(g.name) winhttp --none")
+    } else if rest.contains("--none") {
+        let name = rest[1].split(separator: "=").first.map(String.init) ?? rest[1]
+        do { let all = try e2.setDLLOverride(g, dll: name, mode: nil)
+             ok(all.isEmpty ? "no overrides set by hand any more"
+                            : "left: \(all.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))") }
+        catch { die(error) }
+    } else {
+        let token = rest[1]
+        guard let eq = token.firstIndex(of: "=") else {
+            die(DecanterError.usage("usage: decanter dll <game> <name>=<n|b|n,b> (or <name> --none)"))
+        }
+        let name = String(token[token.startIndex..<eq])
+        let mode = String(token[token.index(after: eq)...])
+        do { let all = try e2.setDLLOverride(g, dll: name, mode: mode)
+             ok("set: \(all.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
+             out("    takes effect the next time this game starts") }
         catch { die(error) }
     }
 

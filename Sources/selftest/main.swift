@@ -30,6 +30,7 @@ if wantAll || args.contains("reload")  { runCLIExitTests(t) }
 if wantAll || args.contains("reload")  { runSurfaceParityTests(t) }
 if wantAll || args.contains("reload")  { runSetupAdviceTests(t) }
 if wantAll || args.contains("reload")  { runConcurrentKnowledgeTests(t) }
+if wantAll || args.contains("reload")  { runDLLOverrideTests(t) }
 if wantAll || args.contains("metal")   { runMetalHostingTests(t); runDXMTTests(t); runD3D12EvidenceTests(t) }
 if wantAll || args.contains("fwd")     { runForwardCompatTests(t); runUnknownCaseTests(t) }
 if wantAll || args.contains("docs")    { runDocsTests(t) }
