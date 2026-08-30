@@ -105,3 +105,56 @@ func runVerdictTests(_ t: Harness) {
         t.expect(false, "a game saved by an older Decanter still loads")
     }
 }
+
+/// Five things can be wrong with one game at once. Until 0.7.2 all five drew a
+/// card and they stacked, all about the same game, free to disagree in front of
+/// the reader. These check the order that replaced the stack — an order that is
+/// a claim about urgency, will be argued with, and would otherwise quietly stop
+/// being true.
+func runConcernOrderTests(_ t: Harness) {
+    t.suite("Concerns — one card, and which one")
+
+    t.equal(Concern.mostUrgent(of: []), nil,
+            "a game with nothing wrong shows no card at all")
+
+    for c in Concern.allCases {
+        t.equal(Concern.mostUrgent(of: [c]), c, "\(c) alone is the one shown")
+    }
+
+    // The pair that matters most. Every recommendation is formed without
+    // knowing what happened last time, so asking after advising means the
+    // advice was given blind.
+    t.equal(Concern.mostUrgent(of: [.setupAdvice, .unansweredVerdict]), .unansweredVerdict,
+            "the unanswered question comes before the advice that depends on it")
+    t.equal(Concern.mostUrgent(of: [.setupAdvice, .unsoundEnvironment]), .unsoundEnvironment,
+            "a graphics recommendation waits for an environment that can load what it has")
+    t.equal(Concern.mostUrgent(of: [.diagnosis, .unsoundEnvironment]), .diagnosis,
+            "what already went wrong comes before what might")
+    t.equal(Concern.mostUrgent(of: Set(Concern.allCases)), .unansweredVerdict,
+            "with everything wrong at once, the question is still asked first")
+
+    // Stray Wine processes are a nuisance and never a cause, so they must not
+    // outrank anything — and must not be silently dropped either.
+    for c in Concern.allCases where c != .strayProcesses {
+        t.equal(Concern.mostUrgent(of: [.strayProcesses, c]), c,
+                "stray processes never outrank \(c)")
+    }
+    t.equal(Concern.mostUrgent(of: [.strayProcesses]), .strayProcesses,
+            "stray processes are still shown when they are all there is")
+
+    t.suite("Concerns — which ones open the repair tools")
+
+    // The repair section opens itself when there is something to repair. Stray
+    // processes have their own card with its own button; opening five repair
+    // controls for them points somebody at the wrong five.
+    t.expect(!Concern.strayProcesses.callsForRepairTools,
+             "stray processes do not open a section of repairs")
+    for c in Concern.allCases where c != .strayProcesses {
+        t.expect(c.callsForRepairTools, "\(c) opens the repair tools")
+    }
+
+    // The order is total. Two concerns that compare equal would make which card
+    // appears depend on Set iteration order, which is not stable between runs.
+    let ranks = Concern.allCases.map(\.rawValue)
+    t.equal(Set(ranks).count, Concern.allCases.count, "every concern has a distinct rank")
+}

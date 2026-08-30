@@ -25,6 +25,7 @@ if wantAll || args.contains("repair")  { runRepairTests(t) }
 if wantAll || args.contains("endorse") { runEndorsementTests(t) }
 if wantAll || args.contains("endorse") { runEndorsementSurvivalTests(t) }
 if wantAll || args.contains("verdict") { runVerdictTests(t) }
+if wantAll || args.contains("verdict") { runConcernOrderTests(t) }
 if wantAll || args.contains("reload")  { runReloadTests(t) }
 if wantAll || args.contains("reload")  { runCLIExitTests(t) }
 if wantAll || args.contains("reload")  { runSurfaceParityTests(t) }

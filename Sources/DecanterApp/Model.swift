@@ -762,15 +762,69 @@ final class AppModel: ObservableObject {
 
     /// Whether the game would start, without starting it.
     ///
-    /// `decanter check` has answered this since the beginning and the app had
-    /// no way to ask. The alternative on offer was to press Play and watch:
-    /// a black window, or nothing at all, and then a hunt through a log. This
-    /// resolves the DOS path, applies the drive scopes and asks Wine itself
-    /// whether it can see the executable — everything a launch does except the
-    /// launch.
-    func testLaunch(_ game: Game) {
-        perform("Checking whether \(game.name) would start…", key: "check", scope: game.id) { e in
-            try e.preflight(game).plainSummary
+    /// One verb where there were two, because the two names described each
+    /// other's behaviour.
+    ///
+    /// "Test Launch" did not launch — it ran the preflight and predicted.
+    /// "Troubleshoot Launch" did launch, with verbose logging. Two controls
+    /// four words apart, one of which starts a game and one of which does not,
+    /// is a coin toss dressed as a choice; and the split was wrong on its own
+    /// terms, because the prediction is only ever a prediction. A check that
+    /// says "it should start" followed by a Play that fails leaves someone
+    /// exactly where they began, having pressed two different buttons.
+    ///
+    /// Chained, they are one coherent action: find out what is wrong. The
+    /// check runs first and **stops** if it names a blocker — nothing is
+    /// launched, because a blocker is an answer and starting the game would
+    /// only produce a second copy of it. If the check passes, the game starts
+    /// with full logging, which is the only way to learn anything more.
+    ///
+    /// That a press can put a game window on screen is said on the control
+    /// itself rather than discovered. It is the same rule the rest of Decanter
+    /// keeps: nothing appears on screen that was not asked for.
+    ///
+    /// Written out rather than routed through `perform`, because what happens
+    /// next depends on the *report* and `perform` hands its caller only the
+    /// sentence it produced. The first version of this decided whether to
+    /// launch by looking for a phrase in that sentence — behaviour keyed on
+    /// prose, which holds right up until somebody improves the wording and it
+    /// starts a game that should not have been started.
+    func troubleshoot(_ game: Game) {
+        guard let e = engine else { return }
+        let label = "Checking whether \(game.name) would start…"
+        busy = label; lastError = nil; activeAction = "check"
+        reactions["check"] = nil
+        let entry = Activity(label: label, scope: game.id)
+        activity.insert(entry, at: 0)
+        if activity.count > 50 { activity.removeLast(activity.count - 50) }
+
+        Task.detached(priority: .userInitiated) {
+            var report: Engine.PreflightReport?
+            var failure: String?
+            do { report = try e.preflight(game) }
+            catch { failure = error.localizedDescription }
+            await MainActor.run {
+                let blocked = !(report?.blockers.isEmpty ?? true)
+                let detail = failure ?? (report?.plainSummary ?? "")
+                    + (blocked ? "  Nothing was started — this has to be fixed first." : "")
+                if let i = self.activity.firstIndex(where: { $0.id == entry.id }) {
+                    self.activity[i].outcome = failure == nil ? .succeeded : .failed
+                    self.activity[i].detail = detail
+                    self.activity[i].finished = Date()
+                }
+                self.lastError = failure
+                self.busy = nil; self.activeAction = nil
+                // A blocker is not a failure of the check: the check worked and
+                // the news is bad. Marking it failed puts a red mark on the one
+                // thing that did its job.
+                self.reactions["check"] = Reaction(succeeded: failure == nil, detail: detail)
+                self.reload()
+                guard failure == nil, !blocked else { return }
+                // Nothing named a reason it would not start, so the remaining
+                // question is what the game itself does — and only running it
+                // answers that.
+                self.play(game, verbose: true)
+            }
         }
     }
 

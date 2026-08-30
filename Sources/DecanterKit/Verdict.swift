@@ -116,3 +116,47 @@ public struct Verdict: Sendable {
 
     public func clear() { try? FileManager.default.removeItem(at: path) }
 }
+
+/// The things that can be wrong with one game at once, in the order they have
+/// to be dealt with.
+///
+/// Five cards could apply to a game simultaneously — an unanswered verdict, a
+/// diagnosis, an unsound environment, a setup recommendation and stray Wine
+/// processes — and they stacked, all about the same game, free to contradict
+/// each other in front of the reader. That is the fault 0.6.3 fixed one level
+/// down, where three setup cards from three sources became one decision; this
+/// is the same fix one level up.
+///
+/// The order lives here rather than in the view for one reason: it is a claim
+/// about which problem is more urgent, it will be argued with, and a claim
+/// nothing can test is a claim that quietly stops being true. The view maps
+/// its own conditions onto these cases and asks for the first one.
+public enum Concern: Int, Sendable, CaseIterable, Comparable {
+    /// What happened last time. First because every recommendation below it is
+    /// formed without knowing the answer — asking after advising means the
+    /// advice was given blind.
+    case unansweredVerdict
+    /// Something that already went wrong, as opposed to something that might.
+    case diagnosis
+    /// A Windows environment missing pieces. Above advice about graphics,
+    /// because a graphics recommendation is beside the point in an environment
+    /// that cannot load what it has.
+    case unsoundEnvironment
+    /// What Decanter would change about this game's setup.
+    case setupAdvice
+    /// Left-behind Wine processes. Last: a nuisance, never a cause.
+    case strayProcesses
+
+    public static func < (a: Concern, b: Concern) -> Bool { a.rawValue < b.rawValue }
+
+    /// The one to show. `nil` when there is nothing to say, which is the
+    /// ordinary case and must stay silent rather than render an empty card.
+    public static func mostUrgent(of present: Set<Concern>) -> Concern? {
+        present.min()
+    }
+
+    /// Whether anything here should open the repair tools by itself. Stray
+    /// processes do not: they are dealt with by their own card, and opening a
+    /// section of repairs for them points somebody at the wrong five buttons.
+    public var callsForRepairTools: Bool { self != .strayProcesses }
+}

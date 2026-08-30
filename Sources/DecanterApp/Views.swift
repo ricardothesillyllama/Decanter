@@ -127,7 +127,7 @@ struct Sidebar: View {
                         .contextMenu {
                             Button("Play") { model.play(g) }
                                 .disabled(model.running.contains(g.id))
-                            Button("Troubleshoot Launch") { model.play(g, verbose: true) }
+                            Button("Troubleshoot") { model.troubleshoot(g) }
                                 .disabled(model.running.contains(g.id))
                             Divider()
                             Button("Copy Problem Report") { model.makeReport(g) }
@@ -1055,6 +1055,15 @@ struct ComponentsCard: View {
               verbs: ["dotnet"]),
     ]
 
+    /// How many of the four are in this game's environment. Read by the
+    /// section header so a closed section still says what is inside it — a
+    /// collapsed door with no summary is a door people open to find out
+    /// nothing has changed.
+    static func installedCount(for game: Game, model: AppModel) -> Int {
+        let applied = Set(model.bottle(for: game)?.appliedRecipes ?? [])
+        return items.filter { $0.verbs.allSatisfy(applied.contains) }.count
+    }
+
     var body: some View {
         let applied = Set(model.bottle(for: game)?.appliedRecipes ?? [])
         return VStack(alignment: .leading, spacing: 10) {
@@ -1115,25 +1124,31 @@ struct GameDetail: View {
                 // an offer to go back, and a recommendation — drawn from three
                 // sources, stacked, all about the same question and free to
                 // disagree with each other in front of the reader.
-                if let a = model.advice(for: game), a.kind != .settled {
-                    SetupCard(game: game, advice: a)
-                }
-                if !model.leakedWine.isEmpty { StrayWineCard() }
-                if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
-                // Asked before anything is suggested: what happened last time
-                // is the thing most likely to change what should happen next.
-                if let p = model.pendingVerdict, p.gameID == game.id {
-                    VerdictCard(pending: p)
-                }
-                if let id = bottle?.runtimeID, let health = model.runtimeSoundness[id],
-                   !health.isSound {
-                    EnvironmentHealthCard(runtimeID: id, report: health, game: game)
-                }
+                // One card, the most urgent one. Five could apply at once —
+                // a setup recommendation, stray Wine processes, a diagnosis,
+                // an unanswered verdict and an unsound environment — and they
+                // stacked, all about the same game, free to contradict each
+                // other in front of the reader. That is the same fault 0.6.3
+                // fixed inside the setup advice itself, one level up: three
+                // cards from three sources became one decision. The others are
+                // not lost; they come back as soon as this one is resolved,
+                // which is also the order they should be dealt with in.
+                topProblem
 
-
-                DetailSection(title: "Graphics", systemImage: "square.stack.3d.up",
-                              subtitle: bottle.map { Help.plainName($0.backend) }) {
-                    graphics
+                // Three sections, grouped by when somebody needs them rather
+                // than by what they are. There were five, all the same visual
+                // weight, so nothing was primary and the whole page read as
+                // homework: Graphics, Mods, Saves & Maintenance, Windows
+                // Components, Advanced. Graphics and Windows Components are
+                // both "how this game is set up" and were two doors; the
+                // repair tools were filed under Saves, which is where nobody
+                // looks when a game will not start.
+                DetailSection(title: "How this game is set up", systemImage: "square.stack.3d.up",
+                              subtitle: setupSubtitle) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        graphics
+                        ComponentsCard(game: game)
+                    }
                 }
                 if model.mods[game.id]?.installed == true {
                     DetailSection(title: "Mods", systemImage: "wrench.and.screwdriver",
@@ -1142,13 +1157,13 @@ struct GameDetail: View {
                         ModsCard(game: game)
                     }
                 }
-                DetailSection(title: "Saves & Maintenance", systemImage: "shippingbox",
-                              subtitle: "Import, rebuild, diagnose") {
+                // Opens itself when there is something to open it for. Every
+                // control in here is a repair, and a repair is only ever
+                // wanted at one moment.
+                DetailSection(title: "If something is wrong", systemImage: "stethoscope",
+                              subtitle: "Troubleshoot, diagnose, rebuild, import saves",
+                              startsOpen: hasProblem) {
                     VStack(alignment: .leading, spacing: 18) { maintenance; troubleshoot }
-                }
-                DetailSection(title: "Windows Components", systemImage: "puzzlepiece.extension",
-                              subtitle: "Add only if a game asks for one") {
-                    ComponentsCard(game: game)
                 }
                 DetailSection(title: "Advanced", systemImage: "slider.horizontal.3",
                               subtitle: "Launch switches, language, graphics version") {
@@ -1180,6 +1195,69 @@ struct GameDetail: View {
         } message: {
             Text("Decanter never repairs a broken Windows environment — it replaces it with a clean one, which takes about half a second.\n\nAnything the game stored inside is erased, including saves that are not protected yet. Protect them first from the Saves page.")
         }
+    }
+
+    /// The single most urgent thing about this game, or nothing.
+    ///
+    /// Ranked by what has to be dealt with first rather than by what is most
+    /// alarming. An unanswered verdict comes before everything: what happened
+    /// last time is the fact most likely to change what should happen next,
+    /// and every recommendation below it is formed without knowing the answer.
+    /// A diagnosis of a real failure comes next, because it describes
+    /// something that already went wrong rather than something that might. An
+    /// unsound environment beats a setup recommendation, because a
+    /// recommendation about graphics is beside the point in a Windows
+    /// environment that is missing pieces. Stray Wine processes are last: they
+    /// are a nuisance, not a cause.
+    /// Everything currently true of this game. The order they are dealt with
+    /// in is `Concern`'s, in the kit, where it can be tested.
+    private var concerns: Set<Concern> {
+        var out: Set<Concern> = []
+        if model.pendingVerdict?.gameID == game.id { out.insert(.unansweredVerdict) }
+        if !(model.diagnosis[game.id]?.isEmpty ?? true) { out.insert(.diagnosis) }
+        if let id = bottle?.runtimeID, let h = model.runtimeSoundness[id], !h.isSound {
+            out.insert(.unsoundEnvironment)
+        }
+        if model.advice(for: game)?.kind != .settled, model.advice(for: game) != nil {
+            out.insert(.setupAdvice)
+        }
+        if !model.leakedWine.isEmpty { out.insert(.strayProcesses) }
+        return out
+    }
+
+    @ViewBuilder private var topProblem: some View {
+        switch Concern.mostUrgent(of: concerns) {
+        case .unansweredVerdict:
+            if let p = model.pendingVerdict { VerdictCard(pending: p) }
+        case .diagnosis:
+            if let rep = model.diagnosis[game.id] { DiagnosisCard(report: rep) }
+        case .unsoundEnvironment:
+            if let id = bottle?.runtimeID, let health = model.runtimeSoundness[id] {
+                EnvironmentHealthCard(runtimeID: id, report: health, game: game)
+            }
+        case .setupAdvice:
+            if let a = model.advice(for: game) { SetupCard(game: game, advice: a) }
+        case .strayProcesses:
+            StrayWineCard()
+        case nil:
+            EmptyView()
+        }
+    }
+
+    /// Whether the repair section should open itself, so the tools are in
+    /// front of somebody at the one moment they are wanted.
+    private var hasProblem: Bool {
+        if let c = Concern.mostUrgent(of: concerns), c.callsForRepairTools { return true }
+        return model.blocker(for: game) != nil
+    }
+
+    /// What the setup section says while closed: the two facts inside it.
+    private var setupSubtitle: String? {
+        guard let b = bottle else { return nil }
+        let installed = ComponentsCard.installedCount(for: game, model: model)
+        let graphics = Help.plainName(b.backend)
+        return installed == 0 ? graphics
+             : "\(graphics) · \(plural(installed, "component")) added"
     }
 
     /// Collapsed summary for the Mods section: a failure is the only thing
@@ -1474,9 +1552,19 @@ struct GameDetail: View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                ActionButton(title: "Test Launch", systemImage: "checkmark.shield",
+                // One control where there were two. "Test Launch" checked
+                // without launching; "Troubleshoot Launch" launched with a
+                // verbose log. Four words apart, opposite behaviours. This
+                // checks first and stops if the check names something that
+                // would prevent the game starting — otherwise it starts it
+                // with the log running, because at that point the only way to
+                // learn more is to watch it happen. The blurb says a window
+                // may appear, rather than leaving that to be discovered.
+                ActionButton(title: "Troubleshoot", systemImage: "checkmark.shield",
                              key: "check",
-                             blurb: "Check it would start, without starting it.") { model.testLaunch(game) }
+                             blurb: "Checks first. If nothing would stop it, starts the game with full logging.") {
+                    model.troubleshoot(game)
+                }
                 ActionButton(title: "Import Saves", systemImage: "square.and.arrow.down",
                              key: "import",
                              blurb: "Bring in saves from a backup, or from another copy of the game.") { importing = true }
@@ -1498,9 +1586,6 @@ struct GameDetail: View {
                                  ?? "For when text is missing but the buttons are the right size.") {
                     model.fixFonts(from: game)
                 }
-                ActionButton(title: "Reveal in Finder", systemImage: "folder",
-                             key: "reveal",
-                             blurb: "Open this game's Windows files.") { model.revealPrefix(game) }
             }
         }
     }

@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.7.2 — 2026-08-30
+
+A game page that was working perfectly offered forty-odd things to do, across
+five sections of identical weight, before anything had gone wrong. Counted
+rather than estimated, and the count was the smaller half of the problem.
+
+- **Two launch verbs, not three.** "Test Launch" did not launch — it ran the
+  preflight and predicted. "Troubleshoot Launch" did launch, with verbose
+  logging. Two controls four words apart, one of which starts a game and one of
+  which does not. They are now one **Troubleshoot**: the check runs first and
+  stops if it names something that would prevent the game starting, because a
+  blocker is an answer and launching would only produce a second copy of it; if
+  nothing does, the game starts with the log running, which is the only way to
+  learn more. That a press can put a game window on screen is written on the
+  control rather than discovered.
+- **One problem card, ranked.** Five could apply to a game at once — an
+  unanswered verdict, a diagnosis, an unsound environment, a setup
+  recommendation, stray Wine processes — and they stacked, all about the same
+  game, free to contradict each other in front of the reader. That is the fault
+  0.6.3 fixed one level down; this is the same fix one level up. The order is
+  `Concern` in the kit, not a chain of `else if` in a view: it is a claim about
+  which problem is more urgent, it will be argued with, and a claim nothing can
+  test is a claim that quietly stops being true. The unanswered question comes
+  first, because every recommendation below it is formed without knowing the
+  answer.
+- **Five sections became three**, grouped by when somebody needs them rather
+  than by what they are. Graphics and Windows Components are both "how this game
+  is set up" and were two doors. The repair tools were filed under "Saves &
+  Maintenance", which is not where anybody looks when a game will not start —
+  they are now "If something is wrong", and that section opens itself when
+  something is.
+- **The duplicate "Reveal in Finder" is gone.** The same button appeared twice
+  on one page, doing the same thing. The one that survives sits beside the
+  prefix path it opens.
+- Section headers say what is inside them while closed: the graphics layer and
+  how many Windows components have been added.
+
 ## v0.7.1 — 2026-08-30
 
 - **0.7.0's build was red.** `switch someOptionalBool { case true: … case nil: … }`
