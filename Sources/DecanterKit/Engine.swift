@@ -1215,9 +1215,10 @@ public final class Engine: @unchecked Sendable {
     public func rememberWorking(_ game: Game) throws {
         guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return }
         let s = setup(for: b, runtime: rt)
-        knowledge.recordSuccess(signature: Knowledge.Signature(game.detection),
-                                gameID: game.id, setup: s)
-        try knowledge.save(to: paths.knowledgePath)
+        try mutateKnowledge { k in
+            k.recordSuccess(signature: Knowledge.Signature(game.detection),
+                            gameID: game.id, setup: s)
+        }
         // Kept per game as well as in the knowledge base. The two answer
         // different questions: the knowledge base knows what works for this
         // *kind* of game, and this knows what this one was running the last
@@ -1314,10 +1315,11 @@ public final class Engine: @unchecked Sendable {
 
     public func rememberFailed(_ game: Game, failure: Knowledge.Failure = .unspecified) throws {
         guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return }
-        knowledge.recordFailure(signature: Knowledge.Signature(game.detection),
-                                gameID: game.id, setup: setup(for: b, runtime: rt),
-                                failure: failure)
-        try knowledge.save(to: paths.knowledgePath)
+        try mutateKnowledge { k in
+            k.recordFailure(signature: Knowledge.Signature(game.detection),
+                            gameID: game.id, setup: setup(for: b, runtime: rt),
+                            failure: failure)
+        }
     }
 
     /// Marks what this Mac has already seen work as vouched for.
@@ -1353,9 +1355,50 @@ public final class Engine: @unchecked Sendable {
         // reads exactly like Decanter inventing prose of its own.
         if let note { row.note = note.isEmpty ? nil : note }
         row.endorsement = try Endorsement.sign(row)
-        knowledge.record(row)
-        try knowledge.save(to: paths.knowledgePath)
+        try mutateKnowledge { $0.record(row) }
         return row
+    }
+
+    // MARK: - Writing what has been learned
+
+    private var knowledgeLockPath: URL { paths.root.appending(path: "knowledge.lock") }
+
+    /// Change the knowledge base and write it, without discarding what another
+    /// process wrote in the meantime.
+    ///
+    /// `Store.mutate` has done this for the library since the beginning, with
+    /// the reason in a comment: "The GUI and the CLI are routinely open at the
+    /// same time; without this, whichever writes last silently discards the
+    /// other's changes." Every word of that was true of the knowledge base too,
+    /// and it had none of the protection — `knowledge.save` wrote whatever was
+    /// in memory over whatever was on disk.
+    ///
+    /// The consequence was not theoretical and not subtle. An app left open
+    /// holds the knowledge it read at launch. An endorsement made at the prompt
+    /// afterwards lands on disk, and then the next thing done in that window —
+    /// confirming a launch, anything at all — writes the launch-time copy back
+    /// over it. The endorsement disappears with nothing said, and it is the one
+    /// thing here that cannot be reconstructed without the private key. It
+    /// happened twice on the maintainer's own Mac while this was being written.
+    ///
+    /// So: take the lock, adopt the disk copy, apply the change to *that*, and
+    /// write. The change is expressed as a function of the current state rather
+    /// than as a finished value, because a finished value computed before the
+    /// lock is exactly the stale write this exists to prevent.
+    public func mutateKnowledge(_ body: (inout Knowledge) throws -> Void) throws {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: paths.root, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: knowledgeLockPath.path) {
+            fm.createFile(atPath: knowledgeLockPath.path, contents: nil)
+        }
+        let fd = open(knowledgeLockPath.path, O_RDWR | O_CREAT, 0o644)
+        defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
+        if fd >= 0 { _ = flock(fd, LOCK_EX) }
+
+        var disk = Knowledge.load(at: paths.knowledgePath)
+        try body(&disk)
+        try disk.save(to: paths.knowledgePath)
+        knowledge = disk
     }
 
     // MARK: - One decision, in one place
@@ -1496,14 +1539,15 @@ public final class Engine: @unchecked Sendable {
     public func revokeEndorsement(_ game: Game) throws -> Bool {
         let sig = Knowledge.Signature(game.detection)
         var found = false
-        for i in knowledge.observations.indices
-        where knowledge.observations[i].signature == sig
-            && knowledge.observations[i].endorsement?.isEmpty == false {
-            knowledge.observations[i].endorsement = nil
-            knowledge.observations[i].note = nil
-            found = true
+        try mutateKnowledge { k in
+            for i in k.observations.indices
+            where k.observations[i].signature == sig
+                && k.observations[i].endorsement?.isEmpty == false {
+                k.observations[i].endorsement = nil
+                k.observations[i].note = nil
+                found = true
+            }
         }
-        if found { try knowledge.save(to: paths.knowledgePath) }
         return found
     }
 

@@ -250,3 +250,68 @@ func runSetupAdviceTests(_ t: Harness) {
     t.expect(e.endorsement(for: game) == nil,
              "and an unsigned setup reports no endorsement")
 }
+
+/// The bug that ate a real endorsement twice.
+///
+/// `Store.mutate` has locked and re-read since the beginning, with the reason
+/// written next to it: the GUI and the CLI are routinely open together, and
+/// without it whichever writes last silently discards the other's changes. The
+/// knowledge base had none of that — `knowledge.save` wrote whatever was in
+/// memory over whatever was on disk. An app left open holds what it read at
+/// launch; an endorsement made at the prompt afterwards was erased by the next
+/// thing done in that window.
+func runConcurrentKnowledgeTests(_ t: Harness) {
+    t.suite("A stale writer cannot erase a fresh one")
+
+    let root = Fixture.dir("kb-race")
+    let paths = Paths(root: root)
+    guard let app = try? Engine(paths: paths), let cli = try? Engine(paths: paths) else {
+        t.expect(false, "two engines can share a root"); return
+    }
+
+    let sig = Knowledge.Signature(engine: .unityMono, engineMajor: 6000, bitness: .x64,
+                                  usesD3D12: true)
+    let setup = Knowledge.Setup(runtimeKind: .wine, backend: .dxmt, layerVersion: "0.80")
+
+    // The app reads at launch. Touching `knowledge` is what loads it.
+    _ = app.knowledge.observations.count
+
+    // Meanwhile, at the prompt: something is endorsed.
+    let pair = try? Endorsement.generateKeyPair()
+    guard let pair else { t.expect(false, "a key pair can be made"); return }
+    var endorsed = Knowledge.Observation(signature: sig, setup: setup, worked: true,
+                                         gameID: UUID(), note: "signed at the prompt")
+    endorsed.endorsement = try? Endorsement.sign(endorsed, privateKeyBase64: pair.privateKeyBase64)
+    try? cli.mutateKnowledge { $0.record(endorsed) }
+
+    let onDisk = Knowledge.load(at: paths.knowledgePath)
+    t.expect(onDisk.observations.contains { $0.endorsement?.isEmpty == false },
+             "the endorsement reaches the file")
+    t.expect(!app.knowledge.observations.contains { $0.endorsement?.isEmpty == false },
+             "and the app, holding its launch copy, has not seen it")
+
+    // Now the app writes something entirely unrelated. Before the lock this
+    // wrote the launch-time copy back over the file, and the endorsement — the
+    // one thing here that cannot be rebuilt without the private key — vanished
+    // with nothing said.
+    let other = Knowledge.Signature(engine: .godot, bitness: .x64)
+    try? app.mutateKnowledge { k in
+        k.recordSuccess(signature: other, gameID: UUID(),
+                        setup: .init(runtimeKind: .wine, backend: .dxvk))
+    }
+
+    let after = Knowledge.load(at: paths.knowledgePath)
+    t.expect(after.observations.contains { $0.endorsement?.isEmpty == false },
+             "a stale writer does not erase what it never saw")
+    t.expect(after.observations.contains { $0.signature == other && !$0.seeded },
+             "and its own change still lands")
+    t.expect(app.knowledge.observations.contains { $0.endorsement?.isEmpty == false },
+             "the writer adopts the disk copy, so it is no longer stale afterwards")
+
+    // The note is part of what was signed, so it has to survive the round trip
+    // intact or the signature stops verifying.
+    let kept = after.observations.first { $0.endorsement?.isEmpty == false }
+    t.equal(kept?.note, "signed at the prompt", "with the note it was signed with")
+    t.expect(kept.map { Endorsement.isVerified($0, publicKeyBase64: pair.publicKeyBase64) } == true,
+             "and the signature still verifies after somebody else wrote the file")
+}

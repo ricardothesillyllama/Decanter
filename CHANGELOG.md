@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.6.4 — 2026-08-30
+
+One fix, and it is the one that matters: **the knowledge base is written under a
+lock, against the copy on disk.**
+
+`Store.mutate` has done this for the library since the beginning, with the
+reason written beside it — the GUI and the CLI are routinely open at the same
+time, and without it whichever writes last silently discards the other's
+changes. Every word of that was true of the knowledge base, and it had none of
+the protection: `knowledge.save` wrote whatever was in memory over whatever was
+on the disk.
+
+The failure is not subtle once it is named. An app left open holds the knowledge
+it read at launch. An endorsement made at the prompt afterwards lands on the
+disk, and the next thing done in that window — confirming a launch, importing a
+file, anything at all — writes the launch-time copy back over it. Nothing is
+said, the row still reads "worked", and the only visible sign is `endorse list`
+going empty later for no reason connected to anything anybody did. It is also
+the one thing here that cannot be reconstructed without the private key.
+
+This ate a real endorsement twice on the maintainer's own Mac while 0.6.1 to
+0.6.3 were being written, and both times it was read as a different bug: the
+first as `record` replacing rows too eagerly, which was also true and was fixed
+in 0.6.1, and the second as a stale display, which was also true and was fixed
+in 0.6.2. Neither was this.
+
+Every write now takes the lock, re-reads the file, applies the change to *that*,
+and saves — expressed as a function of the current state rather than as a
+finished value, because a value computed before the lock is exactly the stale
+write this exists to prevent. Recording a success, recording a failure,
+endorsing, revoking and importing all go through it. The suite holds a stale
+engine and a fresh one open at once and checks that the stale one cannot erase
+what it never saw.
+
+
 ## v0.6.3 — 2026-08-30
 
 Three cards said the same thing, and the strongest thing Decanter can say about

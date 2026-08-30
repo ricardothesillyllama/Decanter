@@ -869,8 +869,11 @@ public extension Engine {
                 "\(url.lastPathComponent) was written by a newer Decanter (format \(e.formatVersion); "
                 + "this one understands 1). Update before importing it.")
         }
-        let result = knowledge.merge(e)
-        if result.added > 0 { try knowledge.save(to: paths.knowledgePath) }
+        // Merged into the disk copy under the lock, like every other write —
+        // an import folding into a snapshot taken at launch would take the rest
+        // of the file back to launch with it.
+        var result = (added: 0, skipped: 0)
+        try mutateKnowledge { k in result = k.merge(e) }
         return result
     }
 

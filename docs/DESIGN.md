@@ -87,6 +87,14 @@ signature covers `worked`, `failure` and the note, so moving it onto a different
 leave an endorsement that fails to verify, which reads as tampering rather than as an honest
 change of mind. Nobody vouched for the new answer, and the row should not pretend otherwise.
 
+**Anything two processes can write is written under a lock, against the disk.** The app and the
+command line are routinely open together, so every write takes the lock, re-reads the file,
+applies the change to that, and saves. The change is expressed as a function of the current
+state, never as a finished value: a value computed before the lock is precisely the stale
+write this prevents. The library had this from the start and the knowledge base did not,
+which cost two endorsements before anyone worked out that the missing lock — rather than
+either of the two real bugs found while looking for it — was the cause.
+
 **Decanter records what it can see, and asks about what it cannot.** A clean launch is
 recorded and asks nothing. An ambiguous one — a window that appeared and then exited, a
 process with no window, a log full of errors — is a case it refuses to judge, and those are
