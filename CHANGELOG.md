@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.7.3 — 2026-08-30
+
+The disk image, which is the first thing anybody sees and was the first thing
+that looked broken.
+
+- **Nothing is drawn in the band the icons occupy.** Finder scales a background
+  picture to whatever size the window actually is; the icon positions saved in
+  `.DS_Store` are absolute points and do not scale with it. The two agree only
+  at the one size the image was laid out for — and a disk image opened as a tab
+  in an existing Finder window is never that size. The old art had an arrow
+  drawn between the two icon positions and "Drag it into Applications" across
+  the middle, so in a wide tab the words stretched, the icons stayed put, and
+  the Applications alias landed on top of "Drag". The arrow is gone and the
+  text is anchored where it cannot collide: the icons sit between 157 and 275
+  points from the top, always, which across every window height Finder produces
+  covers 0.20 to 0.69 of the height. The title sits at 0.08, the instruction at
+  0.155, the signing note at 0.90. Checked by rendering the window the way
+  Finder draws it — background scaled, icons fixed — at 620x400, 1000x500 and
+  1200x660.
+- **`.background` and `.fseventsd` are parked below the window.** They carried
+  no saved position, so Finder dropped them at the top left of the layout —
+  invisible to most people, and sitting in the middle of the arrangement for
+  anyone with ⌘⇧. on.
+- **The build checks the layout it shipped, from the bytes.** The first version
+  of this check asked Finder to read the layout back, and it passed with the
+  layout deliberately broken: Finder caches icon-view state per volume *name*,
+  so a volume called "Decanter" is answered from whatever it learned last time
+  one was mounted, including from a window somebody resized by hand. It now
+  parses `.DS_Store` with no Finder in the loop, and was proved to fail by
+  moving an icon and watching it stop the build.
+
 ## v0.7.2 — 2026-08-30
 
 A game page that was working perfectly offered forty-odd things to do, across

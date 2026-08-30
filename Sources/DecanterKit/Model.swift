@@ -478,8 +478,8 @@ public enum DecanterError: LocalizedError {
 /// tree was modified, which is the case a hash was ever for; "dev" outside a
 /// repository.
 public enum Build {
-    public static let version = "0.7.2"
-    public static let commit = ""
+    public static let version = "0.7.3"
+    public static let commit = "38ff435"
     /// A released build says its version and stops. The version is the whole
     /// of the attribution when the source it was built from is public and
     /// unmodified, and a hash there was worse than nothing: it named the commit
