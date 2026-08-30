@@ -11,7 +11,7 @@ environment, and picks the graphics translation most likely to work —
 instead of leaving you to guess between five combinations and try each by hand.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=872%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=898%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -379,7 +379,7 @@ Runtimes are pinned and measured rather than trusted, every game gets its own
 copy-on-write environment, a broken environment is replaced rather than
 repaired, and no game can see your files.
 Decanter is a CLI and a SwiftUI app over one engine, written in Swift with no
-external dependencies — every dependency is a future 404. **872 checks** run in
+external dependencies — every dependency is a future 404. **898 checks** run in
 a hand-rolled harness.
 
 ## Documentation

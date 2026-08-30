@@ -262,3 +262,53 @@ func runEndorsementTests(_ t: Harness) {
              },
              "and neither form asks the reader to know how any of it works")
 }
+
+
+/// The most ordinary thing a person does to an endorsed setup: play the game
+/// again and confirm it still works. Until 0.6.1 that erased the endorsement.
+func runEndorsementSurvivalTests(_ t: Harness) {
+    t.suite("Endorsement survives being re-recorded")
+
+    let pair = try? Endorsement.generateKeyPair()
+    guard let pair else { t.expect(false, "a key pair can be made"); return }
+
+    let sig = Knowledge.Signature(engine: .unityMono, engineMajor: 6000, bitness: .x64,
+                                  usesD3D12: true)
+    let setup = Knowledge.Setup(runtimeKind: .wine, backend: .dxmt, layerVersion: "0.80")
+    let gameID = UUID()
+
+    var k = Knowledge()
+    var endorsed = Knowledge.Observation(signature: sig, setup: setup, worked: true,
+                                         gameID: gameID, note: "runs well on Metal")
+    endorsed.endorsement = try? Endorsement.sign(endorsed, privateKeyBase64: pair.privateKeyBase64)
+    k.record(endorsed)
+    t.expect(Endorsement.isVerified(k.observations[0], publicKeyBase64: pair.publicKeyBase64),
+             "the endorsed row verifies to begin with")
+
+    // What `worked`, the app's post-launch record, and `decanter worked` all do:
+    // build a bare observation and record it.
+    k.recordSuccess(signature: sig, gameID: gameID, setup: setup)
+    t.equal(k.observations.count, 1, "confirming again replaces the row rather than adding one")
+    t.expect(k.observations[0].endorsement?.isEmpty == false,
+             "confirming a setup that already worked does not throw the endorsement away")
+    t.equal(k.observations[0].note, "runs well on Metal",
+             "and keeps the note, which is part of what was signed")
+    t.expect(Endorsement.isVerified(k.observations[0], publicKeyBase64: pair.publicKeyBase64),
+             "the carried-forward endorsement still verifies")
+
+    // A changed outcome is a different claim. Nobody signed for that, so the
+    // endorsement has to go — keeping it would leave a signature that fails to
+    // verify, which reads as tampering rather than as an honest change.
+    k.recordFailure(signature: sig, gameID: gameID, setup: setup, failure: .noDevice)
+    t.expect(k.observations[0].endorsement == nil,
+             "a setup that has since failed does not keep the endorsement for success")
+
+    // And a different game reaching the same conclusion is its own row, so it
+    // cannot displace anything.
+    var k2 = Knowledge()
+    k2.record(endorsed)
+    k2.recordSuccess(signature: sig, gameID: UUID(), setup: setup)
+    t.equal(k2.observations.count, 2, "another game agreeing adds a row instead of replacing one")
+    t.expect(k2.observations.contains { $0.endorsement?.isEmpty == false },
+             "and leaves the endorsed row alone")
+}

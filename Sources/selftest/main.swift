@@ -23,7 +23,10 @@ if wantAll || args.contains("verbs")   { runRecipeVerbTests(t) }
 if wantAll || args.contains("bench")   { runBenchTests(t) }
 if wantAll || args.contains("repair")  { runRepairTests(t) }
 if wantAll || args.contains("endorse") { runEndorsementTests(t) }
+if wantAll || args.contains("endorse") { runEndorsementSurvivalTests(t) }
 if wantAll || args.contains("verdict") { runVerdictTests(t) }
+if wantAll || args.contains("reload")  { runReloadTests(t) }
+if wantAll || args.contains("reload")  { runCLIExitTests(t) }
 if wantAll || args.contains("metal")   { runMetalHostingTests(t); runDXMTTests(t); runD3D12EvidenceTests(t) }
 if wantAll || args.contains("fwd")     { runForwardCompatTests(t); runUnknownCaseTests(t) }
 if wantAll || args.contains("docs")    { runDocsTests(t) }

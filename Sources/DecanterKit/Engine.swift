@@ -21,6 +21,26 @@ public final class Engine: @unchecked Sendable {
         refreshRuntimeCapabilities()
     }
 
+    /// Adopt whatever another process has written since this Engine was built.
+    ///
+    /// `Store.refresh()` was written for exactly this and had no callers. The
+    /// app held one Engine for its whole lifetime, `knowledge` was a `lazy var`
+    /// read once, and so anything the CLI changed stayed invisible until the
+    /// app was quit and reopened — a game moved to another backend went on
+    /// being drawn on the old one, and an endorsement made at the prompt
+    /// changed nothing on screen. The Refresh menu item recomputed the
+    /// interface over the same frozen snapshot, which is worse than having no
+    /// Refresh at all: it answers the question without looking.
+    ///
+    /// Runtime capabilities are re-derived too, because a build that was
+    /// repaired between launches can do things the recorded list says it
+    /// cannot.
+    public func reload() {
+        store.refresh()
+        knowledge = Knowledge.load(at: paths.knowledgePath)
+        refreshRuntimeCapabilities()
+    }
+
     /// Re-derives what each pinned runtime can offer, from the files on disk.
     ///
     /// `backends` is recorded at pin time, so a runtime pinned before a backend

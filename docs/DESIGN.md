@@ -78,6 +78,15 @@ failure that arrived in somebody else's export count — an unendorsed one never
 a single stranger's broken install would otherwise take an option away from everyone who
 imported it.
 
+**An endorsement outlives being re-confirmed, and not a changed outcome.** Confirming that an
+endorsed setup still works is the most ordinary thing anyone does to one, and it must not
+cost the signature — an endorsement is the only thing in Decanter that cannot be rebuilt from
+the machine it lives on. So the signature and its note are carried onto the replacement row
+whenever the claim is identical. When the outcome has changed they are dropped instead: the
+signature covers `worked`, `failure` and the note, so moving it onto a different claim would
+leave an endorsement that fails to verify, which reads as tampering rather than as an honest
+change of mind. Nobody vouched for the new answer, and the row should not pretend otherwise.
+
 **Decanter records what it can see, and asks about what it cannot.** A clean launch is
 recorded and asks nothing. An ambiguous one — a window that appeared and then exited, a
 process with no window, a log full of errors — is a case it refuses to judge, and those are

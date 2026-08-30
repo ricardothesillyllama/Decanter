@@ -211,6 +211,37 @@ public struct Knowledge: Codable, Sendable {
         /// bytes here — so it is checked, never trusted. See `Endorsement`.
         public var endorsement: String?
 
+        /// Where a row came from, as one word.
+        ///
+        /// `seeded` and `imported` are two independent flags, and every place
+        /// that wanted to print the answer had to combine them by hand. One
+        /// place did it as `seeded ? shipped : "observed here"`, which is
+        /// correct for two of the three cases and describes a stranger's
+        /// machine as this one for the third. Deriving it once removes the
+        /// chance of a caller getting it wrong again — including the GUI, which
+        /// has yet to show this at all.
+        public enum Origin: String, Sendable, CaseIterable {
+            /// A starting assumption that came with Decanter.
+            case shipped
+            /// Arrived in somebody else's export.
+            case imported
+            /// Seen on this Mac.
+            case local
+
+            public var label: String {
+                switch self {
+                case .shipped:  "shipped"
+                case .imported: "from someone else"
+                case .local:    "observed here"
+                }
+            }
+        }
+
+        public var origin: Origin {
+            if seeded { return .shipped }
+            return imported ? .imported : .local
+        }
+
         public init(signature: Signature, setup: Setup, worked: Bool,
                     failure: Failure? = nil, gameID: UUID? = nil,
                     seeded: Bool = false, imported: Bool = false, note: String? = nil,
@@ -560,11 +591,41 @@ public extension Knowledge {
     /// One observation replaces any earlier one for the same situation, setup
     /// and game: a game that failed on DXVK and later worked on it should read
     /// as "works", not as one of each.
+    /// Replaces the row for this exact situation, setup and game, keeping what
+    /// the old one carried when the claim has not changed.
+    ///
+    /// It used to replace unconditionally, and that quietly destroyed
+    /// endorsements. `recordSuccess` builds a bare observation — no note, no
+    /// signature — so the ordinary act of playing an endorsed game and
+    /// confirming it worked overwrote the endorsed row with an unendorsed one.
+    /// Nothing said so. The row still read "worked", so the only visible
+    /// symptom was `endorse list` going empty, days later, for no reason the
+    /// user could connect to anything they had done. An endorsement cannot be
+    /// regenerated without the private key, which makes this the one kind of
+    /// loss in Decanter that is not recoverable from the machine itself.
+    ///
+    /// Carried forward only when the new row makes the *same* claim. The
+    /// signature covers `worked`, `failure` and `note`, so moving it onto a row
+    /// that says something different would produce an endorsement that no
+    /// longer verifies — which is worse than dropping it, because it looks like
+    /// tampering. A changed outcome correctly loses the endorsement: nobody
+    /// vouched for that.
     mutating func record(_ o: Observation) {
+        var row = o
+        let previous = observations.first {
+            $0.signature == o.signature && $0.setup == o.setup && $0.gameID == o.gameID && !$0.seeded
+        }
+        if let previous, previous.endorsement?.isEmpty == false,
+           previous.worked == o.worked, previous.failure == o.failure {
+            // The note is part of what was signed, so it comes along or the
+            // endorsement does not.
+            if row.note == nil { row.note = previous.note }
+            if row.note == previous.note { row.endorsement = previous.endorsement }
+        }
         observations.removeAll {
             $0.signature == o.signature && $0.setup == o.setup && $0.gameID == o.gameID && !$0.seeded
         }
-        observations.append(o)
+        observations.append(row)
     }
 
     mutating func recordSuccess(signature: Signature, gameID: UUID, setup: Setup) {

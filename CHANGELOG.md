@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.6.1 — 2026-08-30
+
+A release about telling the truth. Everything here is something Decanter
+already knew and was displaying wrongly, or was quietly throwing away.
+
+- **An endorsement is no longer destroyed by playing the game.** `record`
+  replaced the row for a situation unconditionally, and the observation built
+  when a launch is confirmed carries no note and no signature — so confirming an
+  endorsed setup still worked overwrote the endorsed row with a bare one. The
+  row went on saying "worked", so the only symptom was `endorse list` going
+  empty later, for no reason connected to anything the user had done. An
+  endorsement cannot be remade without the private key, which makes this the one
+  loss in Decanter that the machine cannot recover from by itself. The
+  endorsement and its note are now carried forward when the claim is unchanged,
+  and correctly dropped when the outcome is not — a signature moved onto a
+  different claim would fail to verify, and that reads as tampering.
+- **The app reads the files again.** `Store.refresh()` existed for exactly this
+  and had no callers; the knowledge base was a `lazy var` loaded once. One
+  Engine was held for the app's whole lifetime, so anything changed at the
+  prompt stayed invisible until the app was quit and reopened: a game moved to
+  another backend went on being drawn on the old one, and an endorsement made in
+  the terminal changed nothing on screen. The Refresh menu item recomputed the
+  interface over the same frozen snapshot, which is worse than having no Refresh
+  at all — it answers without looking. The app now reloads on every action and
+  whenever its window becomes active, which is the moment it is most likely to
+  be stale.
+- **"This game is not known to run here" now loses to evidence.** The banner
+  read a static rule about the engine and never consulted the knowledge base, so
+  a game this Mac had watched run — endorsed, even — went on being told it could
+  not. `Engine.recommend` was given that precedence in 0.6.0; the interface was
+  not. A warning that survives its own disproof teaches people to ignore
+  warnings.
+- **An unknown command fails.** `usage()` took its exit status from whether any
+  argument had been given, so a command Decanter had never heard of reported
+  success — on stdout, with the whole manual attached, which scrolled the error
+  itself off the screen and made `decanter typo | head` look like help had been
+  asked for. It now exits 2, writes three lines to stderr, and names the nearest
+  real command when there is an obvious one.
+- **`decanter knowledge` stops calling other people's observations its own.**
+  Three provenances were printed as two: an imported row is not seeded, so it
+  fell through and announced itself as "observed here", in the one listing whose
+  entire job is saying where an answer came from. Endorsement is shown there
+  too — `endorse list` and `knowledge` described the same row differently.
+- **`decanter doctor` reads the bench table.** It called a build "untested"
+  after `bench` had started that build and asked it directly, so two commands in
+  one session disagreed about the same file. The DXMT verdict also moved up
+  beside the runtime it describes, from eight lines below, past the game and
+  bottle counts.
+
+
 ## v0.6.0 — 2026-08-30
 
 Decanter could tell you a game had failed. It could not tell you why the Wine

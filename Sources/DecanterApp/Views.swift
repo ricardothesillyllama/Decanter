@@ -694,7 +694,7 @@ struct GameDetail: View {
                 header
 
                 // Problems surface themselves. Everything else waits to be asked.
-                if let blocker = game.detection.blocker(onBackend: model.bottle(for: game)?.backend) {
+                if let blocker = model.blocker(for: game) {
                     UnsupportedCard(text: blocker)
                 }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
@@ -771,7 +771,7 @@ struct GameDetail: View {
 
             // One sentence saying where this game stands, before any control.
             HStack(spacing: 7) {
-                let blocked = game.detection.blocker(onBackend: model.bottle(for: game)?.backend) != nil
+                let blocked = model.blocker(for: game) != nil
                 StatusDot(color: isRunning ? Palette.running
                             : blocked ? Palette.caution
                             : problem ? Palette.danger

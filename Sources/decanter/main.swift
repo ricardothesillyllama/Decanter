@@ -65,8 +65,27 @@ func printBenchRow(_ row: Bench.RuntimeRow, stale: Bool) {
     out("")
 }
 
-func usage() -> Never {
-    out("""
+/// Every top-level command, so a typo can be answered with the nearest one
+/// rather than with the whole manual. Kept immediately beside `usage()` so a
+/// new command is added to both or to neither.
+let commandNames = [
+    "add", "args", "audit", "autoconfig", "backend", "bench", "bottles", "check",
+    "diagnose", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "fonts", "gc",
+    "help", "import", "info", "install", "knowledge", "list", "mods", "pin",
+    "recipes", "recommend", "redetect", "rederive", "remove", "reap", "repair",
+    "report", "restore", "run", "runtime", "saves", "setup", "template", "use",
+    "verdict", "version", "worked",
+]
+
+/// The help, and where it goes.
+///
+/// The stream and the exit code are the caller's to choose, and they used to be
+/// inferred here from whether any argument had been given — which meant an
+/// unrecognised command took the `args.isEmpty == false` branch and exited 0.
+/// Decanter reported success for a command it had never heard of, on stdout, so
+/// a script wrapping it read a typo as a completed action.
+func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
+    let text = """
     decanter — run Windows games on macOS
 
     SETUP
@@ -136,11 +155,60 @@ func usage() -> Never {
       decanter backend <game> <dxvk|d3dmetal|wined3d>
 
     Add --verbose for detail.
-    """)
-    exit(args.isEmpty ? 1 : 0)
+    """
+    if stderr {
+        FileHandle.standardError.write(Data((text + "\n").utf8))
+    } else {
+        out(text)
+    }
+    exit(exitCode)
 }
 
-guard let cmd = args.first else { usage() }
+/// How many single-character edits separate two commands. Only used to decide
+/// whether a typo is close enough to a real command to be worth naming.
+func editDistance(_ a: String, _ b: String) -> Int {
+    let x = Array(a), y = Array(b)
+    if x.isEmpty { return y.count }
+    if y.isEmpty { return x.count }
+    var prev = Array(0...y.count)
+    var cur = [Int](repeating: 0, count: y.count + 1)
+    for i in 1...x.count {
+        cur[0] = i
+        for j in 1...y.count {
+            cur[j] = x[i - 1] == y[j - 1]
+                ? prev[j - 1]
+                : 1 + min(prev[j - 1], min(prev[j], cur[j - 1]))
+        }
+        swap(&prev, &cur)
+    }
+    return prev[y.count]
+}
+
+/// What to say about a command that does not exist.
+///
+/// Not the full listing. Seventy lines of help scroll the actual error off the
+/// screen, and printing them on stdout makes `decanter typo | head` look like
+/// help was asked for. The error goes to stderr, names the nearest command when
+/// there is an obvious one, and says where the rest is.
+func unknownCommand(_ cmd: String) -> Never {
+    var msg = "error: there is no `decanter \(cmd)` command.\n"
+    let near = commandNames
+        .map { ($0, editDistance(cmd.lowercased(), $0)) }
+        // A third of the length, so short commands need a near-exact typo and
+        // long ones can survive a slip or two. A suggestion that is not close
+        // is worse than none: it sends someone off to read about the wrong
+        // thing.
+        .filter { $0.1 <= max(1, $0.0.count / 3) }
+        .sorted { $0.1 < $1.1 }
+    if let best = near.first {
+        msg += "       did you mean `decanter \(best.0)`?\n"
+    }
+    msg += "       `decanter help` lists everything.\n"
+    FileHandle.standardError.write(Data(msg.utf8))
+    exit(2)
+}
+
+guard let cmd = args.first else { usage(exitCode: 1) }
 let rest = Array(args.dropFirst())
 
 func engine() -> Engine {
@@ -200,8 +268,32 @@ case "doctor":
         out("  found: \(c.kind.rawValue) \(c.version)  32-bit:\(c.supports32Bit ? "yes" : "no")  \(c.wineRoot.path)")
     }
     if h.pinnedRuntimes.isEmpty { warn("nothing pinned yet — run `decanter pin`") }
+    // DXMT is the only route to Direct3D 11 straight to Metal, and whether a
+    // build can host it is a property of the binary rather than a guess. It is
+    // printed here, under the runtime it describes. It used to appear eight
+    // lines further down, past the game and bottle counts, so the same object
+    // was described twice in two places with unrelated text in between.
+    let bench = Bench(paths: e.paths)
+    let benchTable = bench.load()
     for r in h.pinnedRuntimes {
         out("  pinned: \(r.id)  backends: \(r.backends.map(\.label).joined(separator: ", "))")
+        let m = e.runtimes.metalHosting(of: r)
+        guard m.driverPath != nil else { continue }
+        // A measurement outranks an inspection. `bench` starts this build and
+        // asks it directly, so calling a measured build "untested" is the tool
+        // contradicting itself inside one session.
+        if let row = benchTable.row(r.id), !bench.isStale(row, runtime: r),
+           let f = row.finding(.dxmt) {
+            out("      \(f.provided ? "\u{2713}" : "\u{2717}") DXMT: \(f.reason)")
+            continue
+        }
+        // Two different noes, and they are not interchangeable: one build
+        // cannot be linked against at all, the other links and then cannot
+        // produce a frame.
+        let verdict = m.looksCapable ? "could host DXMT — `decanter bench` would settle it"
+            : !m.driverIsLinkable ? "cannot host DXMT — its Mac driver is a bundle, not a dylib"
+            : "cannot host DXMT — its Mac driver hides the metal-view calls"
+        out("      \(verdict)")
     }
     if h.templateBuilt {
         let age = h.templateAge.map { " (\(Int($0 / 86400))d old)" } ?? ""
@@ -211,19 +303,6 @@ case "doctor":
     out("  games: \(e.store.state.games.count)   bottles: \(e.store.state.bottles.count)")
     // A leaked Wine session keeps burning CPU under Decanter's name long after
     // the app quits, so the only place the user can see it is here.
-    // DXMT is the only route to Direct3D 11 straight to Metal, and whether a
-    // Wine build can host it is a property of the binary, not a guess.
-    for r in h.pinnedRuntimes {
-        let m = e.runtimes.metalHosting(of: r)
-        if m.driverPath == nil { continue }
-        // Two different noes, and they are not interchangeable: one build
-        // cannot be linked against at all, the other links and then cannot
-        // produce a frame.
-        let verdict = m.looksCapable ? "could host DXMT (untested)"
-            : !m.driverIsLinkable ? "cannot host DXMT — its Mac driver is a bundle, not a dylib"
-            : "cannot host DXMT — its Mac driver hides the metal-view calls"
-        out("  \(r.id): \(verdict)")
-    }
     let strays = e.strayWineProcesses()
     let old = strays.filter { $0.age > 3600 }
     let hot = strays.filter { $0.cpu >= 50 }
@@ -976,9 +1055,18 @@ case "knowledge":
             out("  \(profile)")
             for o in obs.sorted(by: { $0.worked && !$1.worked }) {
                 let mark = o.worked ? "✓" : "✗"
-                let how = o.seeded ? "(shipped)" : "(observed here)"
+                // Three provenances, and this printed two of them. An imported
+                // row is not seeded, so it fell into the else and announced
+                // itself as "observed here" — someone else's machine claiming
+                // to be this one, in the one listing whose whole job is saying
+                // where an answer came from.
+                let how = "(\(o.origin.label))"
+                // An endorsement is the strongest thing a row can carry and was
+                // invisible here, so `endorse list` and `knowledge` described
+                // the same row differently.
+                let vouched = Endorsement.isVerified(o) ? "  ✦ verified" : ""
                 let why = o.worked ? "" : " — \(( o.failure ?? .unspecified).label)"
-                out("      \(mark) \(o.setup.label.padding(toLength: 24, withPad: " ", startingAt: 0)) \(how)\(why)")
+                out("      \(mark) \(o.setup.label.padding(toLength: 24, withPad: " ", startingAt: 0)) \(how)\(vouched)\(why)")
             }
         }
         out("")
@@ -1356,6 +1444,5 @@ case "saves":
 
 case "help", "--help", "-h": usage()
 default:
-    warn("unknown command: \(cmd)")
-    usage()
+    unknownCommand(cmd)
 }

@@ -45,6 +45,7 @@ broke:
     swift run selftest repair              # filling a build's gaps without breaking it differently
     swift run selftest endorse             # signing knowledge, and what a tier is allowed to do
     swift run selftest verdict             # asking only what could not be seen, and going back
+    swift run selftest reload              # adopting another process's writes, and what a shell is told
     swift run selftest kb                  # the knowledge base: matching ladder, seeds, export
     swift run selftest fwd                 # state survives an older binary
     swift run selftest docs                # documentation matches the code, report redaction
@@ -53,7 +54,7 @@ broke:
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **872 checks.**
+the no-dependency rule. **898 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

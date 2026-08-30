@@ -59,6 +59,11 @@ final class AppModel: ObservableObject {
         do {
             let e = try engine ?? Engine()
             engine = e
+            // Read the files again before drawing anything from them. The CLI
+            // and the app are routinely open together, and until this line
+            // existed the app's answer to every question was the one it formed
+            // at launch.
+            e.reload()
             games = e.store.state.games.sorted { $0.name < $1.name }
             bottles = e.store.state.bottles
             health = e.doctor()
@@ -337,6 +342,26 @@ final class AppModel: ObservableObject {
     /// this game's runtime or backend by hand. Choosing is not knowing, so an
     /// override teaches the knowledge base nothing; but it does stop Decanter
     /// pushing back on a decision already made.
+    /// The "this will not run" warning, as it actually applies to this game.
+    ///
+    /// `DetectionResult.blocker` is a static rule about an engine, and on its
+    /// own it will keep saying a game cannot run here long after this Mac has
+    /// watched it run. The knowledge base is what settles that, so it is asked
+    /// first — the same order `Engine.recommend` uses, and for the same reason.
+    /// A warning that survives its own disproof is the fastest way to teach
+    /// someone to ignore warnings.
+    func blocker(for game: Game) -> String? {
+        guard let text = game.detection.blocker(onBackend: bottle(for: game)?.backend) else {
+            return nil
+        }
+        // Evidence outranks the rule. Anything weaker — a shipped assumption,
+        // an inference from the files — does not, and the warning stands.
+        switch recommendations[game.id]?.provenance {
+        case .seenHere, .verified: return nil
+        default: return text
+        }
+    }
+
     func isOnRecommended(_ game: Game) -> Bool {
         guard let rec = recommendations[game.id],
               let b = bottle(for: game),
