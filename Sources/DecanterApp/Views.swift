@@ -531,6 +531,168 @@ struct ActionButton: View {
     }
 }
 
+/// What to do about this game's setup — the whole of it, in one place.
+///
+/// This replaced three cards that appeared together: a warning that the game
+/// was not known to run here, an offer to go back to the setup it last worked
+/// on, and a recommendation to try something else. Each was drawn by a
+/// different view from a different source, and on a game that had been moved
+/// around they all appeared at once, saying the same thing three ways and
+/// occasionally disagreeing about it. Three ways to say one thing is not three
+/// times the help — it is a reader deciding which card to believe.
+///
+/// The decision itself is `Engine.advice(for:)`. This draws it and decides
+/// nothing.
+struct SetupCard: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.colorScheme) private var scheme
+    let game: Game
+    let advice: Engine.SetupAdvice
+
+    private var tint: Color {
+        switch advice.kind {
+        case .stuck:    Palette.caution
+        case .goBack:   Palette.running
+        default:        Palette.accent(scheme)
+        }
+    }
+
+    private var symbol: String {
+        switch advice.kind {
+        case .stuck:    "exclamationmark.octagon.fill"
+        case .goBack:   "clock.arrow.circlepath"
+        default:        "lightbulb.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: symbol).foregroundStyle(tint)
+                Text(advice.headline).font(.headline)
+                FactChip(text: advice.provenance.label)
+                    .help(advice.provenance.detail)
+                Spacer(minLength: 8)
+                if let label = advice.actionLabel {
+                    Button(label) {
+                        if advice.isRestore { model.restoreKnownGood(game) }
+                        else { model.applyRecommendation(game) }
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(model.busy != nil)
+                    .help("Nothing is launched.")
+                }
+            }
+            if !advice.explanation.isEmpty {
+                Text(advice.explanation)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Why Decanter believes it. Below the answer, never instead of it.
+            if !advice.evidence.isEmpty {
+                DisclosureGroup("Why") {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(advice.evidence.enumerated()), id: \.offset) { _, e in
+                            Text("· \(e)").font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 3)
+                }
+                .font(.caption)
+            }
+            if let c = advice.caution {
+                Label(c, systemImage: advice.kind == .goBack ? "checkmark.shield" : "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(advice.kind == .goBack ? Color.secondary : Palette.caution)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ReactionNote(key: advice.isRestore ? "restore" : "recommend")
+            if advice.kind == .stuck {
+                Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(tint.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(tint.opacity(0.30), lineWidth: 0.5))
+    }
+}
+
+/// Whether the setup this game is on has been vouched for, and — on a Mac that
+/// holds a key — the means to vouch for it.
+///
+/// Two audiences, one control, and only one of them ever sees the second half.
+/// The capability is simply having the key file, so there is no mode to enter
+/// and nothing for anyone else to discover: with no key, this is a badge or it
+/// is nothing at all.
+struct EndorsementBadge: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    @State private var editing = false
+    @State private var note = ""
+
+    var body: some View {
+        let endorsed = model.isEndorsed(game)
+        let mayEndorse = model.canEndorse(game)
+        if endorsed || mayEndorse {
+            HStack(spacing: 6) {
+                if endorsed {
+                    Label("verified", systemImage: "checkmark.seal.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Palette.running)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(Palette.running.opacity(0.14)))
+                        .help(model.endorsementNote(game)
+                              ?? "Somebody ran this setup and signed for it. The signature proves a tier and carries no name.")
+                }
+                if mayEndorse {
+                    Button(endorsed ? "Edit" : "Endorse") { note = model.endorsementNote(game) ?? ""; editing = true }
+                        .controlSize(.small)
+                        .disabled(model.busy != nil)
+                        .help("Vouch for this setup. It travels with the knowledge base and carries no name.")
+                }
+            }
+            .popover(isPresented: $editing, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Vouch for this setup").font(.headline)
+                    Text("\(game.name) is on \(model.bottle(for: game).map { Help.plainName($0.backend) } ?? "this setup") graphics, and this Mac has seen it work. Signing says so to anyone who takes your knowledge.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextField("A line about what to expect (optional)", text: $note, axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                    // The one free-text field that travels, and the only place
+                    // a title could leave this Mac. Said plainly next to the
+                    // box rather than buried in a document nobody opens.
+                    Label("This text is signed and cannot be recalled once shared. Do not name the game in it.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(Palette.caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        if model.isEndorsed(game) {
+                            Button("Withdraw", role: .destructive) {
+                                model.revokeEndorsement(game); editing = false
+                            }
+                            .help("Removes the vouching and the note. What was seen here stays recorded.")
+                        }
+                        Spacer()
+                        Button("Cancel") { editing = false }
+                        Button(model.isEndorsed(game) ? "Re-sign" : "Endorse") {
+                            model.endorse(game, note: note); editing = false
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(16).frame(width: 380)
+            }
+        }
+    }
+}
+
 /// The result of a keyed action, for controls that are not `ActionButton`s.
 ///
 /// Same rule as the buttons: what happened belongs beside what was pressed. A
@@ -716,70 +878,6 @@ struct ComponentsCard: View {
 }
 
 
-/// A game the pinned runtimes are not known to run.
-///
-/// Detection has recorded this since the beginning and the CLI printed it, but
-/// the app showed it nowhere — so a Unity 6 game looked entirely normal, said
-/// "Ready to play", and simply failed. Telling someone after they have spent an
-/// hour on it is worse than not detecting it at all.
-/// Why a game is not expected to run, and the one thing that could change that.
-///
-/// The prose already named the escape hatch — "only on a Wine build whose Mac
-/// driver exports the Metal view API" — and then left the reader to find it. A
-/// warning that names a fix and does not offer it is a worse failure than one
-/// that knows of none, so when the fix is a setup Decanter can actually reach,
-/// it is a button here. When it is not, the missing piece is named instead.
-struct UnsupportedCard: View {
-    @EnvironmentObject var model: AppModel
-    let game: Game
-    let text: String
-
-    private var escape: Engine.Recommendation? {
-        guard let rec = model.recommendation(for: game),
-              rec.provenance == .onlyOption else { return nil }
-        return rec
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                Image(systemName: "exclamationmark.octagon.fill")
-                    .foregroundStyle(Palette.caution)
-                Text("This game is not known to run here").font(.headline)
-                Spacer()
-                if let e = escape {
-                    Button("Switch to \(Help.plainName(e.backend)) Graphics") {
-                        model.applyRecommendation(game)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                    .disabled(model.busy != nil)
-                    .help("The only setup that implements what this game asks for. Nothing is launched.")
-                }
-            }
-            Markdown(text: text)
-                .font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let e = escape {
-                Text("\(Help.plainName(e.backend)) graphics is the one setup that implements what this game needs. Decanter has not seen it succeed here — it is the only thing that can work, not a thing known to.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if let missing = model.recommendation(for: game)?.caveats.first {
-                // No button, because there is nothing to press. Naming the
-                // piece that is absent is the only useful thing left to say.
-                Text(missing).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            ReactionNote(key: "recommend")
-            Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
-                .font(.caption).foregroundStyle(.tertiary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.12)))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .strokeBorder(Palette.caution.opacity(0.35), lineWidth: 0.5))
-    }
-}
 
 // MARK: - Game detail
 
@@ -800,9 +898,12 @@ struct GameDetail: View {
                 header
 
                 // Problems surface themselves. Everything else waits to be asked.
-                let blocked = model.blocker(for: game)
-                if let blocker = blocked {
-                    UnsupportedCard(game: game, text: blocker)
+                // One card, one decision. This used to be three — a warning,
+                // an offer to go back, and a recommendation — drawn from three
+                // sources, stacked, all about the same question and free to
+                // disagree with each other in front of the reader.
+                if let a = model.advice(for: game), a.kind != .settled {
+                    SetupCard(game: game, advice: a)
                 }
                 if !model.leakedWine.isEmpty { StrayWineCard() }
                 if let rep = model.diagnosis[game.id], !rep.isEmpty { DiagnosisCard(report: rep) }
@@ -815,12 +916,7 @@ struct GameDetail: View {
                    !health.isSound {
                     EnvironmentHealthCard(runtimeID: id, report: health)
                 }
-                if let good = model.restorable(game) { RestoreCard(game: game, good: good) }
-                // Not while the blocker card is up: that card now carries the
-                // recommendation itself, and two cards recommending different
-                // things — one of them a setup known to fail — is worse than
-                // either alone.
-                if blocked == nil, !model.isOnRecommended(game) { recommendationBanner }
+
 
                 DetailSection(title: "Graphics", systemImage: "square.stack.3d.up",
                               subtitle: bottle.map { Help.plainName($0.backend) }) {
@@ -881,7 +977,14 @@ struct GameDetail: View {
         let problem = !(model.diagnosis[game.id]?.isEmpty ?? true)
         let onRec = model.isOnRecommended(game)
         return VStack(alignment: .leading, spacing: 12) {
-            Text(game.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(game.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
+                // Beside the name, because it is a fact about this game's
+                // setup rather than a step in getting it running. It had no
+                // home in the app at all: the strongest thing Decanter can say
+                // about a setup could only be read at the prompt.
+                EndorsementBadge(game: game)
+            }
 
             // One sentence saying where this game stands, before any control.
             HStack(spacing: 7) {
@@ -1149,96 +1252,6 @@ struct GameDetail: View {
         .task(id: game.id) { model.loadExecutables(game) }
     }
 
-    /// The whole point: say which setup is most likely to work, and why,
-    /// instead of leaving five combinations to be tried by hand.
-    @ViewBuilder private var recommendationBanner: some View {
-        if let rec = model.recommendation(for: game) {
-            let onIt = model.isOnRecommended(game)
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 7) {
-                    Image(systemName: onIt ? "checkmark.seal.fill" : "lightbulb.fill")
-                        .foregroundStyle(onIt ? Palette.running : Palette.accent(scheme))
-                    // Same words as the Graphics control. Naming the same
-                    // thing "Standard" in one place and "DXVK" three inches
-                    // away makes them look like different settings.
-                    Text(onIt
-                         ? "You're on the recommended setup"
-                         : "Try \(Help.plainName(rec.backend)) graphics instead")
-                        .font(.callout).bold()
-                    FactChip(text: rec.provenance.label)
-                        .help(rec.provenance.detail)
-                    Spacer()
-                    if !onIt {
-                        Button("Use This") { model.applyRecommendation(game) }
-                            .buttonStyle(.borderedProminent).controlSize(.small)
-                            .disabled(model.busy != nil)
-                            .help("Switch to the recommended runtime and backend. Nothing is launched.")
-                    } else {
-                        Button("This Works") { model.markWorking(game) }
-                            .controlSize(.small)
-                            .disabled(model.busy != nil)
-                            .help(Help.markWorking)
-                    }
-                }
-                if !onIt {
-                    Text(Help.oneLiner(rec.backend))
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                ReactionNote(key: onIt ? "remember" : "recommend")
-                // Someone signed for this and wrote a line about what to
-                // expect. Kept apart from Decanter's own reasoning, because it
-                // is a different voice and reads as one.
-                if let n = rec.note {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(Palette.running).imageScale(.small)
-                        Text(n).font(.callout).foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(9)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Palette.running.opacity(0.08)))
-                }
-                // What this displaced. A vouched-for setup outranks something
-                // worked out from this Mac's own history, but it does not get
-                // to erase it — their machine still said something.
-                if let alt = rec.alternative {
-                    HStack(spacing: 6) {
-                        Text("Second option:").font(.caption).foregroundStyle(.tertiary)
-                        Text("\(alt.backend.plainName) graphics").font(.caption).bold()
-                        Text("— \(alt.why)").font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-                // The technical reasoning is the evidence, not the headline.
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("\(rec.runtimeKind == .gptk ? "Game Porting Toolkit" : "Wine 11") + \(Help.backendTechnicalName(rec.backend))")
-                            .font(.caption).foregroundStyle(.secondary)
-                        ForEach(Array(rec.reasons.prefix(3).enumerated()), id: \.offset) { _, r in
-                            Text("· \(r)").font(.caption).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 5)
-                } label: {
-                    Text("Why").font(.caption).foregroundStyle(.tertiary)
-                }
-                ForEach(Array(rec.caveats.prefix(2).enumerated()), id: \.offset) { _, c in
-                    Label(Help.plainify(c), systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(Palette.caution)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: 560, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9)
-                .fill((onIt ? Palette.running : Palette.accent(scheme)).opacity(0.10)))
-            .overlay(RoundedRectangle(cornerRadius: 9)
-                .strokeBorder((onIt ? Palette.running : Palette.accent(scheme)).opacity(0.30), lineWidth: 0.5))
-        }
-    }
 
     private var maintenance: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1428,31 +1441,6 @@ struct VerdictCard: View {
     }
 }
 
-/// The way back to a setup that is known to have worked, with a date on it.
-struct RestoreCard: View {
-    @EnvironmentObject var model: AppModel
-    let game: Game
-    let good: Game.KnownGood
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Palette.running)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("This last worked on \(good.label)").font(.callout)
-                Text("Confirmed \(good.confirmedAt.formatted(date: .abbreviated, time: .shortened)). "
-                     + "Going back keeps your saves.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("Go Back") { model.restoreKnownGood(game) }
-                .controlSize(.small).disabled(model.busy != nil)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.running.opacity(0.08)))
-    }
-}
 
 /// What a Wine build is missing, and what can be done about it here.
 ///

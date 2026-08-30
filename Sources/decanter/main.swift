@@ -101,6 +101,8 @@ func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
       decanter restore <game>         put a game back on the last setup that worked
       decanter endorse <game>         vouch for a setup you have actually run
       decanter endorse list           what is endorsed, and whether it still checks out
+      decanter endorse revoke <game>  take an endorsement back (--note "" just clears the note)
+      decanter endorse keygen         make an endorsement key pair on this Mac
         add --detail to any of these   the reasoning behind the answer, not just the answer
       decanter runtime set <game> <id>  move a game to another runtime
       decanter template build [rt]    build the golden template for a runtime
@@ -855,8 +857,25 @@ case "endorse":
             out("  the key in use came from a file beside Decanter, not from the build")
         }
 
+    case "revoke":
+        // Somebody has to be able to take back a claim they signed. A key that
+        // can only ever add is a key whose holder cannot correct themselves.
+        let (_, g) = requireGame(rest.count > 1 ? rest[1] : nil)
+        do {
+            if try e.revokeEndorsement(g) {
+                ok("withdrawn for \(Knowledge.Signature(g.detection).label)")
+                out("    what was seen here is still recorded \u{2014} the vouching and its note are not")
+                out("    anyone who already took a copy still has the old one; this cannot reach them")
+            } else {
+                out("  nothing about this game's situation is endorsed")
+            }
+        } catch { die(error) }
+
     case let name:
         let (_, g) = requireGame(name)
+        // Distinguished from a missing flag on purpose: `--note ""` asks for
+        // the note to be removed, and used to be swallowed by the same test
+        // that ignored an absent one.
         var note: String?
         if let i = rest.firstIndex(of: "--note"), i + 1 < rest.count { note = rest[i + 1] }
         do {

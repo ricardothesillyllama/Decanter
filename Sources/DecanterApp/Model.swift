@@ -107,8 +107,18 @@ final class AppModel: ObservableObject {
             health = e.doctor()
             readiness = e.readiness()
             var recs: [UUID: Engine.Recommendation] = [:]
-            for g in games { recs[g.id] = e.recommend(for: g) }
+            var advice: [UUID: Engine.SetupAdvice] = [:]
+            var endorsed: Set<UUID> = [], canSign: Set<UUID> = []
+            for g in games {
+                recs[g.id] = e.recommend(for: g)
+                advice[g.id] = e.advice(for: g)
+                if e.endorsement(for: g) != nil { endorsed.insert(g.id) }
+                if e.canEndorse(g) { canSign.insert(g.id) }
+            }
             recommendations = recs
+            adviceByGame = advice
+            endorsedSetups = endorsed
+            endorsable = canSign
             // Cheap enough to refresh with everything else, and it is the only
             // way a leaked Wine session ever becomes visible: it keeps running
             // after the app quits, so nothing else in the UI would show it.
@@ -233,6 +243,41 @@ final class AppModel: ObservableObject {
     func installRosetta() {
         perform("Installing Rosetta 2…", key: "rosetta") { e in
             try e.installRosetta()
+        }
+    }
+
+    /// Knowledge someone hands you, and knowledge you hand over.
+    ///
+    /// Deliberately a file and a button, never a fetch. Automatic would mean
+    /// reaching out to somewhere, and "Decanter makes no network requests" is a
+    /// rule that is checkable precisely because there is no exception hiding
+    /// behind a convenience. So this is framed as what it is: a file a person
+    /// gives you, by whatever means they like.
+    func importKnowledge() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a knowledge file someone shared with you"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Reading \(url.lastPathComponent)…", key: "kbImport") { e in
+            let r = try e.importKnowledge(from: url)
+            if r.added == 0 {
+                return "Nothing new — this Mac already has an answer for all \(r.skipped) of those situations."
+            }
+            let skipped = r.skipped > 0 ? " \(r.skipped) skipped: already answered here." : ""
+            return "Took \(r.added) observation(s).\(skipped) Notes are kept only where the signature checks out."
+        }
+    }
+
+    func exportKnowledge() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "decanter-knowledge.json"
+        panel.message = "Situations and outcomes only — no game names, no paths, no machine identifiers"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform("Writing \(url.lastPathComponent)…", key: "kbExport") { e in
+            let n = try e.exportKnowledge(to: url)
+            return "Wrote \(n) observation(s). No game names, no paths, no machine identifiers."
         }
     }
 
@@ -474,6 +519,41 @@ final class AppModel: ObservableObject {
 
     /// The setup this game last worked on, when it is on something else now.
     func restorable(_ game: Game) -> Game.KnownGood? { engine?.restorable(game) }
+
+    /// The single answer about this game's setup. See `Engine.SetupAdvice`:
+    /// the card is a rendering of this and decides nothing itself.
+    func advice(for game: Game) -> Engine.SetupAdvice? { adviceByGame[game.id] }
+    @Published private var adviceByGame: [UUID: Engine.SetupAdvice] = [:]
+
+    /// The endorsement on the setup this game is running, if it verifies.
+    @Published var endorsedSetups: Set<UUID> = []
+    /// Games whose current setup this Mac is in a position to vouch for.
+    @Published var endorsable: Set<UUID> = []
+    var holdsEndorsementKey: Bool { Endorsement.canEndorse }
+
+    func isEndorsed(_ game: Game) -> Bool { endorsedSetups.contains(game.id) }
+    func canEndorse(_ game: Game) -> Bool { endorsable.contains(game.id) }
+    func endorsementNote(_ game: Game) -> String? { engine?.endorsement(for: game)?.note }
+
+    /// Vouching for a setup, from the screen where the setup is chosen.
+    ///
+    /// Only ever offered where `canEndorse` is true, which means this Mac holds
+    /// a key *and* has seen this setup work. Nobody else gets a control they
+    /// cannot use, and nothing can be vouched for that was not run.
+    func endorse(_ game: Game, note: String?) {
+        perform("Vouching for this setup…", key: "endorse", scope: game.id) { e in
+            let row = try e.endorse(game, note: note)
+            return "Endorsed \(row.setup.label). It travels with the knowledge base and carries no name — only the tier."
+        }
+    }
+
+    func revokeEndorsement(_ game: Game) {
+        perform("Withdrawing the endorsement…", key: "endorse", scope: game.id) { e in
+            let did = try e.revokeEndorsement(game)
+            return did ? "Withdrawn. What was seen here is still recorded; the vouching is not."
+                       : "There was nothing here to withdraw."
+        }
+    }
 
     /// Whether the game would start, without starting it.
     ///

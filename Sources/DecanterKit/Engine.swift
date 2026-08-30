@@ -1346,11 +1346,165 @@ public final class Engine: @unchecked Sendable {
                 "nothing here records this setup as working yet. Run the game, say it worked, "
                 + "and then it can be endorsed \u{2014} verified has to mean somebody ran it")
         }
-        if let note, !note.isEmpty { row.note = note }
+        // An empty note is a request to remove one, not an absence of one.
+        // `--note ""` used to be filtered out by the same test that ignored a
+        // missing flag, so a note could be written and never taken back — and
+        // re-endorsing without a note silently re-signed the old text, which
+        // reads exactly like Decanter inventing prose of its own.
+        if let note { row.note = note.isEmpty ? nil : note }
         row.endorsement = try Endorsement.sign(row)
         knowledge.record(row)
         try knowledge.save(to: paths.knowledgePath)
         return row
+    }
+
+    // MARK: - One decision, in one place
+
+    /// What to do about this game's setup, as a single answer.
+    ///
+    /// The app used to draw up to three cards about this at once: a warning
+    /// that the game was not known to run, an offer to go back to what last
+    /// worked, and a recommendation to try something else — each rendered by a
+    /// different view from a different source, stacked, all of them about the
+    /// same decision and sometimes disagreeing about it. Three ways to say one
+    /// thing is not three times the help; it is a reader deciding which card to
+    /// believe.
+    ///
+    /// So the decision is made once, here, where it can be tested without a
+    /// window. The card is a rendering of this, and has no opinions of its own.
+    public struct SetupAdvice: Sendable {
+        public enum Kind: Sendable {
+            /// Nothing to say — the game is on the best thing available.
+            case settled
+            /// It worked on something else before. Going back is the offer.
+            case goBack
+            /// Something else is expected to work better than what it is on.
+            case tryThis
+            /// Nothing here is known to run it, and there is nothing to press.
+            case stuck
+        }
+        public var kind: Kind = .settled
+        public var headline = ""
+        /// The plain reason, in one or two sentences.
+        public var explanation = ""
+        /// Why Decanter believes it — the provenance, the date, the note.
+        public var evidence: [String] = []
+        /// What the button says. `nil` when there is nothing to do.
+        public var actionLabel: String?
+        /// The thing that has to stay true even while acting on this.
+        public var caution: String?
+        public var provenance: Provenance = .inferred
+        public var backend: GraphicsBackend?
+        public var isRestore = false
+    }
+
+    public func advice(for game: Game) -> SetupAdvice {
+        var a = SetupAdvice()
+        let rec = recommend(for: game)
+        a.provenance = rec.provenance
+        a.backend = rec.backend
+
+        let bottle = store.bottle(game.bottleID)
+        let runtime = bottle.flatMap { store.runtime($0.runtimeID) }
+        let onRecommended = rec.overriddenByUser
+            || (runtime?.kind == rec.runtimeKind && bottle?.backend == rec.backend)
+
+        // Going back outranks trying something. A setup this game was actually
+        // seen working on is a stronger claim than any recommendation, and
+        // offering both at once asks the reader to choose between Decanter's
+        // memory and Decanter's advice.
+        if let good = restorable(game) {
+            a.kind = .goBack
+            a.isRestore = true
+            a.headline = "Go back to what worked"
+            a.explanation = "\(game.name) last ran on \(good.label). It is on something else now."
+            a.evidence.append("Confirmed \(good.confirmedAt.formatted(date: .abbreviated, time: .shortened)).")
+            a.caution = "Your saves are kept. The Windows environment is rebuilt around them."
+            a.actionLabel = "Go Back"
+            a.backend = good.backend
+            return a
+        }
+
+        // Nothing will run it, and nothing can be pressed. Say so and stop —
+        // an offer here would be an invitation to try things that are already
+        // known to fail.
+        if rec.provenance == .knownLimitation {
+            a.kind = .stuck
+            a.headline = "Not known to run here"
+            a.explanation = rec.reasons.dropFirst().first ?? rec.reasons.first ?? ""
+            if let missing = rec.caveats.first { a.evidence.append(missing) }
+            return a
+        }
+
+        guard !onRecommended else { return a }
+
+        a.kind = .tryThis
+        a.headline = rec.provenance == .onlyOption
+            ? "Only \(rec.backend.plainName) graphics can run this"
+            : "Try \(rec.backend.plainName) graphics"
+        a.explanation = rec.provenance == .onlyOption
+            ? (rec.reasons.dropFirst().first ?? rec.reasons.first ?? "")
+            : (rec.reasons.first ?? "")
+        if let note = rec.note { a.evidence.append(note) }
+        a.evidence.append(rec.provenance.detail)
+        a.caution = rec.caveats.first
+        a.actionLabel = "Use This"
+        return a
+    }
+
+    // MARK: - Endorsement, per game
+
+    /// The endorsement covering the setup this game is on right now, if there
+    /// is one and it still verifies.
+    ///
+    /// The app had no way to see this at all: `endorse list` existed only at
+    /// the prompt, so the strongest thing Decanter can say about a setup was
+    /// invisible on the screen where that setup is chosen.
+    public func endorsement(for game: Game) -> Knowledge.Observation? {
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return nil }
+        let sig = Knowledge.Signature(game.detection)
+        let now = setup(for: b, runtime: rt)
+        return knowledge.observations.first {
+            $0.signature == sig && $0.setup == now && $0.worked
+                && Endorsement.isVerified($0)
+        }
+    }
+
+    /// Whether this Mac could endorse this game's current setup.
+    ///
+    /// Two things have to hold, and they are different questions: the Mac has
+    /// to hold a key, and the setup has to be one that was actually seen
+    /// working here. Verified means somebody ran it — an endorsement of
+    /// something nobody has run would be the one thing the tier must never be.
+    public func canEndorse(_ game: Game) -> Bool {
+        guard Endorsement.canEndorse else { return false }
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else { return false }
+        let sig = Knowledge.Signature(game.detection)
+        let now = setup(for: b, runtime: rt)
+        return knowledge.observations.contains {
+            $0.signature == sig && $0.setup == now && $0.worked && !$0.seeded
+        }
+    }
+
+    /// Withdraws an endorsement, leaving the observation itself alone.
+    ///
+    /// Somebody has to be able to take back a claim they signed — a key that
+    /// can only ever add is a key whose holder cannot correct themselves. The
+    /// observation stays, because it is still true that this ran here; what
+    /// goes is the vouching, and the note, which was part of what was signed.
+    @discardableResult
+    public func revokeEndorsement(_ game: Game) throws -> Bool {
+        let sig = Knowledge.Signature(game.detection)
+        var found = false
+        for i in knowledge.observations.indices
+        where knowledge.observations[i].signature == sig
+            && knowledge.observations[i].endorsement?.isEmpty == false {
+            knowledge.observations[i].endorsement = nil
+            knowledge.observations[i].note = nil
+            found = true
+        }
+        if found { try knowledge.save(to: paths.knowledgePath) }
+        return found
     }
 
     /// Every endorsed row, with whether its signature still checks out.

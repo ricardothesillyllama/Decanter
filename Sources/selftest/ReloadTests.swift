@@ -177,3 +177,76 @@ func runSurfaceParityTests(_ t: Harness) {
     }, "and says it without naming a file format or a symbol")
     t.equal(row.backends.count, 1, "the available list still holds only what is provided")
 }
+
+/// One decision, in one place.
+///
+/// The app drew up to three cards about this at once — a warning that a game
+/// was not known to run, an offer to go back to what last worked, and a
+/// recommendation to try something else — from three sources, stacked, free to
+/// disagree in front of the reader. These check that `advice` gives exactly one
+/// answer, and the right one.
+func runSetupAdviceTests(_ t: Harness) {
+    t.suite("Setup advice — one answer, not three")
+
+    let root = Fixture.dir("advice-root")
+    guard let e = try? Engine(paths: Paths(root: root)) else {
+        t.expect(false, "an engine can be made"); return
+    }
+
+    // A Unity 6 game: the shipped rules say nothing here runs it, and DXMT is
+    // named as the one thing that could. No DXMT is staged in this fixture, so
+    // there is nothing to press.
+    var d = DetectionResult()
+    d.engine = .unityMono
+    d.engineVersion = "6000.0.58f2"
+    d.bitness = .x64
+    d.knownUnsupported = "Unity 6 needs interfaces no layer here provides."
+    d.unsupportedUnless = .dxmt
+
+    let bottleID = UUID()
+    var game = Game(name: "Fixture", exePath: root.appending(path: "g.exe"),
+                    bottleID: bottleID, detection: d)
+    try? e.store.mutate { s in
+        s.games = [game]
+        s.bottles = [Bottle(id: bottleID, prefixPath: root, runtimeID: "none", backend: .wined3d)]
+    }
+
+    let stuck = e.advice(for: game)
+    t.equal(stuck.kind, .stuck, "with no host for the escape, the answer is that nothing can be done")
+    t.equal(stuck.actionLabel, nil, "and there is no button, because there is nothing to press")
+    t.expect(!stuck.headline.isEmpty, "it still says what is wrong")
+
+    // Now the game has a setup it was seen working on, and is not on it.
+    // Going back outranks everything: a setup actually observed working is a
+    // stronger claim than any recommendation, and offering both at once asks
+    // the reader to choose between Decanter's memory and Decanter's advice.
+    game.knownGood = Game.KnownGood(runtimeID: "wine-dxmt", backend: .dxmt,
+                                    layerVersion: "0.80")
+    try? e.store.mutate { $0.games = [game] }
+
+    let back = e.advice(for: game)
+    t.equal(back.kind, .goBack, "a setup it was seen working on outranks a recommendation")
+    t.equal(back.actionLabel, "Go Back", "and the button says what it does")
+    t.expect(back.isRestore, "the card knows which action to call")
+    t.expect(back.evidence.contains { $0.contains("Confirmed") },
+             "with the date, because 'it worked before' without a when is not evidence")
+    t.expect(back.caution?.contains("saves") == true,
+             "and says saves are kept, which is the thing people are afraid of")
+
+    // Exactly one of these is ever true at a time. That is the whole point.
+    let kinds: [Engine.SetupAdvice.Kind] = [stuck.kind, back.kind]
+    t.expect(Set(kinds.map(String.init(describing:))).count == kinds.count,
+             "two different situations never produce the same card")
+
+    t.suite("Endorsement is per game, and needs both halves")
+
+    // No key on a test machine, and none should be invented: `canEndorse` must
+    // be false, or the app would offer a control that cannot work.
+    if !Endorsement.canEndorse {
+        t.expect(!e.canEndorse(game), "with no key, nothing can be vouched for")
+    } else {
+        t.skip("endorsement key", "this Mac holds a key, so the no-key path cannot be checked here")
+    }
+    t.expect(e.endorsement(for: game) == nil,
+             "and an unsigned setup reports no endorsement")
+}

@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.6.3 — 2026-08-30
+
+Three cards said the same thing, and the strongest thing Decanter can say about
+a setup could only be read at a terminal.
+
+- **One card, one decision.** A game that had been moved around could show a
+  warning that it was not known to run here, an offer to go back to what last
+  worked, and a recommendation to try something else — three views, three
+  sources, stacked, all about the same question and free to disagree about it in
+  front of the reader. Three ways to say one thing is not three times the help;
+  it is a reader deciding which card to believe. The decision is now made once,
+  in `Engine.advice(for:)`, where it can be tested without a window, and the
+  card renders it and decides nothing. Going back outranks a recommendation: a
+  setup this game was seen working on is a stronger claim than any advice, and
+  offering both asks someone to choose between Decanter's memory and Decanter's
+  opinion.
+- **Endorsement is visible, beside the game's name.** It is a fact about the
+  setup rather than a step in getting the game running, so it sits with the
+  title rather than in the queue of things to do. On a Mac holding a key there
+  is an Endorse control there too — with the note field, and the warning that
+  the text is signed, travels, and cannot be recalled. On every other Mac
+  nothing appears, because the capability is simply having the key file: there
+  is no mode to enter and nothing for anyone else to find.
+- **An endorsement can be taken back.** `decanter endorse revoke <game>`, and
+  Withdraw in the app. A key that can only ever add is a key whose holder cannot
+  correct themselves. The observation stays — it is still true that this ran
+  here — and the vouching and its note go. Anyone who already took a copy still
+  has the old one, and it says so.
+- **`--note ""` clears the note.** It was swallowed by the same test that
+  ignored a missing flag, so a note could be written and never taken back — and
+  re-endorsing without one silently re-signed the old text, which reads exactly
+  like Decanter having invented prose of its own.
+- **Shared knowledge has a door in the app.** Import and export on the Setup
+  page, framed as what they are: a file a person hands you, not an update you
+  receive. There is no automatic version and there will not be one — that would
+  mean reaching out somewhere, and "Decanter makes no network requests" is
+  checkable precisely because it has no convenient exception. An export still
+  carries situations and outcomes only; there is no setting for names because a
+  name is never recorded.
+- **`decanter endorse keygen` and `revoke` are in the program's own help.** The
+  documentation had been more complete than the tool, which is backwards: the
+  person who needs help is at the prompt, not on a website.
+
+
 ## v0.6.2 — 2026-08-30
 
 Decanter did things and did not say what happened. The activity list at the

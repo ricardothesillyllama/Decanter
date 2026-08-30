@@ -167,6 +167,25 @@ struct SetupView: View {
                         .padding(.top, 2)
                 }
             }
+            asideCard("Shared knowledge", icon: "arrow.left.arrow.right") {
+                Text("Decanter learns from the games on this Mac. Someone else's Decanter can hand you what theirs learned — a file, by whatever means you like.")
+                // Said here because the alternative people expect is an
+                // automatic update, and the reason there is none is the same
+                // reason Whisky's users lost their runtimes: something that
+                // fetches is something that can reach in.
+                Text("Decanter never fetches this, and nothing leaves this Mac unless you export it.")
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Import a File…") { model.importKnowledge() }
+                        .controlSize(.small).disabled(model.busy != nil)
+                    Button("Export…") { model.exportKnowledge() }
+                        .controlSize(.small).disabled(model.busy != nil)
+                }
+                ReactionNote(key: "kbImport")
+                ReactionNote(key: "kbExport")
+                Text("An export carries situations and outcomes: no game names, no paths, no machine identifiers. There is no setting for that — a name is never recorded.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
         }
     }
 
