@@ -94,6 +94,16 @@ final class AppModel: ObservableObject {
     }
 
     func reload() {
+        // First, and outside the `do` below, and that placement is the fix.
+        //
+        // This used to sit thirty-five lines into the block, behind `doctor()`,
+        // `readiness()`, a per-game recommendation, an endorsement check and a
+        // scan for stray processes — so the one message that says "this window
+        // is running an old build" was reachable only if the old build's engine
+        // still worked end to end. The check whose whole purpose is to explain
+        // why things look wrong was disabled by things being wrong. It reads
+        // one small plist and cannot throw.
+        checkForReplacedBundle()
         do {
             let e = try engine ?? Engine()
             engine = e
@@ -133,7 +143,6 @@ final class AppModel: ObservableObject {
             // underneath still hold together. Both are cheap to ask for and
             // both are things somebody would want to see without going looking.
             pendingVerdict = Verdict(paths: e.paths).pending()
-            checkForReplacedBundle()
             // Reading a small JSON file. Nothing is measured here — `bench` is
             // the command that measures, and it starts every Wine build to do
             // it.
@@ -163,6 +172,31 @@ final class AppModel: ObservableObject {
     /// the stale one, and only quitting fixes it — closing the window does not
     /// end the process, which is exactly why this keeps happening.
     @Published var newerVersionInstalled: String?
+
+    /// Watches for the bundle being replaced underneath a running window.
+    ///
+    /// Reactivation was the only trigger, and it is not enough: the app is
+    /// replaced by a `./install.sh` in a terminal, and somebody who is reading
+    /// the terminal, taking a screenshot, and looking back at a window that
+    /// never lost focus is never reactivated at all. That is not a corner case
+    /// — it is exactly how this project is developed, and it is how three
+    /// releases of card-deleting appeared to have no effect.
+    ///
+    /// Five seconds, because it reads one small plist — microseconds — and the
+    /// cost of missing it is somebody arguing with a build that no longer
+    /// exists.
+    func startWatchingForReplacement() {
+        replacementTimer?.invalidate()
+        let t = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkForReplacedBundle() }
+        }
+        // Without this the timer stops while a menu or a sheet is open, which
+        // is a plausible moment to be sitting still for a long time.
+        RunLoop.main.add(t, forMode: .common)
+        replacementTimer = t
+    }
+
+    private var replacementTimer: Timer?
 
     func checkForReplacedBundle() {
         let plist = Bundle.main.bundleURL.appending(path: "Contents/Info.plist")

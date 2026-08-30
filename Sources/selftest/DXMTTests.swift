@@ -282,3 +282,54 @@ func runD3D12EvidenceTests(_ t: Harness) {
     let none = det.detect(exe: Fixture.unity(d3d12: false).appending(path: "TestGame.exe"))
     t.expect(!none.shipsD3D12Runtime, "no import and no SDK means no D3D12")
 }
+
+/// Kernel anti-cheat is the one failure Decanter can be certain of before a
+/// launch, and until 0.7.5 it said nothing about it. Learned from reading
+/// Whisky's own game notes, where it accounts for a share of the dead entries
+/// and where every workaround offered is for the launcher rather than the
+/// driver.
+///
+/// The first implementation matched with `has()`, which is an exact filename
+/// test against a Set — so it would have found a folder called `EasyAntiCheat`
+/// and missed `EasyAntiCheat_x64.dll`, which is how it usually ships. These
+/// exist so that cannot come back.
+func runAntiCheatTests(_ t: Harness) {
+    t.suite("Anti-cheat — found before a launch, not after one")
+
+    func detect(_ files: [String]) -> DetectionResult {
+        let d = Fixture.dir("anticheat")
+        Fixture.write(d, "Game.exe", Fixture.pe(machine: 0x8664))
+        for f in files { Fixture.write(d, f) }
+        return Detector().detect(exe: d.appending(path: "Game.exe"))
+    }
+
+    t.equal(detect([]).antiCheat, nil, "an ordinary game reports no anti-cheat")
+
+    // The shapes these actually ship as. The middle one is the case the first
+    // implementation missed.
+    t.equal(detect(["EasyAntiCheat"]).antiCheat, "Easy Anti-Cheat", "as a folder beside the game")
+    t.equal(detect(["EasyAntiCheat_x64.dll"]).antiCheat, "Easy Anti-Cheat", "as a versioned dll")
+    t.equal(detect(["easyanticheat_eos.dll"]).antiCheat, "Easy Anti-Cheat", "whatever the case")
+    t.equal(detect(["BEClient_x64.dll"]).antiCheat, "BattlEye", "BattlEye's client dll")
+    t.equal(detect(["BEService.exe"]).antiCheat, "BattlEye", "BattlEye's service")
+    t.equal(detect(["BEDaisy.sys"]).antiCheat, "BattlEye", "BattlEye's kernel driver itself")
+
+    // A name that merely starts with something similar must not trip it — the
+    // prefix test is deliberately narrow, and "bedroom.dll" is the kind of
+    // thing that would make this cry wolf.
+    t.equal(detect(["beauty.dll", "bedrock.pak"]).antiCheat, nil,
+            "an unrelated file starting with 'be' is not BattlEye")
+
+    t.suite("Anti-cheat — said first, because nothing lifts it")
+
+    // Every other blocker means "this setup is wrong". This one means "no setup
+    // works", so it has to lead — otherwise somebody spends an evening trying
+    // backends against a driver that can never load.
+    var r = Engine.PreflightReport()
+    r.blockers = ["this game uses Easy Anti-Cheat, which runs as a Windows kernel driver. There is no Windows kernel here to load it into, so no Wine build, graphics layer or setting will start it",
+                  "this game is set to Metal graphics, which wine-11.0 cannot provide"]
+    t.expect(r.plainSummary.hasPrefix("this game uses Easy Anti-Cheat"),
+             "the summary leads with the blocker no change can lift")
+    t.expect(r.plainSummary.contains("kernel"),
+             "and says why, so the answer is not just a refusal")
+}

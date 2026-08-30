@@ -380,6 +380,14 @@ public final class Engine: @unchecked Sendable {
         rep.runtimeID = rt.id
         rep.backend = bottle.backend.label
 
+        // First, because it is the only one here that no change can lift. The
+        // others say "this setup is wrong"; this one says "no setup works", and
+        // burying it under a graphics complaint sends somebody off to try
+        // backend combinations for an evening.
+        if let ac = game.detection.antiCheat {
+            rep.problems.append("\(ac) is present and needs a Windows kernel driver")
+            rep.blockers.append("this game uses \(ac), which runs as a Windows kernel driver. There is no Windows kernel here to load it into, so no Wine build, graphics layer or setting will start it")
+        }
         if game.detection.bitness == .x86 && !rt.supports32Bit {
             rep.problems.append("game is 32-bit but \(rt.id) has no 32-bit support")
             rep.blockers.append("this game is 32-bit, and \(rt.id) cannot run 32-bit programs")

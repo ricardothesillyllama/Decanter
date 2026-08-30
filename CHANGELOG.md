@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.7.5 — 2026-08-31
+
+- **The stale-build banner never appeared, and the reason was where it lived.**
+  It shipped in 0.6.5 to say "this window is running an old build, quit and
+  reopen", and it was checked thirty-five lines into `reload()`'s `do` block —
+  behind `doctor()`, `readiness()`, a per-game recommendation, an endorsement
+  check and a scan for stray processes. So the one message that explains why
+  things look wrong was reachable only if the old build's engine still worked
+  end to end. It now runs first and outside that block, where it cannot be
+  skipped, and on a five-second timer as well as on reactivation: the app is
+  replaced by a script in a terminal, and somebody reading that terminal and
+  looking back at a window that never lost focus is never reactivated at all.
+- **Kernel anti-cheat is detected and named before a launch.** Easy Anti-Cheat
+  and BattlEye install a Windows kernel driver; there is no Windows kernel here
+  to install it into, and no Wine build, graphics layer or setting changes that.
+  It is the only failure Decanter can be certain of in advance and it had
+  nothing to say about it — so somebody met a launcher error and went hunting
+  through backend combinations for an evening. It is now a blocker, and it is
+  said first, because every other blocker means "this setup is wrong" and this
+  one means "no setup works".
+  Found by reading Whisky's own game notes rather than by guessing.
+- The first version of that detection used `has()`, an exact filename match, so
+  it would have found a folder called `EasyAntiCheat` and missed
+  `EasyAntiCheat_x64.dll` — which is how it usually ships. Caught before it
+  shipped; there are now eight tests holding the shapes it has to recognise, and
+  one holding a name it must not mistake for BattlEye.
+
 ## v0.7.4 — 2026-08-31
 
 _Unreleased._

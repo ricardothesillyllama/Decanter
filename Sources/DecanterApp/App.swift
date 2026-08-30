@@ -21,6 +21,7 @@ struct DecanterApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { model.reload() }
                 }
+                .onAppear { model.startWatchingForReplacement() }
         }
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1080, height: 760)

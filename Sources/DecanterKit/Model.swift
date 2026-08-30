@@ -193,6 +193,19 @@ public struct DetectionResult: Codable, Sendable {
     /// rather than merely linked. Every Unity 6 build imports d3d12.dll
     /// whether or not it ever creates a D3D12 device.
     public var shipsD3D12Runtime: Bool = false
+    /// The kernel anti-cheat sitting next to this game, if there is one.
+    ///
+    /// The only class of failure Decanter can be certain about before a launch,
+    /// and it had nothing to say about it. Easy Anti-Cheat and BattlEye load a
+    /// kernel driver on Windows; there is no kernel here to load it into, and no
+    /// Wine build, graphics layer or setting changes that. Somebody who does not
+    /// know this loses an evening to it — and every "fix" they will find online
+    /// is for the launcher, not the driver.
+    ///
+    /// Found in the game's own folder, so it costs one directory listing and is
+    /// as certain as anything in detection gets: these ship as named files
+    /// beside the executable.
+    public var antiCheat: String?
     public var confidence: Double = 0
     public var signals: [DetectionSignal] = []
     public var recommendedRuntimeKind: RuntimeKind = .wine
@@ -216,6 +229,7 @@ public struct DetectionResult: Codable, Sendable {
         case engine, bitness, graphicsAPIs, modded, hasWarmDXVKCache, usesVideo
         case confidence, signals, recommendedRuntimeKind, recommendedBackend, recipes
         case engineVersion, knownUnsupported, unsupportedUnless, shipsD3D12Runtime
+        case antiCheat
     }
 
     public init(from decoder: Decoder) throws {
@@ -230,6 +244,7 @@ public struct DetectionResult: Codable, Sendable {
         knownUnsupported = try? c.decodeIfPresent(String.self, forKey: .knownUnsupported)
         unsupportedUnless = try? c.decodeIfPresent(GraphicsBackend.self, forKey: .unsupportedUnless)
         shipsD3D12Runtime = (try? c.decode(Bool.self, forKey: .shipsD3D12Runtime)) ?? false
+        antiCheat = try? c.decodeIfPresent(String.self, forKey: .antiCheat)
         confidence = (try? c.decode(Double.self, forKey: .confidence)) ?? 0
         signals = (try? c.decode([DetectionSignal].self, forKey: .signals)) ?? []
         recommendedRuntimeKind = (try? c.decode(RuntimeKind.self, forKey: .recommendedRuntimeKind)) ?? .wine
@@ -478,8 +493,8 @@ public enum DecanterError: LocalizedError {
 /// tree was modified, which is the case a hash was ever for; "dev" outside a
 /// repository.
 public enum Build {
-    public static let version = "0.7.4"
-    public static let commit = "ac3c6c9"
+    public static let version = "0.7.5"
+    public static let commit = "4043d09"
     /// A released build says its version and stops. The version is the whole
     /// of the attribution when the source it was built from is public and
     /// unmodified, and a hash there was worse than nothing: it named the commit

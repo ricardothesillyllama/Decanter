@@ -101,6 +101,12 @@ public struct Detector {
         let lower = Set(names.map { $0.lowercased() })
         func has(_ n: String) -> Bool { lower.contains(n.lowercased()) }
         func hasSuffix(_ s: String) -> Bool { lower.contains { $0.hasSuffix(s) } }
+        /// `has` is an exact filename match, which is right for the things it
+        /// is used on — `BepInEx`, `winhttp.dll` — and wrong for anything that
+        /// ships under several names. Anti-cheat is the second kind:
+        /// `EasyAntiCheat` is sometimes a folder and sometimes
+        /// `EasyAntiCheat_x64.dll` beside the game.
+        func hasPrefix(_ s: String) -> Bool { lower.contains { $0.hasPrefix(s.lowercased()) } }
 
         var apis = Set<String>()
         if let pe = PEReader.read(exe) {
@@ -199,6 +205,27 @@ public struct Detector {
         r.usesVideo = detectsVideo(dir: dir, exe: exe)
         if r.usesVideo {
             r.signals.append(.init("video playback detected (FMV or cutscenes)", weight: 0.05))
+        }
+
+        // --- kernel anti-cheat ------------------------------------------
+        //
+        // The one failure Decanter can be certain of before a launch, and it
+        // had nothing to say about it. Easy Anti-Cheat and BattlEye install a
+        // Windows kernel driver; there is no Windows kernel here to install it
+        // into, and no Wine build, graphics layer or setting changes that.
+        // Learned by reading Whisky's own game notes, where it accounts for the
+        // dead entries and where every workaround offered is for the launcher
+        // rather than the driver.
+        //
+        // Matched on the files these ship as, which sit in the game's folder,
+        // so this is a directory listing and is as certain as detection gets.
+        for (needle, name) in [("easyanticheat", "Easy Anti-Cheat"),
+                               ("beclient", "BattlEye"),
+                               ("bedaisy", "BattlEye"),
+                               ("beservice", "BattlEye")] where hasPrefix(needle) {
+            r.antiCheat = name
+            r.signals.append(.init("\(name) present — needs a Windows kernel driver", weight: 0.0))
+            break
         }
 
         // --- modding / cache signals ------------------------------------
