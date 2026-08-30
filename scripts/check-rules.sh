@@ -126,6 +126,20 @@ if [ -n "$BARE" ]; then
   note "a switch over an Optional uses bare true/false with case nil — write .some(true)/.none"
 fi
 
+# 10. The detail pane answers "why", and stays small.
+#
+#    It reached fourteen rows, seven of which were already on the page a few
+#    inches away — the state was the status dot, the graphics layer was a
+#    section subtitle, "vouched for" was the badge beside the title, and the
+#    engine appeared three times. None of that was a decision; it was accretion,
+#    each row true and reasonable on its own. A count is the only thing that
+#    catches accretion, because no single addition ever looks like the problem.
+ROWS=$(/usr/bin/sed -n '/struct EvidenceInspector/,/^struct /p' Sources/DecanterApp/Views.swift \
+       | grep -c 'LabeledContent(' || true)
+if [ "${ROWS:-0}" -gt 6 ]; then
+  note "the detail pane has $ROWS rows (max 6) — it answers why, and the page answers what"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a

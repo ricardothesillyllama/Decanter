@@ -1322,15 +1322,20 @@ struct GameDetail: View {
                 }
             }
 
-            // What the game *is* — useful, but not the first thing anyone needs.
-            HStack(spacing: 6) {
-                FactChip(text: game.detection.engine.label, icon: "cube.transparent")
-                    .help("The game engine Decanter identified from the files next to the executable.")
-                FactChip(text: game.detection.bitness.label)
-                    .help(Help.architecture)
-                if game.detection.modded {
-                    FactChip(text: "modded", icon: "wrench.and.screwdriver")
-                        .help("A mod loader sits next to this game. Its mods load through winhttp.dll.")
+            // Three chips, and two of them were already on screen: the engine
+            // sits under this game's name in the sidebar, and "modded" is the
+            // Mods section, which only appears when there are mods. A fact
+            // repeated is not a fact emphasised — it is a page that reads as
+            // having more in it than it does.
+            //
+            // Architecture survives on one condition. 64-bit is every game and
+            // changes nothing; 32-bit constrains which Wine builds can run it
+            // at all, which is the one time somebody needs to know. So it is
+            // shown when it is news.
+            if game.detection.bitness == .x86 {
+                HStack(spacing: 6) {
+                    FactChip(text: game.detection.bitness.label)
+                        .help(Help.architecture)
                 }
             }
             executablePicker
@@ -1866,29 +1871,25 @@ struct EvidenceInspector: View {
     @EnvironmentObject var model: AppModel
     let game: Game
     var body: some View {
+        // Fourteen rows, and seven of them were already on the page a few
+        // inches to the left: the state was the status dot, the graphics layer
+        // was the section subtitle, "vouched for" was the badge beside the
+        // title, mods was the Mods section, and the engine appeared three
+        // times — chip, sidebar, here. Counting them was the whole of the
+        // design work; the panel had grown by accretion, each row true and
+        // reasonable on its own.
+        //
+        // What is left follows one rule. **The page answers what and now; this
+        // answers why.** A person opens this to find out how Decanter reached
+        // its conclusion, and everything that does not serve that question
+        // belongs somewhere else — the three save rows moved to the Saves page,
+        // which already shows files, size, snapshots and whether they are
+        // protected, and shows them better.
         Form {
-            // Status first. The pane used to open with detection weights, which
-            // answer a question nobody has yet — "how is this game doing right
-            // now" is the one they do have.
-            // What this game is, right now, in the order somebody wants it:
-            // what it is running on, whether that has been vouched for, whether
-            // its environment is sound, and what state its saves are in. The
-            // pane used to open with detection weights — the answer to "how did
-            // Decanter identify this?", asked once, ever — and led with
-            // confidence to two decimal places, which is not a fact anyone acts
-            // on. The thing it never said at all was which runtime and graphics
-            // layer the game is actually on, and that is the first thing
-            // anybody looks for.
             Section {
-                LabeledContent("State") {
-                    Text(model.running.contains(game.id) ? "Running" : "Not running")
-                }
+                // The one fact of the "right now" group that is nowhere else:
+                // which Wine build this game's environment was made from.
                 if let b = model.bottle(for: game) {
-                    LabeledContent("Graphics") {
-                        Text(Help.plainName(b.backend)
-                             + (b.backend == .dxvk ? (b.dxvkVersion.map { " \($0)" } ?? "") : ""))
-                    }
-                    .help(Help.backend(b.backend))
                     LabeledContent("Runs on", value: b.runtimeID)
                         .help("The Wine build this game's Windows environment was made from.")
                     LabeledContent("Environment") {
@@ -1897,54 +1898,15 @@ struct EvidenceInspector: View {
                     }
                     .help(Help.generation)
                 }
-                if model.isEndorsed(game) {
-                    LabeledContent("Vouched for") {
-                        Label("verified", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(Palette.running).font(.callout)
-                    }
-                    .help(model.endorsementNote(game)
-                          ?? "Somebody ran this setup and signed for it.")
-                }
-                if let st = model.mods[game.id], st.installed {
-                    LabeledContent("Mods") {
-                        Text(st.errors.isEmpty ? "\(st.plugins.count) loaded"
-                             : "\(st.errors.count) failed")
-                            .foregroundStyle(st.errors.isEmpty ? Color.primary : Palette.caution)
-                    }
-                }
-                if let ov = model.saveOverview[game.id] {
-                    LabeledContent("Saves") {
-                        Text(ov.files == 0 ? "none yet"
-                             : "\(plural(ov.files, "file")) · \(ByteCountFormatter.string(fromByteCount: Int64(ov.bytes), countStyle: .file))")
-                    }
-                    LabeledContent("Snapshots", value: "\(ov.snapshots)")
-                        .help("Copies Decanter took before anything destructive.")
-                    LabeledContent("Protected") {
-                        Text(model.externalised.contains(game.id) ? "yes" : "not yet")
-                            .foregroundStyle(model.externalised.contains(game.id)
-                                             ? Palette.running : Palette.caution)
-                            .font(.callout)
-                    }
-                    if !model.externalised.contains(game.id), ov.files > 0 {
-                        Button("Protect Saves") { model.externaliseSaves(game) }
-                            .controlSize(.small).disabled(model.busy != nil)
-                    }
-                }
-                if let d = game.lastPlayed {
-                    LabeledContent("Last played") {
-                        Text(d.formatted(date: .abbreviated, time: .shortened))
-                    }
-                }
             } header: {
-                Text("Right now")
+                Text("This setup")
             }
             Section {
                 LabeledContent("Confidence", value: String(format: "%.2f", game.detection.confidence))
                     .help(Help.confidence)
-                LabeledContent("Engine", value: game.detection.engine.label)
-                    .help("Identified from the files sitting next to the executable.")
-                LabeledContent("Architecture", value: game.detection.bitness.label)
-                    .help(Help.architecture)
+                // Engine and architecture were here and are chips on the page.
+                // The graphics APIs are not — they are read out of the game's
+                // own binaries and are the evidence behind the backend choice.
                 if !game.detection.graphicsAPIs.isEmpty {
                     LabeledContent("Graphics") {
                         Text(game.detection.graphicsAPIs.joined(separator: ", ")).font(.evidence)

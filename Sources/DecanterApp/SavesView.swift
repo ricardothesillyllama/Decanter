@@ -127,7 +127,6 @@ struct SavesView: View {
                         .help(Help.snapshotNow)
                     if !model.externalised.contains(g.id) {
                         Button("Protect") { model.externaliseSaves(g) }
-                            .help("Moves this game's saves out of its Windows environment and links them back in, so rebuilding the environment cannot destroy them. The game does not notice.")
                             .help(Help.externaliseOne)
                     }
                 }

@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## v0.7.4 — 2026-08-31
+
+_Unreleased._
+
+## v0.7.4 — 2026-08-31
+
+Subtraction. Counted what is on screen for one game and how much of it is said
+more than once, then removed the copies rather than rearranging them.
+
+- **The detail pane went from fourteen rows to four.** Seven of the fourteen
+  were already on the page a few inches to the left: the state was the status
+  dot, the graphics layer was a section subtitle, "vouched for" was the badge
+  beside the title, mods was the Mods section — and the engine appeared three
+  times, as a chip, in the sidebar, and here. None of that was a decision. It
+  was accretion, each row true and reasonable on its own, which is why counting
+  was the whole of the design work. What is left follows one rule: **the page
+  answers what and now, the pane answers why.**
+- **The three save rows moved to the Saves page**, which already showed files,
+  size, snapshots and whether they are protected, and showed them better. The
+  Protect button went with them.
+- **Two of the three chips under the title are gone.** The engine sits under the
+  game's name in the sidebar and "modded" is the Mods section, which only
+  appears when there are mods. Architecture survives on one condition: 64-bit is
+  every game and changes nothing, while 32-bit constrains which Wine builds can
+  run it at all — so it is shown when it is news.
+- **A rule counts the pane's rows and fails above six.** A count is the only
+  thing that catches accretion, because no single addition ever looks like the
+  problem.
+- The Protect button on the Saves page carried two `.help` modifiers, so the
+  first was dead. One now.
+
+Also in this version, held back from a release of its own:
 
 The disk-image window, made simple instead of made robust.
 
@@ -22,7 +53,6 @@ it spent care on keeping three things aligned that the window did not need.
   only moves further away as the window grows, so the two cannot meet.
 - The window is shorter to match, and the icons sit in the middle of it.
 
-*Not worth a release on its own — this ships with whatever comes next.*
 
 ## v0.7.3 — 2026-08-30
 
