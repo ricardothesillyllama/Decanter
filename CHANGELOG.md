@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+The disk-image window, made simple instead of made robust.
+
+0.7.3 fixed the collision by anchoring the title, the instruction and the note
+outside the band the icons can occupy. It worked, and it was the wrong repair:
+it spent care on keeping three things aligned that the window did not need.
+
+- **The title, the instruction and the arrow are gone.** The window's own title
+  bar already says Decanter. An app icon beside an Applications alias is the
+  most recognised convention on the platform and has needed no caption for
+  twenty-five years. The arrow was the actual liability — it was drawn between
+  the two icon positions, and Finder scales a background picture to the window
+  while the icon positions do not scale, so it pointed at nothing the moment
+  anybody opened the image as a tab.
+- **What is left is one line at the bottom**: that the app is not signed by
+  Apple and the first launch needs System Settings. It is the one fact a
+  first-time user cannot get from anywhere else. Checked at every window height
+  from 340 to 900 points — the icons stay 217 points from the top and the note
+  only moves further away as the window grows, so the two cannot meet.
+- The window is shorter to match, and the icons sit in the middle of it.
+
+*Not worth a release on its own — this ships with whatever comes next.*
+
 ## v0.7.3 — 2026-08-30
 
 The disk image, which is the first thing anybody sees and was the first thing

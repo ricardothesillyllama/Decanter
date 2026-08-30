@@ -42,13 +42,13 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {200, 160, 820, 560}
+    set the bounds of container window to {200, 160, 820, 500}
     set opts to the icon view options of container window
     set arrangement of opts to not arranged
     set icon size of opts to 96
     set background picture of opts to file ".background:background.png"
-    set position of item "Decanter.app" of container window to {170, 205}
-    set position of item "Applications" of container window to {450, 205}
+    set position of item "Decanter.app" of container window to {170, 150}
+    set position of item "Applications" of container window to {450, 150}
     -- Parked below the window rather than left where Finder dropped them.
     -- They are invisible to almost everybody, and they were sitting at the top
     -- left of the layout for the people who have hidden files switched on —
@@ -56,10 +56,10 @@ tell application "Finder"
     -- reported the window looking wrong because of it. A saved position costs
     -- nothing and cannot be seen by anyone it does not affect.
     try
-      set position of item ".background" of container window to {110, 620}
+      set position of item ".background" of container window to {110, 560}
     end try
     try
-      set position of item ".fseventsd" of container window to {230, 620}
+      set position of item ".fseventsd" of container window to {230, 560}
     end try
     close
     open
@@ -96,7 +96,7 @@ for m in re.finditer(re.escape(b'Iloc'), d):
     for name in ("Decanter.app", "Applications"):
         if tail.endswith(name):
             found[name] = (x, y)
-want = {"Decanter.app": (170, 205), "Applications": (450, 205)}
+want = {"Decanter.app": (170, 150), "Applications": (450, 150)}
 if found != want:
     print("    wanted", want)
     print("    got   ", found or "no icon positions at all")
