@@ -176,6 +176,27 @@ if [ -n "$SPELLED" ]; then
   note "Wine's host directory is spelled out — use WineLayout.hostPath so an ARM64 build reads correctly"
 fi
 
+# 13. One name, one door.
+#
+#    The game page carried two sections called "Advanced", with the same icon,
+#    one holding the Wine version and one holding launch switches. Neither was
+#    wrong on its own — they were written months apart, and the duplication is
+#    only visible with both on screen at once, which is how every accretion
+#    problem in this app has arrived. A count catches accretion; a duplicate
+#    check catches this.
+#    Scoped to GameDetail, because the same heading on two different pages is
+#    not a collision: "Activity" belongs on the game page and on the global one,
+#    and they are never seen together.
+PAGE=$(/usr/bin/sed -n '/^struct GameDetail: View {/,/^struct DiagnosisCard/p' Sources/DecanterApp/Views.swift)
+HEADERS=$( { printf '%s\n' "$PAGE" | grep -ohE 'DetailSection\(title: "[^"]+"' \
+             | /usr/bin/sed 's/.*title: "//; s/"$//'
+             printf '%s\n' "$PAGE" | grep -ohE 'Text\("[^"]+"\)\.font\(\.headline\)' \
+             | /usr/bin/sed 's/^Text("//; s/").*//'; } | sort | uniq -d )
+if [ -n "$HEADERS" ]; then
+  printf '%s\n' "$HEADERS"
+  note "two sections on the game page share a heading — name each for what is inside it"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a

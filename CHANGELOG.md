@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.1 — 2026-08-31
+
+**Two sections on the game page were both called "Advanced", with the same
+icon.** One holds the Wine version and the paths that follow from it; the other
+holds launch switches, locale and DLL overrides, behind a door that asks you to
+acknowledge it first. Neither name was wrong when it was written — they went in
+months apart — and the collision is only visible with both on screen at once,
+which is how every accretion problem in this app has arrived.
+
+The first is now **Wine build**, which is what someone goes looking for it by
+name to find. The second keeps *Advanced*, because changing how a game starts
+is what that word is for.
+
+A new rule fails the build if two headings on the game page ever match again. It
+is scoped to that page: "Activity" appears there and on the global page too, and
+those are never seen together, so that is not a collision.
+
 ## v0.8.0 — 2026-08-31
 
 Decanter looks and reads more like a Mac app and less like a machine wrote it.

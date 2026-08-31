@@ -1451,14 +1451,22 @@ struct GameDetail: View {
                     .padding(.top, 8)
                 } label: {
                     // Same weight as every other section header. It was set in
-                    // small secondary text, which read as a footnote rather
-                    // than as a place to go — hiding the one control someone
-                    // who does know Wine actually came for.
+                    // small secondary text, which read as a footnote instead of
+                    // a place to go — hiding the one control someone who does
+                    // know Wine actually came for.
+                    //
+                    // Called "Wine build" and not "Advanced". It was Advanced,
+                    // and so is the section further down the page that holds
+                    // launch switches and DLL overrides: two doors, one word,
+                    // the same icon, and no way to tell from the outside which
+                    // one you wanted. This one is a Wine version and the paths
+                    // that follow from it; that one changes how the game
+                    // starts. Naming each for its contents is the whole fix.
                     HStack(spacing: 8) {
-                        Image(systemName: "slider.horizontal.3")
+                        Image(systemName: "cube")
                             .imageScale(.medium).foregroundStyle(.secondary)
                             .frame(width: 18)
-                        Text("Advanced").font(.headline)
+                        Text("Wine build").font(.headline)
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
