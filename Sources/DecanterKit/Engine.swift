@@ -235,11 +235,17 @@ public final class Engine: @unchecked Sendable {
                     progress: (String) -> Void = { _ in }) throws -> Game {
         var exe = path
         var isDir: ObjCBool = false
-        FileManager.default.fileExists(atPath: path.path, isDirectory: &isDir)
+        // Asked before anything else, because all three answers below are
+        // different problems and were being reported as the same one: a path
+        // that is not there, a folder with no game in it, and a file that is
+        // not a Windows program all came back "Not a Windows executable".
+        guard FileManager.default.fileExists(atPath: path.path, isDirectory: &isDir) else {
+            throw DecanterError.pathNotThere(path)
+        }
         if isDir.boolValue {
             progress("scanning folder for a game executable")
             guard let found = detector.findExecutable(in: path) else {
-                throw DecanterError.notAnExecutable(path)
+                throw DecanterError.noExecutableInFolder(path)
             }
             exe = found
         }
@@ -250,7 +256,7 @@ public final class Engine: @unchecked Sendable {
         // mistake, and silently making a second prefix for it wastes a rebuild.
         let target = exe.pathKey
         if let clash = store.state.games.first(where: { $0.exePath.pathKey == target }) {
-            throw DecanterError.notFound("\(exe.lastPathComponent) is already in the library as \"\(clash.name)\"")
+            throw DecanterError.alreadyInLibrary(exe: exe.lastPathComponent, as: clash.name)
         }
 
         progress("inspecting \(exe.lastPathComponent)")
@@ -815,6 +821,13 @@ public final class Engine: @unchecked Sendable {
     /// traits that did not exist yet, such as whether the game plays video.
     @discardableResult
     public func redetect(_ game: Game, progress: (String) -> Void = { _ in }) throws -> DetectionResult {
+        // Asked first, because detection answers happily about a file that is
+        // not there: every rule simply fails to match, and the result comes
+        // back "Unknown engine, unknown bitness" with a green tick on it. A
+        // re-inspection that cannot see the game has not succeeded.
+        guard FileManager.default.fileExists(atPath: game.exePath.path) else {
+            throw DecanterError.pathNotThere(game.exePath)
+        }
         progress("re-inspecting \(game.exePath.lastPathComponent)")
         var fresh = detector.detect(exe: game.exePath)
         // Video packed inside engine archives cannot be seen statically; if the

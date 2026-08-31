@@ -182,6 +182,44 @@ func runUnitTests(_ t: Harness) {
         t.equal(dupes.findings.count, 1, "repeated identical errors are de-duplicated")
         t.expect(!Diagnostics().analyse(text: "d3d11 swapchain created")
                     .findings.isEmpty == false, "graphics chatter alone is not a failure")
+
+        // The failure that reported "nothing wrong found" under a green tick.
+        // Wine's most ordinary refusal, and there was no rule for it.
+        func started(_ log: String) -> (exe: String, status: String?)? {
+            for f in d.analyse(text: log).findings {
+                if case .executableWouldNotStart(let e, let st) = f { return (e, st) }
+            }
+            return nil
+        }
+        let dllMissing = #"wine: failed to open "H:\a.exe": c0000135"#
+        t.expect(started(dllMissing) != nil, "a log Wine could not open the game from is a finding")
+        t.equal(started(dllMissing)?.status, "c0000135", "the NT status is captured")
+        t.equal(started(dllMissing)?.exe, #"H:\a.exe"#, "so is the executable it refused")
+        t.expect(d.analyse(text: dllMissing).findings.first?.summary
+                    .contains("something it needs to run is missing") == true,
+                 "c0000135 is decoded into words rather than repeated as hex")
+        t.expect(started(#"wine: failed to open "H:\g.exe": c000007b"#) != nil,
+                 "an architecture mismatch on startup is caught")
+        t.expect(d.analyse(text: #"wine: failed to open "H:\g.exe": c000007b"#).findings.first?
+                    .summary.contains("different architectures") == true,
+                 "and decoded to the architecture wording, not the DLL one")
+        t.expect(started(#"wine: cannot find L"H:\gone.exe""#) != nil,
+                 "Wine not finding the executable at all is caught")
+        t.equal(started(#"wine: failed to open "H:\a.exe": c0ffee11"#)?.status, "c0ffee11",
+                "an unrecognised status is kept")
+        t.equal(d.analyse(text: #"wine: failed to open "H:\\a.exe": c0ffee11"#).findings.first?.summary,
+                #"Windows would not start H:\\a.exe"#,
+                "and produces no invented explanation for it")
+        t.expect(d.analyse(text: #"wine: failed to open "H:\\a.exe": c0ffee11"#).findings.first?
+                    .suggestion.contains("still where Decanter found them") == true,
+                 "falling back to the one suggestion true regardless of the code")
+        // Unreal's descriptor-file line means something else entirely and is
+        // matched further down; it must not be swallowed by this rule.
+        t.expect(d.analyse(text: "LogInit: Failed to open descriptor file '../../Game.uproject'")
+                    .findings.contains { if case .unrealWrongExecutable = $0 { return true }; return false },
+                 "Unreal's descriptor-file failure is still its own finding")
+        t.expect(started("LogInit: Failed to open descriptor file '../../Game.uproject'") == nil,
+                 "and is not also reported as a refused executable")
     }
 }
 

@@ -11,11 +11,13 @@ enum Selection: Hashable {
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    @State private var selection: Selection?
+    // On the model rather than in @State, because the menu bar needs it. A
+    // command in the File menu cannot see a view's private state, and every
+    // shortcut worth having — play this game, show its details, jump to Saves
+    // — is about whatever is selected.
     // Off by default. It answers "why did Decanter choose this?", which only
     // matters once something has gone wrong — showing detection weights to
     // someone opening the app for the first time is noise.
-    @State private var showInspector = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -30,19 +32,19 @@ struct RootView: View {
             StaleBuildBanner()
             splitView
         }
-        .onAppear { if model.setupNeeded && selection == nil { selection = .setup } }
+        .onAppear { if model.setupNeeded && model.selection == nil { model.selection = .setup } }
     }
 
     private var splitView: some View {
         NavigationSplitView {
-            Sidebar(selection: $selection)
+            Sidebar(selection: $model.selection)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
         } detail: {
             Group {
-                switch selection {
+                switch model.selection {
                 case .game(let id):
                     if let g = model.games.first(where: { $0.id == id }) {
-                        GameDetail(game: g, showInspector: $showInspector)
+                        GameDetail(game: g, showInspector: $model.showInspector)
                     } else { EmptyState() }
                 case .storage:
                     StorageView()
@@ -58,18 +60,24 @@ struct RootView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { addGame() } label: { Label("Add Game", systemImage: "plus") }
+                Button { model.presentAddGamePanel() } label: { Label("Add Game", systemImage: "plus") }
                     .help(Help.addGame)
             }
             // Only a game has evidence to inspect. On Setup, Saves and
             // Windows Environments the button toggled an empty panel, which
             // reads as something being broken.
+            // Disabled, not removed. Taking the item out shortened the
+            // toolbar, which moved the Add Game button sideways every time
+            // somebody clicked Setup — a control that changes position is a
+            // control people stop aiming at.
             ToolbarItem {
-                if case .game = selection {
-                    Button { showInspector.toggle() } label: {
-                        Label("Details", systemImage: "sidebar.trailing")
-                    }.help(Help.inspectorToggle)
+                let isGame: Bool = if case .game = model.selection { true } else { false }
+                Button { model.showInspector.toggle() } label: {
+                    Label("Details", systemImage: "sidebar.trailing")
                 }
+                .disabled(!isGame)
+                .help(isGame ? Help.inspectorToggle
+                             : "Shows how Decanter set a game up. Choose a game to see it.")
             }
         }
         .overlay(alignment: .bottom) { BusyBar() }
@@ -90,14 +98,6 @@ struct RootView: View {
         .tint(Palette.accent(scheme))
     }
 
-    private func addGame() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a game folder or its .exe"
-        if panel.runModal() == .OK, let url = panel.url { model.add(path: url) }
-    }
 }
 
 // MARK: - Sidebar
@@ -147,7 +147,7 @@ struct Sidebar: View {
                             Button("Copy Problem Report") { model.makeReport(g) }
                             Button("Diagnose Last Failure") { model.diagnose(g) }
                             Divider()
-                            Button("Reveal Prefix in Finder") { model.revealPrefix(g) }
+                            Button("Show Windows Files in Finder") { model.revealPrefix(g) }
                             Divider()
                             Button("Remove Game…", role: .destructive) { pendingRemoval = g }
                         }
@@ -192,7 +192,12 @@ struct Sidebar: View {
                             isPresented: Binding(get: { pendingRemoval != nil },
                                                  set: { if !$0 { pendingRemoval = nil } }),
                             titleVisibility: .visible) {
-            Button("Remove, Keep Saves", role: .destructive) {
+            // Not destructive, deliberately. Both buttons were red, the same
+            // weight, stacked, differing by three trailing words — so the two
+            // outcomes that differ by "your saves are gone forever" looked
+            // identical. Keeping the saves is the recoverable one and now
+            // reads as the ordinary choice.
+            Button("Remove, Keep Saves") {
                 if let g = pendingRemoval { model.remove(g, keepSaves: true) }
                 pendingRemoval = nil
             }
@@ -202,7 +207,7 @@ struct Sidebar: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         } message: {
-            Text("This deletes the game's Windows environment and forgets it.\n\nYour actual game files are never touched — they live outside the prefix, wherever you downloaded them.")
+            Text("This deletes the game's Windows environment and forgets it.\n\nYour actual game files are never touched — they live outside that environment, wherever you downloaded them.")
         }
         .safeAreaInset(edge: .bottom) {
             if let h = model.health {
@@ -236,38 +241,29 @@ struct GameRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            StatusDot(color: model.running.contains(game.id) ? Palette.running : .secondary.opacity(0.5),
-                      pulsing: model.running.contains(game.id))
+            let live = model.running.contains(game.id)
+            let starting = model.starting.contains(game.id)
+            StatusDot(color: live && !starting ? Palette.running
+                        : starting ? Palette.caution
+                        : model.filesGone.contains(game.id) ? Palette.danger
+                        : .secondary.opacity(0.5),
+                      pulsing: live)
             VStack(alignment: .leading, spacing: 1) {
                 Text(game.name).lineLimit(1)
-                Text(game.detection.engine.label)
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                // The engine was the same three words down the whole list, so
+                // the one line of space each game gets said nothing that told
+                // two of them apart. A game whose files are missing is the one
+                // fact here worth the room.
+                Text(model.filesGone.contains(game.id) ? "files missing"
+                     : game.detection.engine.label)
+                    .font(.caption2)
+                    .foregroundStyle(model.filesGone.contains(game.id) ? Palette.danger : .secondary)
+                    .lineLimit(1)
             }
         }
         .padding(.vertical, 2)
     }
 }
-
-struct BottleRow: View {
-    @EnvironmentObject var model: AppModel
-    let bottle: Bottle
-
-    var owner: String {
-        model.games.first { $0.bottleID == bottle.id }?.name ?? "orphan"
-    }
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "cylinder.split.1x2").imageScale(.small).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(owner).lineLimit(1)
-                Text("gen \(bottle.generation) · \(bottle.backend.label)")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
 
 /// Wine outlives the app that started it, so a crashed or timed-out launch can
 /// leave a process spinning at full CPU indefinitely. macOS blames Decanter for
@@ -301,7 +297,7 @@ struct StrayWineCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.12)))
     }
 }
 
@@ -554,9 +550,15 @@ struct ActionButton: View {
 /// and the result was four releases' worth of screenshots reported against
 /// builds that had already fixed what they showed.
 ///
-/// Deliberately not offered as a "Restart Now" button. Relaunching would
-/// discard whatever is in flight, and the app has no business quitting itself
-/// on the strength of a version string.
+/// Still deliberately not a "Restart Now" button: relaunching would discard
+/// whatever is in flight, and the app has no business quitting itself on the
+/// strength of a version string.
+///
+/// It does offer Quit, which is a different thing — the person reading the
+/// banner is the one pressing it, it goes through AppKit's ordinary
+/// termination, and it is disabled while any work is running. A banner whose
+/// only instruction was "quit and reopen", with no way to do the first half,
+/// was asking somebody to go and find the menu it could have been.
 struct StaleBuildBanner: View {
     @EnvironmentObject var model: AppModel
 
@@ -569,6 +571,12 @@ struct StaleBuildBanner: View {
                 Text("Quit and reopen — closing the window is not enough.")
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                Button("Quit Decanter") { NSApp.terminate(nil) }
+                    .controlSize(.small)
+                    .disabled(model.busy != nil)
+                    .help(model.busy == nil
+                          ? "Quits. Open Decanter again and you get \(model.newerVersionInstalled ?? "the new build")."
+                          : "Something is still running. This becomes available when it finishes.")
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -741,6 +749,14 @@ struct EndorsementBadge: View {
                     TextField("A line about what to expect (optional)", text: $note, axis: .vertical)
                         .lineLimit(2...4)
                         .textFieldStyle(.roundedBorder)
+                        // macOS offered to fill this with a one-time code from
+                        // Messages. This is the one field in Decanter that is
+                        // signed, exported, and — as the line under it says —
+                        // cannot be recalled once shared. An unqualified
+                        // TextField is eligible for every autofill macOS has;
+                        // saying what it is not stops the offers.
+                        .textContentType(nil)
+                        .autocorrectionDisabled(false)
                     // The one free-text field that travels, and the only place
                     // a title could leave this Mac. Said plainly next to the
                     // box instead of being buried in a document nobody opens.
@@ -1119,24 +1135,44 @@ struct ComponentsCard: View {
                     .font(.caption).foregroundStyle(Palette.caution)
             }
 
+            // Above the buttons, and in the same weight as everything else
+            // somebody is expected to read. This was the faintest text on the
+            // page and sat *below* the controls it applies to, on a page whose
+            // Setup tab says "Decanter never downloads anything by itself".
+            // The rule has one exception and it is these four buttons; an
+            // exception you have to scroll past the button to learn about is
+            // not one that was disclosed.
+            Label {
+                Text("Pressing one of these runs winetricks, which downloads the component from its publisher. It is the only thing in Decanter that uses the network, and it only ever happens on this press.")
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "globe")
+            }
+            .font(.callout).foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Palette.caution.opacity(0.10)))
+
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(Self.items) { item in
                     let done = item.verbs.allSatisfy { applied.contains($0) }
                     ActionButton(title: done ? "\(item.title) ✓" : item.title,
                                  systemImage: done ? "checkmark.circle" : "shippingbox",
-                                 key: "components",
+                                 // One key per card. All four shared
+                                 // "components", so installing one spun all
+                                 // four and wrote its result into all four
+                                 // blurbs — three cards claiming work they had
+                                 // not done.
+                                 key: "components:\(item.id)",
                                  blurb: item.blurb) {
-                        model.installComponents(game, item.verbs, label: item.title)
+                        model.installComponents(game, item.verbs, label: item.title,
+                                                key: "components:\(item.id)")
                     }
                     .disabled(!model.componentToolingReady || done)
                     .opacity(done ? 0.6 : 1)
                 }
             }
-
-            Text("These are downloaded from their publishers by winetricks. Everything else in Decanter works offline.")
-                .font(.caption).foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1255,6 +1291,9 @@ struct GameDetail: View {
     /// in is `Concern`'s, in the kit, where it can be tested.
     private var concerns: Set<Concern> {
         var out: Set<Concern> = []
+        // Only the certainties. The engine rule keeps the status line it has
+        // always had; it is advice, and advice already has a card of its own.
+        if model.blocker(for: game)?.certain == true { out.insert(.cannotStart) }
         if model.pendingVerdict?.gameID == game.id { out.insert(.unansweredVerdict) }
         if !(model.diagnosis[game.id]?.isEmpty ?? true) { out.insert(.diagnosis) }
         if let id = bottle?.runtimeID, let h = model.runtimeSoundness[id], !h.isSound {
@@ -1269,6 +1308,8 @@ struct GameDetail: View {
 
     @ViewBuilder private var topProblem: some View {
         switch Concern.mostUrgent(of: concerns) {
+        case .cannotStart:
+            if let b = model.blocker(for: game) { CannotStartCard(game: game, blocker: b) }
         case .unansweredVerdict:
             if let p = model.pendingVerdict { VerdictCard(pending: p) }
         case .diagnosis:
@@ -1289,6 +1330,11 @@ struct GameDetail: View {
     /// Whether the repair section should open itself, so the tools are in
     /// front of somebody at the one moment they are wanted.
     private var hasProblem: Bool {
+        // `cannotStart` opens the repair tools with everything else. For
+        // missing files the useful control is in there; for anti-cheat there
+        // is nothing to open them for, but a section that opens on a page
+        // already explaining itself is a smaller fault than one that stays
+        // shut on a page that does not.
         if let c = Concern.mostUrgent(of: concerns), c.callsForRepairTools { return true }
         return model.blocker(for: game) != nil
     }
@@ -1315,7 +1361,7 @@ struct GameDetail: View {
         let onRec = model.isOnRecommended(game)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(game.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
+                Text(game.name).font(.pageTitle).lineLimit(2)
                 // Beside the name, because it is a fact about this game's
                 // setup rather than a step in getting it running. It had no
                 // home in the app at all: the strongest thing Decanter can say
@@ -1325,14 +1371,18 @@ struct GameDetail: View {
 
             // One sentence saying where this game stands, before any control.
             HStack(spacing: 7) {
-                let blocked = model.blocker(for: game) != nil
+                let blocker = model.blocker(for: game)
+                // A game that cannot start is not a caution. Amber was doing
+                // for "a better setup exists" and for "these files are gone"
+                // alike, which taught the colour to mean nothing much.
                 StatusDot(color: isRunning ? Palette.running
-                            : blocked ? Palette.caution
+                            : blocker?.certain == true ? Palette.danger
+                            : blocker != nil ? Palette.caution
                             : problem ? Palette.danger
                             : onRec ? Palette.running : Palette.caution,
                           pulsing: isRunning)
                 Text(Help.status(running: isRunning, onRecommended: onRec, hasProblem: problem,
-                                 knownUnsupported: blocked))
+                                 blocker: blocker))
                     .font(.title3)
                 if let d = game.lastPlayed, !isRunning {
                     Text("· last played \(d.formatted(date: .abbreviated, time: .omitted))")
@@ -1341,10 +1391,12 @@ struct GameDetail: View {
             }
 
             HStack(spacing: 10) {
+                let starting = model.starting.contains(game.id)
                 Button {
                     model.play(game)
                 } label: {
-                    Label(isRunning ? "Running" : "Play", systemImage: isRunning ? "waveform" : "play.fill")
+                    Label(starting ? "Starting…" : isRunning ? "Running" : "Play",
+                          systemImage: starting ? "hourglass" : isRunning ? "waveform" : "play.fill")
                         .frame(minWidth: 96)
                 }
                 .buttonStyle(.borderedProminent)
@@ -1481,7 +1533,7 @@ struct GameDetail: View {
                         VStack(alignment: .leading, spacing: 6) {
                             LabeledContent("Graphics layer", value: Help.backendTechnicalName(b.backend))
                             LabeledContent("Runs on", value: b.runtimeID)
-                            LabeledContent("Prefix", value: b.prefixPath.lastPathComponent)
+                            LabeledContent("Folder", value: b.prefixPath.lastPathComponent)
                                 .textSelection(.enabled)
                             Button("Reveal in Finder") { model.revealPrefix(game) }
                                 .controlSize(.small).padding(.top, 4)
@@ -1807,6 +1859,50 @@ struct VerdictCard: View {
 ///
 /// Named for the consequence, never for the libraries: "video will not play"
 /// is something to decide about, and a list of dylib names is not.
+/// Why a game will not start, when the reason is a fact rather than advice.
+///
+/// The page used to show a green dot and "Ready to play" over both of these,
+/// with a live Play button under it: a game whose folder had been emptied, and
+/// a game shipping a kernel anti-cheat that no Wine build on any Mac will ever
+/// load. Decanter knew about the second at the moment the game was added — it
+/// is a named file sitting beside the .exe — and said nothing until somebody
+/// went looking in Diagnose.
+///
+/// Play is deliberately still live underneath. This card is what Decanter
+/// knows, and the rest of the app does not enforce what it knows either.
+struct CannotStartCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    let blocker: AppModel.Blocker
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(blocker.headline, systemImage: "exclamationmark.octagon.fill")
+                .font(.headline).foregroundStyle(Palette.danger)
+            Text(blocker.detail)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            if case .filesGone = blocker {
+                HStack(spacing: 8) {
+                    Button("Show Where It Was") {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [game.exePath.deletingLastPathComponent()])
+                    }
+                    .controlSize(.small)
+                    Text("Opens the folder Decanter expected to find it in.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.danger.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(Palette.danger.opacity(0.30), lineWidth: 0.5))
+    }
+}
+
 struct EnvironmentHealthCard: View {
     @EnvironmentObject var model: AppModel
     let runtimeID: String
@@ -1850,12 +1946,18 @@ struct EnvironmentHealthCard: View {
 /// settings twice — and "bottle" is a word nobody arrives knowing.
 struct StorageView: View {
     @EnvironmentObject var model: AppModel
+    // Both of these delete without any way back, and both fired on one click
+    // while removing a game, rebuilding one and restoring a snapshot all
+    // stopped to ask. The two least reversible controls in the app were the
+    // two that asked nothing.
+    @State private var confirmGC = false
+    @State private var confirmPrune = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Windows Environments").font(.largeTitle).bold()
+                    Text("Windows Environments").font(.pageTitle)
                     Text("Every game runs inside its own private copy of Windows. They are cloned, so a second copy costs almost no disk — and no game can see another's files.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1889,13 +1991,13 @@ struct StorageView: View {
                                         GridItem(.flexible(), spacing: 8)], spacing: 8) {
                         ActionButton(title: "Clean Up Leftovers", systemImage: "trash",
                                      key: "gc",
-                                     blurb: "Delete Windows environments left behind by games you removed.") { model.gc() }
+                                     blurb: "Delete Windows environments left behind by games you removed.") { confirmGC = true }
                         // `decanter saves gc` did this and the app did not, so
                         // snapshots accumulated with nothing on any screen
                         // offering to stop them.
                         ActionButton(title: "Prune Old Snapshots", systemImage: "clock.badge.xmark",
                                      key: "savesGC",
-                                     blurb: "Keep the recent save snapshots for each game and delete the rest.") { model.pruneSnapshots() }
+                                     blurb: "Keep the \(model.snapshotRetention) most recent save snapshots for each game and delete the rest.") { confirmPrune = true }
                     }
                     .frame(maxWidth: 660)
                 }
@@ -1912,6 +2014,20 @@ struct StorageView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Windows Environments")
+        .confirmationDialog("Delete leftover Windows environments?",
+                            isPresented: $confirmGC, titleVisibility: .visible) {
+            Button("Delete Them", role: .destructive) { model.gc() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the Windows environments belonging to games that are no longer in your library, and frees the disk they were using.\n\nNothing belonging to a game still listed here is touched. It cannot be undone.")
+        }
+        .confirmationDialog("Delete older save snapshots?",
+                            isPresented: $confirmPrune, titleVisibility: .visible) {
+            Button("Delete Older Snapshots", role: .destructive) { model.pruneSnapshots() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every game keeps its \(model.snapshotRetention) most recent snapshots. Everything older is deleted permanently.\n\nYour current saves are not snapshots and are never touched by this.")
+        }
     }
 }
 
@@ -1972,10 +2088,19 @@ struct EvidenceInspector: View {
                 // at regularly off the bottom of the pane.
                 DisclosureGroup("How Decanter decided") {
                     ForEach(Array(game.detection.signals.enumerated()), id: \.offset) { _, sig in
-                        HStack(alignment: .top, spacing: 6) {
+                        // Baselines, not centres, and a fixed column for the
+                        // number. Centre alignment put each weight wherever
+                        // its own row's height happened to leave it, so a
+                        // column of identically-formatted numbers came out
+                        // ragged down the pane.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(String(format: "%.2f", sig.weight))
                                 .font(.evidence).foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                                .frame(width: 30, alignment: .trailing)
                             Text(sig.rule).font(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .help("Weight \(String(format: "%.2f", sig.weight)) — heavier evidence counted for more.")
                     }
@@ -2007,99 +2132,35 @@ struct EvidenceInspector: View {
     }
 }
 
-// MARK: - Bottles
-
-struct BottleDetail: View {
-    @EnvironmentObject var model: AppModel
-    let bottle: Bottle
-
-    var owner: Game? { model.games.first { $0.bottleID == bottle.id } }
-
-    private func backendsFor(_ b: Bottle) -> [GraphicsBackend] {
-        model.pinnedRuntimes.first { $0.id == b.runtimeID }?.backends ?? [.dxvk, .wined3d]
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(owner?.name ?? "Orphaned bottle")
-                    .font(.system(size: 26, weight: .semibold))
-                HStack(spacing: 6) {
-                    FactChip(text: "generation \(bottle.generation)").help(Help.generation)
-                    FactChip(text: bottle.runtimeID, icon: "shippingbox").help(Help.runtimePinned)
-                    FactChip(text: bottle.backend.label).help(Help.backend(bottle.backend))
-                }
-                GroupBox("Prefix") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(bottle.prefixPath.path).font(.evidence).textSelection(.enabled)
-                        Text("Health: \(bottle.health.label)").font(.caption).foregroundStyle(.secondary)
-                            .help(Help.bottleHealth)
-                        if !bottle.appliedRecipes.isEmpty {
-                            Text("Recipes: \(bottle.appliedRecipes.joined(separator: ", "))")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .help(Help.recipes)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let g = owner {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 6) {
-                                Text("Graphics settings live on the bottle").font(.callout).bold()
-                                InfoButton(text: Help.graphicsAreBottleScoped, title: "Why bottle-scoped?")
-                            }
-                            Picker("Backend", selection: Binding(
-                                get: { bottle.backend },
-                                set: { model.setBackend(g, $0) })) {
-                                ForEach(backendsFor(bottle), id: \.self) { Text($0.label).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
-                            .help(Help.backendPicker)
-                            Picker("Runtime", selection: Binding(
-                                get: { bottle.runtimeID },
-                                set: { model.setRuntime(g, $0) })) {
-                                ForEach(model.pinnedRuntimes) { rt in Text(rt.id).tag(rt.id) }
-                            }
-                            .help(Help.runtimePicker)
-                            Text(Help.backend(bottle.backend))
-                                .font(.caption).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(model.busy != nil)
-                }
-
-                HStack {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([bottle.prefixPath])
-                    }.help(Help.revealPrefix)
-                    if owner == nil {
-                        Button("Clean Up Orphans") { model.gc() }.help(Help.orphanBottle)
-                    }
-                }
-                Text("A broken prefix is never repaired here — it is thrown away and re-derived from the golden template, which takes about half a second.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 4)
-            }
-            .padding(26)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .navigationTitle(owner?.name ?? "Bottle")
-    }
-}
-
 // MARK: - Chrome
 
+/// What fills the detail pane when nothing is selected.
+///
+/// This is the most-seen surface in the app — it is what every launch opens on
+/// and what a deletion returns you to — and it held the zero-library pitch
+/// regardless of how many games were in the library. Somebody with eight games
+/// was told, at every launch, to drop a game folder into the window.
 struct EmptyState: View {
+    @EnvironmentObject var model: AppModel
+
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "drop.degreesign")
+            Image(systemName: model.games.isEmpty ? "drop.degreesign" : "sidebar.left")
                 .font(.system(size: 40, weight: .light)).foregroundStyle(.tertiary)
-            Text("Drop a game folder anywhere in this window")
-                .font(.title3).foregroundStyle(.secondary)
-            Text("Decanter inspects the binary, picks a runtime, and clones it a private prefix.")
-                .font(.callout).foregroundStyle(.tertiary)
+            if model.games.isEmpty {
+                Text("Drop a game folder anywhere in this window")
+                    .font(.title3).foregroundStyle(.secondary)
+                Text("Decanter inspects the program, works out what it needs, and gives it a private copy of Windows to run in.")
+                    .font(.callout).foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center).frame(maxWidth: 420)
+            } else {
+                Text("Choose a game from the list")
+                    .font(.title3).foregroundStyle(.secondary)
+                Text(model.games.count == 1
+                     ? "One game is set up. Drop another folder in to add one."
+                     : "\(model.games.count) games are set up. Drop another folder in to add one.")
+                    .font(.callout).foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

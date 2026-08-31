@@ -44,10 +44,28 @@ public struct Diagnostics {
         /// an architecture refusal — sending a 64-bit game after 32-bit
         /// support over a missing library.
         case fontLibraryMissing
+        /// Wine could not start the executable at all, with the NT status it
+        /// gave for refusing.
+        ///
+        /// The most common way a launch fails, and nothing here matched it.
+        /// A log whose only line was `wine: failed to open "H:\\game.exe":
+        /// c0000135` came back as "nothing wrong found in the last run's log",
+        /// under a green tick, which is the worst thing this file can do.
+        ///
+        /// The status is decoded rather than repeated. `c0000135` and
+        /// `c000007b` are different problems with different fixes, and neither
+        /// hex string is something a person can act on.
+        case executableWouldNotStart(exe: String, status: String?)
 
         public var summary: String {
             switch self {
             case .missingDLL(let d):        "Missing DLL: \(d)"
+            case .executableWouldNotStart(let exe, let status):
+                if let m = Diagnostics.statusMeaning(status) {
+                    "Windows would not start \(exe): \(m.what)"
+                } else {
+                    "Windows would not start \(exe)"
+                }
             case .vulkanUnavailable:        "Vulkan/MoltenVK unavailable — DXVK cannot start"
             case .d3dMetalUnavailable:      "D3DMetal libraries not found for this runtime"
             case .bitnessRefused:           "Runtime refused the executable's architecture"
@@ -80,11 +98,32 @@ public struct Diagnostics {
             }
         }
 
+        /// Whether this finding means the game's process will never exist.
+        ///
+        /// The launch watcher waits for a process to appear before it will
+        /// conclude anything, and waited the whole timeout even when the log
+        /// had already said, in its first line and within a second, that Wine
+        /// refused the executable. Somebody watched "Running" for the better
+        /// part of a minute over a game that never started.
+        ///
+        /// Only refusals to start. A missing DLL or a graphics complaint can
+        /// appear in the log of a launch that goes on to work perfectly, and
+        /// treating those as fatal would cut short a healthy start.
+        public var meansItWillNeverStart: Bool {
+            switch self {
+            case .executableWouldNotStart, .bitnessRefused, .unrealWrongExecutable: true
+            default: false
+            }
+        }
+
         /// What Decanter should try next. This is the bit that makes the
         /// "works on the most games" goal operational rather than aspirational.
         public var suggestion: String {
             switch self {
             case .missingDLL(let d):     "Install the dependency providing \(d), then re-derive the prefix."
+            case .executableWouldNotStart(_, let status):
+                Diagnostics.statusMeaning(status)?.fix
+                    ?? "Check that the game's files are still where Decanter found them, then re-inspect it."
             case .vulkanUnavailable:     "Switch this game's backend to wined3d."
             case .d3dMetalUnavailable:   "Switch to the Wine runtime with the dxvk backend."
             case .bitnessRefused:        "Use a runtime with 32-bit support (Wine 11 has WoW64)."
@@ -195,6 +234,20 @@ public struct Diagnostics {
                 || l.contains("vulkan 1.3 capable setup is required") {
                 found.append(.dxvkNeedsNewerVulkan)
             }
+            // Checked before the module rules below: when Wine refuses the
+            // executable itself, everything after it in the log is a
+            // consequence, and the module lines are the noise.
+            //
+            // "failed to open descriptor file" is Unreal's, matched further
+            // down, and means something entirely different.
+            if (l.contains("failed to open") && !l.contains("descriptor file"))
+                || (l.contains("wine:") && l.contains("cannot find")) {
+                let exe = Self.firstMatch(#"[\"“]([^\"”]+)[\"”]"#, in: line)
+                    ?? Self.firstMatch(#"([A-Za-z]:\\[^\s\"]+)"#, in: line)
+                    ?? "the game"
+                let status = Self.firstMatch(#"\b(c0[0-9a-fA-F]{6})\b"#, in: line)?.lowercased()
+                found.append(.executableWouldNotStart(exe: exe, status: status))
+            }
             if l.contains("err:module:") || l.contains("failed to load") {
                 // Checked before the generic DLL case: an api-ms-win-* name is
                 // a Windows API set, and calling it a missing DLL sent people
@@ -263,6 +316,37 @@ public struct Diagnostics {
         var seen = Set<String>()
         r.findings = found.filter { seen.insert($0.summary).inserted }
         return r
+    }
+
+    /// What an NT status means in the words somebody can act on, and what to
+    /// do about it.
+    ///
+    /// Only the codes Wine actually emits when it refuses an executable. An
+    /// unrecognised code returns nil and the finding stays honest about not
+    /// knowing, rather than guessing at a fix.
+    static func statusMeaning(_ code: String?) -> (what: String, fix: String)? {
+        switch code {
+        case "c0000135":
+            ("something it needs to run is missing",
+             "A library the game loads at startup is not in its Windows environment. If the game shipped with dependencies beside the .exe, check they are still there; otherwise add the matching component under How this game is set up.")
+        case "c0000139":
+            ("a library it loads is the wrong version",
+             "A library is present but does not have the function the game asks of it — usually a Wine builtin standing in for something the game shipped. Try adding the real component under How this game is set up.")
+        case "c0000142":
+            ("a library failed while starting up",
+             "Something loaded and then failed to initialise. Rebuilding this game's Windows environment clears a half-installed component, and takes about half a second.")
+        case "c000007b":
+            ("it and something beside it are built for different architectures",
+             "A 32-bit library next to a 64-bit game, or the reverse. If you copied files in from somewhere, that is where to look.")
+        case "c0000034":
+            ("the file is not where Decanter last saw it",
+             "The game's files have moved, been renamed, or been deleted. Re-inspect the game, or remove and re-add it from its new location.")
+        case "c0000022":
+            ("Decanter was not allowed to read it",
+             "macOS refused access to the game's files. If they are on an external disk or in a protected folder, granting Decanter access there is the fix.")
+        default:
+            nil
+        }
     }
 
     /// api-ms-win-* names are Windows API sets, not ordinary DLLs. A game

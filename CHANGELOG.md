@@ -1,5 +1,158 @@
 # Changelog
 
+## v0.8.3 — 2026-09-01
+
+An adversarial pass over every surface, and the fixes it turned up. The theme
+running through most of them is one fault: **Decanter knew something and did
+not say it.**
+
+**Diagnose reported "nothing wrong found in the last run's log" over a log
+whose only line was a failure.** Wine's most ordinary refusal —
+
+    wine: failed to open "H:\game.exe": c0000135
+
+— matched no rule at all, so the report came back clean, with a green tick on
+it. There is now a rule for it, and the NT status is decoded rather than
+repeated: `c0000135` means something the game needs to run is missing,
+`c000007b` means it and a library beside it are built for different
+architectures, `c0000034` means the file has moved. An unrecognised code is
+reported as unrecognised instead of guessed at. Wine's chatter about modules is
+checked *after* this now, because when the executable itself is refused every
+line below it is a consequence.
+
+**A game whose files had been deleted said "Ready to play".** Green dot, live
+Play button, and Re-inspect returned success on it — detection has no rule that
+fails on a file that is not there, so every rule simply did not match and the
+result came back "Unknown engine" with a tick. The library is now checked
+against the disk on every refresh, the sidebar row says *files missing*, the
+status line says *Its files are missing*, and re-inspecting a game that is not
+there is an error rather than a success.
+
+**A kernel anti-cheat was detected at the moment a game was added and mentioned
+nowhere.** Decanter has found Easy Anti-Cheat and BattlEye by name since they
+shipped, and `preflight` calls it the one blocker no change can lift — but that
+only ran if somebody went looking in Diagnose. Until then the page said the
+game was ready. It now says, in front of everything else, that the game uses a
+Windows kernel driver, that there is no Windows kernel here to load it into,
+and that no Wine build, graphics layer or setting will start it.
+
+These two share a new card and a new rank above every other concern. Asking
+somebody how last night's launch went is the wrong question to put to a person
+whose game is no longer on the disk.
+
+**A failed launch showed "Running" for forty-five seconds.** The watcher waited
+for a process to appear before it would conclude anything, and waited out the
+full timeout even when the log had already said, in its first line and within a
+second, that the game was refused. It now reads the log while it waits and
+stops as soon as it finds a refusal. The button also says **Starting…** until a
+process actually exists, because "Running" was a claim Decanter could not
+support for the first few seconds and could not support at all for a game that
+never started. And a launch that plainly failed is no longer followed by "did
+that work?" — that question is for the ambiguous cases, which is the whole
+reason it exists.
+
+**The two most destructive controls in the app were the two that asked
+nothing.** Clean Up Leftovers and Prune Old Snapshots deleted on one click,
+while removing a game, rebuilding one and restoring a snapshot all stopped to
+ask. Both confirm now, and the prune says how many snapshots per game it keeps
+instead of "the recent" ones.
+
+**The remove-game dialog's two outcomes looked identical.** Two red buttons,
+same weight, stacked, differing by three trailing words — and the difference
+between them is whether your saves still exist afterwards. Keeping the saves is
+the recoverable choice and now reads as the ordinary one; only deleting them is
+styled as destructive.
+
+**The one field that gets signed and shared accepted a one-time code from
+Messages.** macOS offered to autofill the endorsement note — the field whose
+contents are signed, exported, and, as the line underneath it says, cannot be
+recalled once shared. It is now declared as taking no content type at all.
+
+**Four component cards shared one identity.** Installing any of them spun all
+four and wrote its result into all four blurbs, so three cards claimed work
+they had not done. Each has its own now.
+
+**And the one thing in Decanter that uses the network said so in the faintest
+type on the page, underneath the buttons it applied to.** The Setup page says
+Decanter never downloads anything by itself; the exception is these four
+buttons, and an exception you learn about after pressing the button is not one
+that was disclosed. It is now stated above them, in the same weight as
+everything else a person is expected to read.
+
+**The library sorted by an encoding table.** Never-played games were ordered
+with Swift's `<`, an ordinal comparison over Unicode scalars, so every
+lowercase-initial title sorted below every uppercase one and every CJK or
+Arabic title below all of those. `localizedStandardCompare` also puts "Game 2"
+before "Game 10", which is what alphabetical means to a person.
+
+**The detail pane showed the zero-library pitch to people with a full
+library.** It is what every launch opens on and what a deletion returns you to
+— the most-seen surface in the app — and it told somebody with eight games to
+drop a game folder into the window. It now says what is actually true.
+
+**Choosing Add Game on a home folder locked the app.** The search walked
+without a depth limit, without a cap, and without skipping bundles: a walk of
+`/Applications` descended into Visual Studio Code and came back with an `.exe`
+shipped inside it, which Decanter then added as a game. Bundles are opaque now,
+the walk is bounded three ways, and directory listings are cached rather than
+repeated once per executable found. The same walk over `/Applications` went
+from nine seconds and a wrong answer to two and the right one.
+
+**Three different problems reported the same wrong diagnosis.** A path that did
+not exist, a folder with no game in it, and a file that was not a Windows
+program all came back "Not a Windows executable" — and adding a game twice
+produced "Not found: Game.exe is already in the library", an error saying it
+could not find the thing it had just found. Four messages now, each about what
+actually happened. The exit codes are unchanged.
+
+**Eight help popovers shipped with gaps in the middle of sentences**, left by a
+reflow and preserved faithfully by the Markdown renderer. The Library popover
+rendered washed out and truncated to a single line, because a popover inherits
+the environment of whatever it is anchored to and that one hangs off a sidebar
+section header — so it arrived wearing the header's colour, its upper-casing
+and its line limit.
+
+**The evidence column was ragged**, each weight sitting wherever its row's
+height left it. Baselines and a fixed column now.
+
+**Five places still said "prefix"** to the user, in an app whose sidebar
+section is called Windows Environments — including the remove-game confirmation
+and the first sentence anybody reads.
+
+### Chrome
+
+**The app had one keyboard shortcut.** ⌘⇧R, Refresh. Add Game — the primary
+action — could only be reached by clicking a toolbar icon. There is now a File
+menu with ⌘N, a Game menu (Play ⌘R, Stop ⌘., Troubleshoot, Diagnose, Copy
+Problem Report ⌘⇧C, Show Windows Files), a Go menu for the four pages (⌘1–⌘4),
+and Show Details on ⌘⌥I.
+
+**The Details button disappeared when a game was not selected**, which
+shortened the toolbar and moved Add Game sideways every time somebody clicked
+Setup. It disables instead.
+
+**The activity list was thrown away on quit.** It exists so "what have I
+already tried?" is answerable, and it could not answer that across a launch —
+three panels draw it and all three were empty on every cold start. It is
+written to disk now. Entries still marked running when the app was last quit
+are dropped rather than restored, because nothing can be said about how they
+went.
+
+**The out-of-date banner told you to quit and gave you no way to.** It offers
+Quit now, disabled while anything is running. It still will not restart itself
+— that would discard work in flight on the strength of a version string.
+
+**Three page titles had three different treatments**, one stray hard-coded
+orange bypassed the palette, and `BottleDetail` and `BottleRow` — 103 lines
+implementing the per-bottle page that 0.6 deliberately removed — were still in
+the tree, referenced by nothing.
+
+Fourteen new tests, 1094 in total.
+
+## v0.8.3 — 2026-09-01
+
+_Unreleased._
+
 ## v0.8.2 — 2026-08-31
 
 **The endorsement popover named the game, and then told you not to.** It opened

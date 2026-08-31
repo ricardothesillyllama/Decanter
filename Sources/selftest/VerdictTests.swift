@@ -130,8 +130,20 @@ func runConcernOrderTests(_ t: Harness) {
             "a graphics recommendation waits for an environment that can load what it has")
     t.equal(Concern.mostUrgent(of: [.diagnosis, .unsoundEnvironment]), .diagnosis,
             "what already went wrong comes before what might")
-    t.equal(Concern.mostUrgent(of: Set(Concern.allCases)), .unansweredVerdict,
-            "with everything wrong at once, the question is still asked first")
+    t.equal(Concern.mostUrgent(of: Set(Concern.allCases)), .cannotStart,
+            "with everything wrong at once, a game that cannot start says so first")
+    // The certainty outranks the question, and this is the pair that says why:
+    // "how did last night's launch go?" is the wrong thing to put to somebody
+    // whose game is no longer on the disk.
+    t.equal(Concern.mostUrgent(of: [.unansweredVerdict, .cannotStart]), .cannotStart,
+            "a game that cannot start is not asked how it went")
+    t.equal(Concern.mostUrgent(of: [.diagnosis, .cannotStart]), .cannotStart,
+            "and it comes before a diagnosis of the launch that failed because of it")
+    // Everything below it still ranks as it did — inserting a case at the top
+    // must not reorder the four that were already there.
+    t.equal(Concern.mostUrgent(of: Set(Concern.allCases).subtracting([.cannotStart])),
+            .unansweredVerdict,
+            "with that one absent, the unanswered question is first as before")
 
     // Stray Wine processes are a nuisance and never a cause, so they must not
     // outrank anything — and must not be silently dropped either.
