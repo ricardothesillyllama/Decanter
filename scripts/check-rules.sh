@@ -197,6 +197,22 @@ if [ -n "$HEADERS" ]; then
   note "two sections on the game page share a heading — name each for what is inside it"
 fi
 
+# 14. The endorsement surface never says the game's name.
+#
+#    The popover asking somebody to vouch for a setup opened with the title —
+#    "Rebirth Pub is on Metal graphics, and this Mac has seen it work" — and
+#    then warned them not to name the game in their note. Both halves cannot be
+#    true, and a reader believes the first: it teaches that the endorsement is
+#    about that game, when nothing about the game travels. Notes get written for
+#    a title nobody receiving them can see. The subject shown is now the same
+#    two labels the signed row carries, and no title may appear beside it.
+BADGE=$(/usr/bin/sed -n '/^struct EndorsementBadge: View {/,/^\/\/\/ Settings that were only ever/p' \
+        Sources/DecanterApp/Views.swift | grep -n 'game\.name' || true)
+if [ -n "$BADGE" ]; then
+  printf '%s\n' "$BADGE"
+  note "the endorsement surface names the game — it vouches for a situation and a setup, neither of which is the game"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a

@@ -690,34 +690,61 @@ struct EndorsementBadge: View {
         if endorsed || mayEndorse {
             HStack(spacing: 6) {
                 if endorsed {
-                    Label("verified", systemImage: "checkmark.seal.fill")
+                    // "setup verified", not "verified". The tier is still
+                    // called verified — that word is the tier's own label and
+                    // is used everywhere else — but this badge sits an inch
+                    // from the game's title, and one word there reads as a
+                    // claim about the game. It is a claim about the situation
+                    // and the setup, neither of which is the game.
+                    Label("setup verified", systemImage: "checkmark.seal.fill")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Palette.running)
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Capsule().fill(Palette.running.opacity(0.14)))
                         .help(model.endorsementNote(game)
-                              ?? "Somebody ran this setup and signed for it. The signature proves a tier and carries no name.")
+                              ?? "Somebody ran a game of this kind on this setup and signed for it. The signature carries the situation and the setup, and no game name.")
                 }
                 if mayEndorse {
                     Button(endorsed ? "Edit" : "Endorse") { note = model.endorsementNote(game) ?? ""; editing = true }
                         .controlSize(.small)
                         .disabled(model.busy != nil)
-                        .help("Vouch for this setup. It travels with the knowledge base and carries no name.")
+                        .help("Vouch for this situation and setup. It travels with the knowledge base and carries no game name.")
                 }
             }
             .popover(isPresented: $editing, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Vouch for this setup").font(.headline)
-                    Text("\(game.name) is on \(model.bottle(for: game).map { Help.plainName($0.backend) } ?? "this setup") graphics, and this Mac has seen it work. Signing says so to anyone who takes your knowledge.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // The signed subject, in the words the row itself carries.
+                    // This opened with the game's name — "Rebirth Pub is on
+                    // Metal graphics" — and then warned the signer not to name
+                    // the game in their note, which cannot both be right. A
+                    // reader shown a title reasonably concludes they are
+                    // vouching for that title, and writes a note that assumes
+                    // it. Nothing about the game travels, so nothing about the
+                    // game is shown.
+                    if let subject = model.endorsementSubject(game) {
+                        Text("You are vouching for a kind of game on a setup, and not for this one in particular. What travels is:")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 3) {
+                                LabeledContent("Situation", value: subject.situation)
+                                LabeledContent("Setup", value: subject.setup)
+                            }
+                            .font(.caption)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        Text("This Mac has seen that work. No game name, path or machine identifier is recorded.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     TextField("A line about what to expect (optional)", text: $note, axis: .vertical)
                         .lineLimit(2...4)
                         .textFieldStyle(.roundedBorder)
                     // The one free-text field that travels, and the only place
                     // a title could leave this Mac. Said plainly next to the
-                    // box rather than buried in a document nobody opens.
-                    Label("This text is signed and cannot be recalled once shared. Do not name the game in it.",
+                    // box instead of being buried in a document nobody opens.
+                    Label("Signed, and cannot be recalled once shared. Write it for anyone who lands on this situation — they will not know which game you had.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
                         .fixedSize(horizontal: false, vertical: true)
@@ -736,7 +763,7 @@ struct EndorsementBadge: View {
                         .keyboardShortcut(.defaultAction)
                     }
                 }
-                .padding(16).frame(width: 380)
+                .padding(16).frame(width: 400)
             }
         }
     }

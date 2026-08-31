@@ -1401,6 +1401,24 @@ public final class Engine: @unchecked Sendable {
     /// the endorsement outright, which is the safe failure: the alternative is
     /// quietly changing what was vouched for.
     @discardableResult
+    /// Exactly what an endorsement for this game would describe, in the words
+    /// the signed row itself carries.
+    ///
+    /// The popover asking for one used to open with the game's name — "Rebirth
+    /// Pub is on Metal graphics, and this Mac has seen it work" — and then warn
+    /// the signer not to name the game in their note. Both halves cannot be
+    /// right. Nothing about the game travels: what is signed is
+    /// `Signature(detection)` and `Setup`, both drawn from closed vocabularies.
+    /// Naming the game taught the reader they were vouching for that game, and
+    /// the warning underneath was a patch over the framing rather than a fix
+    /// for it. Showing the signed subject removes the need for either.
+    public func endorsementSubject(for game: Game) -> (situation: String, setup: String)? {
+        guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else {
+            return nil
+        }
+        return (Knowledge.Signature(game.detection).label, setup(for: b, runtime: rt).label)
+    }
+
     public func endorse(_ game: Game, note: String? = nil) throws -> Knowledge.Observation {
         guard Endorsement.canEndorse else { throw Endorsement.KeyError.noPrivateKey }
         guard let b = store.bottle(game.bottleID), let rt = store.runtime(b.runtimeID) else {

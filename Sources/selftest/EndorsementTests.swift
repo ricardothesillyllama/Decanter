@@ -24,6 +24,31 @@ func runEndorsementTests(_ t: Harness) {
     let dxmt = Knowledge.Setup(runtimeKind: .wine, backend: .dxmt, layerVersion: "0.3")
     let dxvk = Knowledge.Setup(runtimeKind: .wine, backend: .dxvk, layerVersion: "1.10.3")
 
+    t.suite("what the signer is shown is what gets signed")
+    // The popover asking for an endorsement used to open with the game's own
+    // title and then warn the signer not to name the game in their note. Both
+    // halves cannot be right, and the reader believes the first one: a note was
+    // written for "this game" when nothing about the game travels. The subject
+    // shown to the signer now comes from the same two labels the signed row
+    // carries, so there is nothing to be inconsistent with.
+    for (situation, setup) in [(sig(), dxmt), (sig(chip: .m4, engineMajor: nil), dxvk)] {
+        let shown = "\(situation.label) \(setup.label)".lowercased()
+        for forbidden in ["rebirth", "ultrakill", ".exe", "/users/", "steamapps"] {
+            t.expect(!shown.contains(forbidden),
+                     "the endorsement subject carries nothing resembling \(forbidden)")
+        }
+        t.expect(!shown.isEmpty, "and it is not blank, which would be worse than a name")
+    }
+    // Every field of the label comes from a closed vocabulary, so the strongest
+    // available statement is that two different games in the same situation
+    // produce a subject that is character-for-character identical.
+    let oneGame = Knowledge.Signature(engine: .unityMono, engineMajor: nil, bitness: .x64,
+                                      usesVideo: false, usesD3D12: false, chip: .m2, macOSMajor: 26)
+    let otherGame = Knowledge.Signature(engine: .unityMono, engineMajor: nil, bitness: .x64,
+                                        usesVideo: false, usesD3D12: false, chip: .m2, macOSMajor: 26)
+    t.equal(oneGame.label, otherGame.label,
+            "two different games in one situation are described identically — there is no room for a title")
+
     t.suite("what an endorsement covers")
     let a = Knowledge.Observation(signature: sig(), setup: dxmt, worked: true)
     var b = a

@@ -2,6 +2,32 @@
 
 ## v0.8.2 — 2026-08-31
 
+**The endorsement popover named the game, and then told you not to.** It opened
+with "*Rebirth Pub* is on Metal graphics, and this Mac has seen it work", and
+four lines below warned "do not name the game in it". Both halves cannot be
+right, and a reader believes the first one: it teaches that you are vouching for
+*that game*, when nothing about the game travels. What gets signed is a
+situation and a setup, every field of both drawn from a closed vocabulary. The
+note is then written for a title nobody receiving it can see.
+
+It now shows the signed subject in the words the row itself carries:
+
+    Situation   Unity (Mono), 64-bit · M2 · macOS 26
+    Setup       Wine + Metal graphics 0.80
+
+with a line saying you are vouching for a kind of game on a setup and not for
+this one in particular. The warning beside the note box stopped being a patch
+over the framing and now says the useful thing instead: write it for whoever
+lands on this situation, because they will not know which game you had.
+
+The badge beside the title reads **setup verified** rather than *verified*. The
+tier is still called verified — that is the tier's own name and is used
+everywhere else — but one word sitting an inch from a game's title reads as a
+claim about the game.
+
+Eleven tests on the subject shown to the signer, and a rule that fails the build
+if the endorsement surface ever interpolates a game name again.
+
 **The out-of-date banner was drawn on top of the two things it sat next to.**
 It overlapped the sidebar's own "Library" header and the Add Game button in the
 toolbar, so the message telling you the window is stale was itself the least

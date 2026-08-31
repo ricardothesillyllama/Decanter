@@ -773,6 +773,9 @@ final class AppModel: ObservableObject {
     func isEndorsed(_ game: Game) -> Bool { endorsedSetups.contains(game.id) }
     func canEndorse(_ game: Game) -> Bool { endorsable.contains(game.id) }
     func endorsementNote(_ game: Game) -> String? { engine?.endorsement(for: game)?.note }
+    func endorsementSubject(_ game: Game) -> (situation: String, setup: String)? {
+        engine?.endorsementSubject(for: game)
+    }
 
     /// Vouching for a setup, from the screen where the setup is chosen.
     ///

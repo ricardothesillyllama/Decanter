@@ -12,7 +12,7 @@ There are five plausible combinations and no way to tell them apart by looking.
 Working that out is the job Decanter exists to do.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1063%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1076%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -398,7 +398,7 @@ goes wrong. No game can see your files.
 
 Decanter is a CLI and a SwiftUI app over a single engine, written in Swift with
 no external dependencies at all, on the view that every dependency is a future
-404. **1063 checks** run in a hand-rolled harness.
+404. **1076 checks** run in a hand-rolled harness.
 
 ## Documentation
 
