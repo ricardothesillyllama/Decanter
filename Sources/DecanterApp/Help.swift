@@ -140,10 +140,16 @@ enum Help {
     }
 
     /// A plain-language state for the top of the game page.
+    /// The one sentence at the top of a game's page.
+    ///
+    /// The blocker is asked before anything else and carries its own wording,
+    /// because "Ready to play" was being printed over a game whose files had
+    /// been deleted and over games that ship a kernel anti-cheat. A status
+    /// line that cannot say "no" is not a status line.
     static func status(running: Bool, onRecommended: Bool, hasProblem: Bool,
-                       knownUnsupported: Bool = false) -> String {
+                       blocker: AppModel.Blocker? = nil) -> String {
         if running { return "Running" }
-        if knownUnsupported { return "Not known to run here" }
+        if let b = blocker { return b.status }
         if hasProblem { return "Last run had a problem" }
         if onRecommended { return "Ready to play" }
         return "Ready to play — a better setup is available"
@@ -295,14 +301,14 @@ enum Help {
 
     static let revealPrefix = "Open this game's Windows environment in Finder — its C: drive, registry files and logs."
 
-    static let addGame = "Add a game from a folder or an .exe. Decanter inspects the binary, identifies the engine, and gives it a private copy of Windows."
+    static let addGame = "Add a game from a folder or an .exe. Decanter inspects the program, identifies the engine, and gives it a private copy of Windows."
 
     static let inspectorToggle = "Show or hide the evidence pane, which explains how this game was configured."
 
     static let librarySection = """
     Your games, most recently played first.
 
-    Right-click any of them for the quick path: play, troubleshoot launch, copy a problem     report, or open its Windows environment in Finder.
+    Right-click any of them for the quick path: play, troubleshoot launch, copy a problem report, or open its Windows environment in Finder.
 
     You can also drop a game folder or .exe anywhere in this window to add it.
     """
@@ -310,9 +316,9 @@ enum Help {
     static let bottlesSection = """
     One isolated Windows environment per game.
 
-    Each is cloned from a shared golden template using APFS copy-on-write, so creating one     is instant and costs almost no disk. Isolation being free is the point: no game can     break another by installing a conflicting dependency.
+    Each is cloned from a shared golden template using APFS copy-on-write, so creating one is instant and costs almost no disk. Isolation being free is the point: no game can break another by installing a conflicting dependency.
 
-    Graphics backend and runtime are set here, because they are properties of the     environment rather than of the game.
+    Graphics backend and runtime are set here, because they are properties of the environment rather than of the game.
     """
 
     // MARK: Saves
@@ -350,27 +356,27 @@ enum Help {
     static let troubleshootPane = """
     For when the game starts but looks wrong.
 
-    A game that renders badly without crashing writes almost nothing to its log, which is     why there is never anything useful to send. Troubleshoot Launch turns on the graphics     chatter — Direct3D, DXGI, Vulkan, DXVK and MoltenVK all start reporting — and Copy     Problem Report bundles that together with your hardware, the chosen runtime and     backend, the detection evidence, and a screenshot of the window.
+    A game that renders badly without crashing writes almost nothing to its log, which is why there is never anything useful to send. Troubleshoot Launch turns on the graphics chatter — Direct3D, DXGI, Vulkan, DXVK and MoltenVK all start reporting — and Copy Problem Report bundles that together with your hardware, the chosen runtime and backend, the detection evidence, and a screenshot of the window.
 
     The whole bundle goes on your clipboard, ready to paste.
     """
 
     static let troubleshootLaunch = """
-    Launch with verbose graphics logging (WINEDEBUG=+d3d,+dxgi,+vulkan, DXVK log level     info, and an on-screen DXVK overlay showing the driver and API in use).
+    Launch with verbose graphics logging (WINEDEBUG=+d3d,+dxgi,+vulkan, DXVK log level info, and an on-screen DXVK overlay showing the driver and API in use).
 
-    Run this, reproduce the problem, then use Copy Problem Report while the game is still     on screen so the screenshot is included.
+    Run this, reproduce the problem, then use Copy Problem Report while the game is still on screen so the screenshot is included.
     """
 
     static let copyReport = """
     Collect everything needed to debug this and copy it to the clipboard.
 
-    Includes: macOS and GPU details, runtime and backend actually in use, DXVK version,     detection evidence, an automatic diagnosis, every graphics-related log line, and the     tail of the log. If the game is on screen and permission allows, a screenshot of the     window is saved next to it.
+    Includes: macOS and GPU details, runtime and backend actually in use, DXVK version, detection evidence, an automatic diagnosis, every graphics-related log line, and the tail of the log. If the game is on screen and permission allows, a screenshot of the window is saved next to it.
     """
 
     static let graphicsAreBottleScoped = """
     Yes — the backend and runtime belong to the bottle, not the game.
 
-    That is deliberate: DXVK is not a setting, it is a set of DLLs physically installed     inside the prefix. Since every game gets its own bottle, changing it here and changing     it on the game page are the same act — this is simply the other door into it.
+    That is deliberate: DXVK is not a setting, it is a set of DLLs physically installed inside the Windows environment. Since every game gets its own, changing it here and changing it on the game page are the same act — this is simply the other door into it.
     """
 
     static let stop = """
@@ -496,14 +502,35 @@ struct InfoButton: View {
         .buttonStyle(.plain)
         .help("What is this?")
         .popover(isPresented: $shown, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 8) {
-                if let title { Text(title).font(.headline) }
-                Markdown(text: text)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let title {
+                        Text(title).font(.headline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Markdown(text: text)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(16)
             }
-            .padding(16)
-            .frame(width: 340)
+            // A popover inherits the environment of whatever it is anchored
+            // to. Anchored to a `List` Section header — which is where the
+            // Library one lives — that meant the header's own styling came
+            // with it: secondary colour, upper-casing, and a single-line
+            // limit. The Library help rendered washed out and truncated to
+            // one line while every other popover in the app was fine, because
+            // every other one hangs off an ordinary control.
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .lineLimit(nil)
+            .multilineTextAlignment(.leading)
+            // Narrower than the 340 it was, so it still fits beside a sidebar
+            // pinned to the left edge of a small window, and capped in height
+            // so a long entry scrolls instead of running off the screen.
+            .frame(width: 320)
+            .frame(maxHeight: 440)
         }
     }
 }

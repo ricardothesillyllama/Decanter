@@ -16,10 +16,17 @@ final class AppModel: ObservableObject {
     /// What each action did, kept so "what have I already tried?" is answerable.
     /// Error recovery was the weak point: an action would run, fail, and leave
     /// nothing on screen once the next thing happened.
-    struct Activity: Identifiable, Sendable {
-        enum Outcome: Sendable { case running, succeeded, failed }
-        let id = UUID()
-        let started = Date()
+    /// Codable since 0.8.3, so it survives a quit.
+    ///
+    /// The list exists so "what have I already tried?" is answerable, and it
+    /// could not answer that across a launch: it was in-memory only, so every
+    /// cold start showed three empty panels — the game page, Setup and Windows
+    /// Environments all draw one — and the history of everything Decanter had
+    /// done for you was discarded the moment you closed it.
+    struct Activity: Identifiable, Sendable, Codable {
+        enum Outcome: String, Sendable, Codable { case running, succeeded, failed }
+        var id = UUID()
+        var started = Date()
         var label: String
         var outcome: Outcome = .running
         var detail: String?
@@ -34,6 +41,41 @@ final class AppModel: ObservableObject {
         var duration: TimeInterval { (finished ?? Date()).timeIntervalSince(started) }
     }
     @Published var activity: [Activity] = []
+    private var activityLoaded = false
+    private var activityFile: URL?
+
+    /// Read once per launch, and only the finished entries.
+    ///
+    /// An entry still marked `.running` was running when the app was last
+    /// quit, which means nothing can be said about how it went — restoring it
+    /// would put a spinner on screen that never stops for work that is not
+    /// happening. Those are dropped; everything with an outcome is kept.
+    private func loadActivity(from e: Engine) {
+        let url = e.paths.root.appending(path: "activity.json")
+        activityFile = url
+        guard let data = try? Data(contentsOf: url) else { return }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        guard let saved = try? dec.decode([Activity].self, from: data) else { return }
+        let finished = saved.filter { $0.outcome != .running }
+        // Anything from this session goes on top: `reload` can run after work
+        // has already started, and the file is older than that by definition.
+        activity = (activity + finished).sorted { $0.started > $1.started }
+        if activity.count > 50 { activity.removeLast(activity.count - 50) }
+    }
+
+    /// Written on every change. Fifty small records — a few kilobytes — so
+    /// there is nothing to batch or defer.
+    private func saveActivity() {
+        guard let url = activityFile else { return }
+        let snapshot = activity
+        Task.detached(priority: .utility) {
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            enc.dateEncodingStrategy = .iso8601
+            if let data = try? enc.encode(snapshot) { try? data.write(to: url, options: .atomic) }
+        }
+    }
 
     /// What has been done to one game, and to the Mac. A game's page shows
     /// both, because "the runtime was repaired" is part of the story of why a
@@ -133,6 +175,12 @@ final class AppModel: ObservableObject {
             // way a leaked Wine session ever becomes visible: it keeps running
             // after the app quits, so nothing else in the UI would show it.
             strays = e.strayWineProcesses()
+            if !activityLoaded { loadActivity(from: e); activityLoaded = true }
+            // One stat() per game. Cheap enough to ask on every refresh, and
+            // it is the difference between an honest page and a confident one.
+            filesGone = Set(games.filter {
+                !FileManager.default.fileExists(atPath: $0.exePath.path)
+            }.map(\.id))
             // Just a directory listing per game, so it costs nothing to keep
             // current, and a mod that broke on the last run should be visible
             // before the user launches it again.
@@ -223,6 +271,7 @@ final class AppModel: ObservableObject {
         let entry = Activity(label: label, scope: scope)
         activity.insert(entry, at: 0)
         if activity.count > 50 { activity.removeLast(activity.count - 50) }
+        saveActivity()
         Task.detached(priority: .userInitiated) {
             var summary: String?
             var failure: String?
@@ -234,6 +283,7 @@ final class AppModel: ObservableObject {
                     self.activity[i].detail = failure ?? summary
                     self.activity[i].finished = Date()
                 }
+                self.saveActivity()
                 self.lastError = failure
                 self.busy = nil; self.activeAction = nil
                 if let key {
@@ -421,6 +471,7 @@ final class AppModel: ObservableObject {
         do {
             let plan = try e.run(game, verbose: verbose)
             running.insert(game.id)
+            starting.insert(game.id)
             // Watch for exit so the running indicator is truthful, and read the
             // log back automatically if it dies early.
             Task.detached {
@@ -435,14 +486,24 @@ final class AppModel: ObservableObject {
                 while true {
                     try? await Task.sleep(nanoseconds: 700_000_000)
                     if Self.wineAlive(prefix: plan.bottle.prefixPath) {
-                        appeared = true
+                        if !appeared {
+                            appeared = true
+                            await MainActor.run { self.starting.remove(game.id) }
+                        }
                         continue
                     }
                     if !appeared {
-                        guard Date() > appearBy else { continue }
+                        // The log is read while waiting, not only after giving
+                        // up. Wine writes its refusal immediately — the whole
+                        // log is often one line — and the watcher used to sit
+                        // out the full timeout anyway, showing "Running" over
+                        // a game that had already failed in under a second.
+                        let early = Diagnostics().analyse(logAt: plan.logFile)
+                        let doomed = early.findings.contains { $0.meansItWillNeverStart }
+                        guard Date() > appearBy || doomed else { continue }
                         // Never showed up at all: that is a failure to launch,
                         // and the log is the only place that says why.
-                        let rep = Diagnostics().analyse(logAt: plan.logFile)
+                        let rep = early
                         // Decanter could not tell whether this worked, so it
                         // asks. Only here and below, where it declines to
                         // conclude anything itself.
@@ -452,8 +513,15 @@ final class AppModel: ObservableObject {
                         // created on first use, and first use from two threads
                         // at once is a race nobody would find twice.
                         await MainActor.run {
-                            e.askAbout(game, observed: "it never opened a window")
+                            // Only asked when Decanter genuinely cannot tell.
+                            // A log that says the executable was refused is
+                            // not an ambiguous outcome, and putting "did that
+                            // work?" under it is how a prompt becomes noise.
+                            if !doomed {
+                                e.askAbout(game, observed: "it never opened a window")
+                            }
                             self.running.remove(game.id)
+                            self.starting.remove(game.id)
                             self.diagnosis[game.id] = rep
                             if rep.isEmpty {
                                 self.lastError = "\(game.name) did not start, and its log says nothing. Try Troubleshoot Launch under Saves & Maintenance."
@@ -476,6 +544,7 @@ final class AppModel: ObservableObject {
                             e.askAbout(game, observed: "it ran, but its log reports problems")
                         }
                         self.running.remove(game.id)
+                        self.starting.remove(game.id)
                         if quick && !rep.isEmpty { self.diagnosis[game.id] = rep }
                         self.refreshVerdict()
                     }
@@ -534,15 +603,64 @@ final class AppModel: ObservableObject {
 
     var pinnedRuntimes: [RuntimeSpec] { health?.pinnedRuntimes ?? [] }
 
+    /// Launched, but no process has shown up in its prefix yet.
+    ///
+    /// The button said "Running" from the moment Play was pressed, which is a
+    /// claim Decanter cannot support for the first few seconds and could not
+    /// support at all for a game that failed to start. "Starting…" is what is
+    /// actually known.
+    @Published var starting: Set<UUID> = []
+
+    /// Which page the window is on, and whether the evidence pane is open.
+    ///
+    /// Both were `@State` inside `RootView`, which meant the menu bar could
+    /// not see either — and a Mac app whose only keyboard shortcut is Refresh
+    /// is not finished. Every command worth having is about the current
+    /// selection, so the selection has to live where commands can reach it.
+    @Published var selection: Selection?
+    /// Off by default: it answers "why did Decanter choose this?", which only
+    /// matters once something has gone wrong.
+    @Published var showInspector = false
+
+    /// The game the menu bar's commands act on, when one is selected.
+    var selectedGame: Game? {
+        if case .game(let id) = selection { return games.first { $0.id == id } }
+        return nil
+    }
+
+    /// Add Game, from the toolbar or from ⌘N. Lives here rather than in the
+    /// view so both doors reach the same one.
+    func presentAddGamePanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a game folder or its .exe"
+        if panel.runModal() == .OK, let url = panel.url { add(path: url) }
+    }
+
+    /// How many snapshots per game a prune keeps. Read from the engine rather
+    /// than written twice, because the number appears in a confirmation now
+    /// and a dialog that names the wrong number is worse than one that names
+    /// none. Falls back to the engine's own constant before first load.
+    var snapshotRetention: Int { engine?.snapshotRetention ?? 8 }
+
     /// Recently played first — the list should answer "what do I play now",
     /// with never-played games after, alphabetically.
+    ///
+    /// `localizedStandardCompare`, not `<`. Swift's `<` on String is an
+    /// ordinal comparison over Unicode scalars, so it filed every
+    /// lowercase-initial title below every uppercase one and every CJK or
+    /// Arabic title below all of those — a library sorted by an encoding
+    /// table. It also gets "Game 10" after "Game 2", which is what a person
+    /// means by alphabetical and what `<` does not do.
     var gamesByRecency: [Game] {
         games.sorted { a, b in
             switch (a.lastPlayed, b.lastPlayed) {
             case let (x?, y?): return x > y
             case (_?, nil):    return true
             case (nil, _?):    return false
-            default:           return a.name < b.name
+            default:           return a.name.localizedStandardCompare(b.name) == .orderedAscending
             }
         }
     }
@@ -583,7 +701,13 @@ final class AppModel: ObservableObject {
     /// first — the same order `Engine.recommend` uses, and for the same reason.
     /// A warning that survives its own disproof is the fastest way to teach
     /// someone to ignore warnings.
-    func blocker(for game: Game) -> String? {
+    func blocker(for game: Game) -> Blocker? {
+        // Ordered by certainty, not by alarm. The first two are facts about
+        // this folder and this Mac that nothing in Decanter can change. The
+        // third is a rule about an engine, which evidence can and does
+        // overturn — so it is asked last and can be answered "no".
+        if filesGone.contains(game.id) { return .filesGone(game.exePath.path) }
+        if let ac = game.detection.antiCheat { return .antiCheat(ac) }
         guard let text = game.detection.blocker(onBackend: bottle(for: game)?.backend) else {
             return nil
         }
@@ -591,9 +715,66 @@ final class AppModel: ObservableObject {
         // an inference from the files — does not, and the warning stands.
         switch recommendations[game.id]?.provenance {
         case .seenHere, .verified: return nil
-        default: return text
+        default: return .engineRule(text)
         }
     }
+
+    /// Why a game will not start, in the words a person needs.
+    ///
+    /// Two of these are certainties and one is a rule. The distinction is the
+    /// whole point of the type: a certainty earns a card and a changed status
+    /// line, a rule earns a sentence that evidence is allowed to retire.
+    enum Blocker: Equatable {
+        /// The executable is not where Decanter last saw it.
+        case filesGone(String)
+        /// A kernel anti-cheat ships beside the game. Nothing loads it here.
+        case antiCheat(String)
+        /// The engine is not known to run on the current graphics layer.
+        case engineRule(String)
+
+        /// Whether this is a fact rather than an inference. Facts get a card.
+        var certain: Bool {
+            switch self {
+            case .filesGone, .antiCheat: true
+            case .engineRule: false
+            }
+        }
+
+        /// The status line beside the dot at the top of the page.
+        var status: String {
+            switch self {
+            case .filesGone:   "Its files are missing"
+            case .antiCheat:   "Cannot run on a Mac"
+            case .engineRule:  "Not known to run here"
+            }
+        }
+
+        var headline: String {
+            switch self {
+            case .filesGone:      "Decanter cannot find this game's files"
+            case .antiCheat(let a): "\(a) cannot run on a Mac"
+            case .engineRule:     "Not known to run here"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .filesGone(let path):
+                "The game was here, and is not now:\n\n\(path)\n\nIf you moved it, remove this entry and add it again from its new home. Nothing about its saves or its Windows environment is lost by doing that — those are kept separately."
+            case .antiCheat(let a):
+                "\(a) runs as a Windows kernel driver. There is no Windows kernel here to load it into, so no Wine build, graphics layer or setting will start this game. This is not something Decanter can be configured around, and every fix you will find online is for the game's launcher rather than for the driver."
+            case .engineRule(let t):
+                t
+            }
+        }
+    }
+
+    /// Games whose executable is no longer on disk.
+    ///
+    /// Refreshed with everything else, because it costs one `fileExists` per
+    /// game and the alternative is a page that says "Ready to play" over a
+    /// folder somebody emptied last week — with a live Play button under it.
+    @Published var filesGone: Set<UUID> = []
 
     func isOnRecommended(_ game: Game) -> Bool {
         guard let rec = recommendations[game.id],
@@ -1151,8 +1332,11 @@ final class AppModel: ObservableObject {
     /// fetches the redistributables from Microsoft and friends. That is said
     /// plainly in the UI rather than buried, because the whole project
     /// otherwise downloads nothing.
-    func installComponents(_ game: Game, _ verbs: [String], label: String) {
-        perform("Installing \(label)…", key: "components", scope: game.id) { e in
+    /// `key` is per-card. Every card passed "components", so one install put
+    /// its spinner and then its result on all four of them.
+    func installComponents(_ game: Game, _ verbs: [String], label: String,
+                           key: String = "components") {
+        perform("Installing \(label)…", key: key, scope: game.id) { e in
             let tool = e.recipes.tooling()
             guard tool.missing.isEmpty else {
                 throw DecanterError.notFound("missing helper(s): \(tool.missing.joined(separator: ", "))")

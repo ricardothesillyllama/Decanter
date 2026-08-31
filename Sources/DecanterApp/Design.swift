@@ -25,6 +25,12 @@ enum Palette {
 }
 
 extension Font {
+    /// The name of whatever page you are on. One size, because there were
+    /// three: a game was 30pt semibold, Saves was 26pt semibold, and Windows
+    /// Environments was `.largeTitle.bold()` — three treatments for the same
+    /// role, which reads as three apps.
+    static let pageTitle = Font.system(size: 28, weight: .semibold)
+
     /// Evidence, paths, hashes — anything the user should read as literal.
     static let evidence = Font.system(.caption, design: .monospaced)
     static let factLabel = Font.system(.caption2, design: .monospaced).weight(.medium)
