@@ -320,3 +320,63 @@ func runSetupOrderTests(_ t: Harness) {
     t.expect(ids.firstIndex(of: "wine")! < ids.firstIndex(of: "gptk")!,
              "the required Wine build is listed before the optional Apple graphics")
 }
+
+/// Readiness on a Mac that has never had a template, which until 0.7.7 nothing
+/// tested — every fixture and every developer machine had been through the old
+/// single-template layout, so `template/golden` existed and the answer came out
+/// right by accident.
+///
+/// The fault it hid was a first-run blocker: `doctor()` asked about
+/// `template/golden` while `template build` writes `template/golden-<runtimeID>`,
+/// so a new user built the template, watched `template list` say built, and
+/// watched the setup page say "not ready yet" for ever. Found by installing a
+/// pack into an empty root.
+func runFirstRunReadinessTests(_ t: Harness) {
+    t.suite("Readiness — a Mac that has never had a template")
+
+    let root = Fixture.dir("first-run")
+    let paths = Paths(root: root)
+    try? paths.ensure()
+    guard let e = try? Engine(paths: paths) else {
+        t.expect(false, "an engine opens on an empty root")
+        return
+    }
+
+    // A runtime, pinned, with no template anywhere.
+    let rt = RuntimeSpec(id: "wine-11.0", kind: .wine, version: "11.0",
+                         root: root.appending(path: "runtimes/wine-11.0"),
+                         winePath: root.appending(path: "runtimes/wine-11.0/bin/wine"),
+                         supports32Bit: true, backends: [.dxvk, .wined3d])
+    try? e.store.mutate { $0.runtimes = [rt] }
+    e.reload()
+    t.expect(!e.doctor().templateBuilt, "with no template anywhere, none is reported")
+    t.expect(!e.readiness().ready, "and setup is not ready")
+
+    // Built where `template build` actually writes it — per runtime.
+    let perRuntime = paths.template(for: rt.id)
+    try? FileManager.default.createDirectory(at: perRuntime.appending(path: "drive_c"),
+                                             withIntermediateDirectories: true)
+    t.expect(FileManager.default.fileExists(atPath: perRuntime.path),
+             "the per-runtime template is where template build puts it")
+    t.expect(!FileManager.default.fileExists(atPath: paths.template.path),
+             "and the legacy single-template path does not exist on a fresh Mac")
+
+    e.reload()
+    t.expect(e.doctor().templateBuilt,
+             "a per-runtime template counts — this is the bug, and it blocked every first run")
+    t.expect(e.readiness().ready,
+             "so a Mac with Rosetta, a runtime and a template is ready")
+
+    // The legacy path still counts, because installs that predate the split
+    // have one and nothing has migrated them.
+    let legacyRoot = Fixture.dir("legacy-template")
+    let legacyPaths = Paths(root: legacyRoot)
+    try? legacyPaths.ensure()
+    if let e2 = try? Engine(paths: legacyPaths) {
+        try? e2.store.mutate { $0.runtimes = [rt] }
+        try? FileManager.default.createDirectory(at: legacyPaths.template,
+                                                 withIntermediateDirectories: true)
+        e2.reload()
+        t.expect(e2.doctor().templateBuilt, "the legacy location still counts, so old installs do not regress")
+    }
+}

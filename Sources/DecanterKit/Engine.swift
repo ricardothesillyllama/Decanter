@@ -172,7 +172,24 @@ public final class Engine: @unchecked Sendable {
         h.rosettaHorizon = Self.rosettaHorizon(majorVersion: h.macOSMajor)
         h.pinnedRuntimes = store.state.runtimes
         h.discovered = runtimes.discover()
+        // Templates have been per-runtime — `template/golden-<id>` — since a
+        // prefix built by Wine 11 was found not to be safe under GPTK's Wine
+        // 7.7. This kept checking `template/golden`, the single location that
+        // preceded that, so it answered from a directory nothing writes any
+        // more.
+        //
+        // On a machine that has been through the old layout the legacy folder
+        // is still there and the answer came out right by accident, which is
+        // why it survived: the only machine that shows the fault is one that
+        // has never had a template before. On that machine — every new user —
+        // `template list` said built, Setup said missing, and the setup page
+        // stayed at "not ready yet" no matter how many times the template was
+        // rebuilt. Found by installing the pack into an empty root, which is
+        // the first time this project has run a first run.
         h.templateBuilt = FileManager.default.fileExists(atPath: paths.template.path)
+            || store.state.runtimes.contains {
+                FileManager.default.fileExists(atPath: paths.template(for: $0.id).path)
+            }
         if let t = store.state.templateBuiltAt { h.templateAge = Date().timeIntervalSince(t) }
         h.gamesDirExists = FileManager.default.fileExists(atPath: paths.gamesDir.path)
         return h

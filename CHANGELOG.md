@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.7.7 — 2026-08-31
+
+**Every first run was blocked, and no machine that had ever run Decanter could
+show it.**
+
+Templates have been per-runtime — `template/golden-<runtimeID>` — since a prefix
+built by Wine 11 turned out not to be safe under the Game Porting Toolkit's Wine
+7.7. `doctor()` kept asking about `template/golden`, the single location that
+preceded that split, so it answered from a directory nothing writes any more.
+
+On a Mac that has been through the old layout the legacy folder is still sitting
+there and the answer came out right by accident, which is exactly why it
+survived this long. On a Mac that has never had a template — every new user —
+`decanter template list` said built, the setup page said missing, and setup
+stayed at "not ready yet" no matter how many times the template was rebuilt.
+
+Found by assembling the first real pack and installing it into an empty root,
+which is the first time this project has actually performed a first run. Both
+locations now count, so installs that predate the split do not regress, and
+there are tests for a Mac with each and with neither.
+
 ## v0.7.6 — 2026-08-31
 
 A pack can now carry the libraries a Wine build needs to play audio and video
