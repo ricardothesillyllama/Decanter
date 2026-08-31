@@ -50,15 +50,13 @@ struct SetupView: View {
                     if wide {
                         HStack(alignment: .top, spacing: 18) {
                             VStack(alignment: .leading, spacing: 18) {
-                                if let r = model.readiness { piecesCard(r) }
-                                if model.readiness?.ready == false { downloadsCard }
+                                mainColumn
                                 ActivityList(entries: model.globalActivity)
                             }
                             aside.frame(width: 268)
                         }
                     } else {
-                        if let r = model.readiness { piecesCard(r) }
-                        if model.readiness?.ready == false { downloadsCard }
+                        mainColumn
                         aside
                         ActivityList(entries: model.globalActivity)
                     }
@@ -79,6 +77,123 @@ struct SetupView: View {
         }
     }
 
+    /// What the page leads with, and it changes completely once this Mac can
+    /// run something.
+    ///
+    /// Before: one instruction. The checklist is six rows, five of which were
+    /// downloads from five places, and the *shape* of that page taught somebody
+    /// "this is complicated" before they had read a word of it. It is a
+    /// procurement list, and procurement is not the job — it is the toll the
+    /// no-download rule was charging the user.
+    ///
+    /// After: the checklist, because "what am I missing?" is a real question
+    /// that gets asked again every time a game misbehaves, and it is the right
+    /// answer to it. The same rows, demoted from an instruction to a status.
+    @ViewBuilder private var mainColumn: some View {
+        if let r = model.readiness {
+            if r.ready {
+                piecesCard(r)
+            } else {
+                packCard
+                DisclosureGroup("Set these up individually") {
+                    piecesCard(r)
+                        .padding(.top, 10)
+                }
+                .font(.callout)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
+            }
+        }
+    }
+
+    /// The one-file path, and the whole of what a first run should ask of
+    /// anybody.
+    ///
+    /// Getting it and taking it in are one card because they are one action
+    /// separated by a download. They were two — a checklist that sent people to
+    /// three releases pages, and a separate "already downloaded it?" card — and
+    /// two cards about how to set up is the duplication the rest of this app
+    /// spent a release removing.
+    ///
+    /// The link is to the file, not to a releases page. A page listing
+    /// seventeen assets is not an instruction, and being sent to three of them
+    /// is what made "Decanter downloads nothing" something the user paid for
+    /// rather than a guarantee they were given.
+    private var packCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Get everything in one file", systemImage: "shippingbox")
+                    .font(.title3).bold()
+                Text("One download, about 200 MB, holding the three pieces Decanter needs. Your browser fetches it; Decanter reads it off your disk. Nothing here reaches the internet on its own.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    NSWorkspace.shared.open(Readiness.packSource)
+                } label: {
+                    Label("Get the Pack", systemImage: "arrow.down.circle.fill")
+                        .frame(minWidth: 130)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                Button("What is in it?") { NSWorkspace.shared.open(Readiness.packNotes) }
+                    .controlSize(.large)
+            }
+
+            Text("When it has downloaded, drag it onto this window. Or let Decanter look for it:")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+
+            if !model.downloadFindings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(model.downloadFindings) { f in
+                        Toggle(isOn: Binding(
+                            get: { model.chosenDownloads.contains(f.id) },
+                            set: { on in
+                                if on { model.chosenDownloads.insert(f.id) }
+                                else { model.chosenDownloads.remove(f.id) }
+                            })) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(f.summary).font(.callout)
+                                Text(f.url.lastPathComponent)
+                                    .font(.caption).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+            } else if model.lookedInDownloads {
+                Text("Nothing in Downloads is something Decanter can use yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ActionButton(title: model.lookedInDownloads ? "Look Again" : "Look in Downloads",
+                             systemImage: "magnifyingglass", key: "look",
+                             blurb: "Reads the file names in your Downloads folder. Installs nothing.") {
+                    model.lookInDownloads()
+                }
+                if !model.downloadFindings.isEmpty {
+                    ActionButton(title: "Use \(model.chosenDownloads.count) Selected",
+                                 systemImage: "square.and.arrow.down",
+                                 key: "acceptChosen",
+                                 blurb: "Takes Decanter's own copy of each one, so nothing later can move it.") {
+                        model.acceptChosenDownloads()
+                    }
+                    .disabled(model.chosenDownloads.isEmpty)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
+    }
+
     /// One header, two moods. On a Mac that cannot run anything yet this is the
     /// first thing a new user sees, so it opens by saying what to do. Once
     /// everything is present it becomes a status page and gets out of the way.
@@ -87,7 +202,7 @@ struct SetupView: View {
             Text(firstRun ? "Welcome to Decanter" : "Setup")
                 .font(.largeTitle).bold()
             if firstRun {
-                Text("Before Decanter can run a game it needs one free download. Get it, then **drag the file onto this window** — Decanter takes it from there. You can drop a whole folder too, and it will take everything it recognises.")
+                Text("Decanter needs one free download before it can run a game. Get the pack below, then **drag it onto this window** — Decanter takes it from there, and the whole thing takes about a minute.")
                     .font(.title3).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -139,77 +254,6 @@ struct SetupView: View {
         .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 8)
         .background(Palette.hairline.opacity(0.35))
         .overlay(alignment: .top) { Divider() }
-    }
-
-    /// The shortcut past the drag.
-    ///
-    /// Dragging a file onto a window is the instruction on this page, and it is
-    /// the part of setup that goes wrong: the file is in Downloads, the window
-    /// is behind the browser, and the thing being dragged is a `.tar.xz` that
-    /// Safari may have half-unpacked into a folder next to it. Nothing about
-    /// that is hard once you have done it; all of it is friction the first time.
-    ///
-    /// Looking is separate from taking, and the separation is the design.
-    /// Downloads is not a folder anyone curated — it is where months of
-    /// unrelated files landed — so a button that installed whatever Wine build
-    /// it found there would be doing something nobody asked for. This shows
-    /// what it found, with each item switched on, and waits. It is also where
-    /// the system's folder-access prompt belongs: one beat after a deliberate
-    /// press, rather than at launch because the app went looking.
-    private var downloadsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Already downloaded it?", systemImage: "folder")
-                .font(.callout).bold()
-            Text("Decanter can look in your Downloads folder and show you what it recognises. It reads the names and nothing else, and installs nothing until you say so.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !model.downloadFindings.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(model.downloadFindings) { f in
-                        Toggle(isOn: Binding(
-                            get: { model.chosenDownloads.contains(f.id) },
-                            set: { on in
-                                if on { model.chosenDownloads.insert(f.id) }
-                                else { model.chosenDownloads.remove(f.id) }
-                            })) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(f.summary).font(.callout)
-                                Text(f.url.lastPathComponent)
-                                    .font(.caption).foregroundStyle(.tertiary)
-                            }
-                        }
-                        .toggleStyle(.checkbox)
-                    }
-                }
-                .padding(.vertical, 2)
-            } else if model.lookedInDownloads {
-                Text("Nothing in Downloads is something Decanter can use. The file to look for is named in the steps above.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                ActionButton(title: model.lookedInDownloads ? "Look Again" : "Look in Downloads",
-                             systemImage: "magnifyingglass", key: "look",
-                             blurb: "Reads the file names in your Downloads folder. Installs nothing.") {
-                    model.lookInDownloads()
-                }
-                if !model.downloadFindings.isEmpty {
-                    ActionButton(title: "Use \(model.chosenDownloads.count) Selected",
-                                 systemImage: "square.and.arrow.down",
-                                 key: "acceptChosen",
-                                 blurb: "Takes Decanter's own copy of each one, so nothing later can move it.") {
-                        model.acceptChosenDownloads()
-                    }
-                    .disabled(model.chosenDownloads.isEmpty)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 
     /// The column beside the steps: the question people ask next, then the

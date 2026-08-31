@@ -65,6 +65,24 @@ public struct Readiness: Sendable {
         return "Ready — some games will run better with more set up"
     }
 
+    /// The pack: everything a first run needs, in one file.
+    ///
+    /// A direct link to the asset rather than to a releases page, and that is
+    /// the point of it. The setup page's honest problem was never that Decanter
+    /// downloads nothing — it is that "downloads nothing" was being paid for by
+    /// the user, who was sent to three strangers' releases pages and had to know
+    /// which of the files on each was the right one. A page listing seventeen
+    /// assets is not an instruction.
+    ///
+    /// Pinned to `pack-1` rather than to `latest`, because `latest` moves with
+    /// every patch release of the app and the pack does not: a link that
+    /// resolves to whatever shipped most recently is a link that eventually
+    /// resolves to no pack at all.
+    public static let packSource = URL(string: "https://github.com/ricardothesillyllama/Decanter/releases/download/pack-1/decanter-pack-1.tar.gz")!
+    /// Where the pack is described, for anyone who wants to read what is in it
+    /// before fetching 200 MB.
+    public static let packNotes = URL(string: "https://github.com/ricardothesillyllama/Decanter/releases/tag/pack-1")!
+
     public static let gptkSource = URL(string: "https://developer.apple.com/download/all/?q=game%20porting%20toolkit")!
     /// The releases page, not the Homebrew tap. The tap's front page is a
     /// README whose instructions are Terminal commands — which is the thing

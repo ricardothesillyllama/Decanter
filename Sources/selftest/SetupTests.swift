@@ -380,3 +380,43 @@ func runFirstRunReadinessTests(_ t: Harness) {
         t.expect(e2.doctor().templateBuilt, "the legacy location still counts, so old installs do not regress")
     }
 }
+
+/// The pack, as the setup page offers it. These are about the link and the
+/// promise around it rather than about layout — a link that resolves to the
+/// wrong thing is the one failure here that a person cannot recover from on
+/// their own, because they have no way to know what they should have got.
+func runPackSourceTests(_ t: Harness) {
+    t.suite("Setup — the pack link")
+
+    let u = Readiness.packSource.absoluteString
+    t.expect(u.hasSuffix(".tar.gz"),
+             "the link is to the file, not to a page listing seventeen assets")
+    t.expect(u.contains("/releases/download/"),
+             "and is a release asset, so it resolves without anybody choosing anything")
+
+    // Pinned, not floating. `latest` moves with every patch release of the app
+    // while the pack does not, so a link to `latest` eventually resolves to a
+    // release with no pack in it at all.
+    t.expect(!u.contains("/latest/"),
+             "pinned to a pack release rather than following the newest app release")
+    t.expect(Acquisition(paths: Paths(root: Fixture.dir("packlink")))
+                .looksLikePackArchive(Readiness.packSource),
+             "and the file it points at is one Decanter recognises as a pack")
+
+    // The notes are a separate link on purpose: 200 MB is worth reading about
+    // first, and the download button must not be the only way to find out what
+    // is in it.
+    t.expect(Readiness.packNotes.absoluteString.contains("/releases/tag/"),
+             "there is a page describing the pack, separate from the download")
+    t.expect(Readiness.packNotes.absoluteString != u,
+             "reading about it and fetching it are different actions")
+
+    // Every source the setup page offers must be somewhere a browser can go.
+    // A file:// or a malformed URL here would open nothing and say nothing.
+    for (name, url) in [("pack", Readiness.packSource), ("pack notes", Readiness.packNotes),
+                        ("wine", Readiness.wineSource), ("gptk", Readiness.gptkSource),
+                        ("dxvk", Readiness.dxvkSource), ("dxmt", Readiness.dxmtSource)] {
+        t.equal(url.scheme, "https", "the \(name) link is https")
+        t.expect(url.host != nil, "the \(name) link names a host")
+    }
+}

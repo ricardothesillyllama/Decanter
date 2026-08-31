@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.7.8 — 2026-08-31
+
+Setup leads with the pack, and 0.7 is finished.
+
+- **One instruction instead of six rows.** The setup page opened as a checklist:
+  six pieces, five of them downloads from five different places, each with its
+  own link. That page is a procurement list, and the *shape* of it taught
+  somebody "this is complicated" before they had read a word — which is the toll
+  the no-download rule was quietly charging the user. It now opens with one
+  button that fetches one file.
+- **The checklist is demoted, not deleted.** It collapses behind "Set these up
+  individually" while the Mac is not ready, and becomes the whole page once it
+  is. "What am I missing?" is a real question, asked again every time a game
+  misbehaves, and the rows are the right answer to it — they were just the wrong
+  first impression.
+- **The link is to the file, not to a page.** A releases page listing seventeen
+  assets is not an instruction. It is pinned to the pack's own release rather
+  than to `latest`, because `latest` moves with every patch of the app while the
+  pack does not — a floating link eventually resolves to a release with no pack
+  in it.
+- **Getting it and taking it in are one card.** They were two — the checklist,
+  and a separate "already downloaded it?" — and two cards explaining how to set
+  up is the duplication the last few releases were spent removing. "Look in
+  Downloads" now sits directly under the button that puts a file there.
+
+The pack itself is published, signed, and verified into two empty Decanter
+stores — once as the archive, once unpacked. Both reach a working setup in about
+twenty seconds. It is attached to this release as well as having its own, so
+nobody has to find two pages.
+
 ## v0.7.7 — 2026-08-31
 
 **Every first run was blocked, and no machine that had ever run Decanter could

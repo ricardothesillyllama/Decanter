@@ -51,6 +51,7 @@ if wantAll || args.contains("setup")   { runAcquisitionTests(t) }
 if wantAll || args.contains("setup")   { runDiskImageParseTests(t) }
 if wantAll || args.contains("setup")   { runReadinessTests(t) }
 if wantAll || args.contains("setup")   { runFirstRunReadinessTests(t) }
+if wantAll || args.contains("setup")   { runPackSourceTests(t) }
 if wantAll || args.contains("setup")   { runSetupOrderTests(t) }
 
 exit(t.summary())
