@@ -488,7 +488,10 @@ final class AppModel: ObservableObject {
                     if Self.wineAlive(prefix: plan.bottle.prefixPath) {
                         if !appeared {
                             appeared = true
-                            await MainActor.run { self.starting.remove(game.id) }
+                            // `_ =` because Set.remove returns the element it
+                            // removed, which makes MainActor.run's result
+                            // non-Void — and warnings are errors here.
+                            await MainActor.run { _ = self.starting.remove(game.id) }
                         }
                         continue
                     }

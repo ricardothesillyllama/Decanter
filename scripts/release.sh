@@ -45,7 +45,14 @@ step "rules"
 # 3. The suite. Warnings are errors here for the same reason they are in CI:
 #    a warning nobody has to fix is a warning nobody fixes.
 step "build"
-swift build -Xswiftc -warnings-as-errors 2>&1 | tail -3
+# Not piped to tail. A pipeline's status is the last command's, so
+# `swift build ... | tail -3` reported tail's success and this step printed a
+# green tick over a build that had failed on a warning — which is exactly the
+# thing this step exists to catch. Cutting 0.8.3 walked straight past it.
+swift build -Xswiftc -warnings-as-errors > .build/build.log 2>&1 || {
+  grep -E "error:" .build/build.log | head -10
+  fail "the build did not pass with warnings as errors"
+}
 ok "builds clean with warnings as errors"
 
 step "suite"

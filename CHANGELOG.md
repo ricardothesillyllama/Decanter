@@ -149,10 +149,6 @@ the tree, referenced by nothing.
 
 Fourteen new tests, 1094 in total.
 
-## v0.8.3 — 2026-09-01
-
-_Unreleased._
-
 ## v0.8.2 — 2026-08-31
 
 **The endorsement popover named the game, and then told you not to.** It opened
