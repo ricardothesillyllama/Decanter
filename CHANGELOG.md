@@ -1,5 +1,77 @@
 # Changelog
 
+## v0.8.0 — 2026-08-31
+
+Decanter looks and reads more like a Mac app and less like a machine wrote it.
+No new capability; everything the bundles in 0.9 will be built on top of, done
+first so they inherit it instead of being rewritten a release later.
+
+### Surfaces the system draws
+
+- **Twenty-seven hand-drawn cards are gone.** Every grouped surface here was a
+  `RoundedRectangle` filled with an opaque `.controlBackgroundColor`. They
+  looked right on the Mac they were written on, and that was the whole problem:
+  none of them moved when the system did. Not for Liquid Glass, not for Reduce
+  Transparency, not for Increase Contrast. They are `GroupBox` now and get all
+  of it for nothing. The one that mattered most is the game page's own sections,
+  which was the largest surface in the app.
+- **Green, orange and red come from the system.** They were mixed by hand, three
+  literal RGB triples, which meant they stayed exactly that colour for a
+  colour-blind user and for anyone with Increase Contrast turned on. The amber
+  accent is deliberately still hand-mixed: it is the one colour on screen that
+  says Decanter rather than AppKit, and keeping it was the point of the exercise.
+- **A box inside a box is one box too many**, so the pieces list, the graphics
+  options and the two log excerpts dropped their own frames when the section
+  around them gained one.
+- Two new rules. `check-rules.sh` now fails the build if a container surface is
+  painted by hand again.
+
+### Wine's host directory is read, not spelled
+
+`lib/wine/x86_64-unix` was written out in nine places. None was wrong — every
+free macOS Wine is x86_64 — but it is the one name in Wine's layout that changes
+on an ARM64-native build, and each of those nine was a capability gate that
+would have answered "no" on such a build. No Mac driver, no Metal bridge, no
+Vulkan, all because of a directory name.
+
+`WineLayout.hostPath` reads the name off disk instead. Nothing changes for any
+build that exists today, which is the point: the `.app` bundles coming in 0.9
+are written once and opened years later, and none of them will carry a name with
+an expiry date. The Windows-side names are untouched, because `x86_64-windows`
+describes the *game* — an ARM64 Wine still runs the same Windows executable.
+Eighteen tests, including the one that proves an x86_64 build reads exactly as
+it did before.
+
+### Writing that sounds like a person wrote it
+
+The prompt for this was clocking a competitor as machine-written from its prose
+alone, and suspecting Decanter reads the same way. It was measured, and **the
+measurement was wrong** — em-dashes per word, which infers voice from
+punctuation. Measured for the things that actually make prose read as
+machine-written — vocabulary, uniform shape, hedging, self-congratulation — the
+UI strings and all 52,000 words of code comments come back clean: zero hits
+across twenty-seven markers, six triads in the lot.
+
+- **The README had it, and is rewritten.** Nine feature bullets of near-identical
+  length and identical shape; the *this-not-that* antithesis eight times in one
+  document, which is a construction a person uses twice. Doing the pass also
+  caught three things that were plainly out of date: the install steps still
+  described the checklist that 0.7.8 replaced, the badge claimed 936 checks, and
+  Apple's Game Porting Toolkit was described as *ideally* wanted when the pack
+  deliberately leaves it out.
+- **`rather than`, 193 times in the comments.** Every instance earns its keep,
+  so the fix is not 193 edits. Two of them within six lines of each other is
+  where it stops reading as a sentence and starts reading as a habit; there are
+  seventeen such clusters, and the seven in live source and docs are rewritten.
+  The ten in this file are left alone: quietly restyling a dated record is worse
+  than a repeated connective.
+- **No lint rule for it, deliberately.** The case for one was that I cannot audit
+  my own voice, which is true and is exactly why it would not work — the rule
+  would have been written against the same bad instrument, and it would have
+  flagged three clean surfaces while missing the one that was actually bad.
+
+1063 checks, up from 1045.
+
 ## v0.7.8 — 2026-08-31
 
 Setup leads with the pack, and 0.7 is finished.

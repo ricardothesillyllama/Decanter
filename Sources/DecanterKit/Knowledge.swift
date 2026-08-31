@@ -202,8 +202,8 @@ public struct Knowledge: Codable, Sendable {
         public var seeded: Bool = false
         /// True for knowledge that arrived in someone else's export. Nothing
         /// weighs it differently yet — it is recorded now so that when signed
-        /// endorsements arrive there is a fact to tier, rather than a migration
-        /// that has to guess where every existing row came from.
+        /// endorsements arrive there is a fact to tier. The alternative is a
+        /// migration that has to guess where every existing row came from.
         public var imported: Bool = false
         public var note: String?
         /// A detached signature over this row's own contents, made with the

@@ -92,17 +92,16 @@ struct SetupView: View {
     @ViewBuilder private var mainColumn: some View {
         if let r = model.readiness {
             if r.ready {
-                piecesCard(r)
+                GroupBox { piecesCard(r) }
             } else {
                 packCard
-                DisclosureGroup("Set these up individually") {
-                    piecesCard(r)
-                        .padding(.top, 10)
+                GroupBox {
+                    DisclosureGroup("Set these up individually") {
+                        piecesCard(r)
+                            .padding(.top, 10)
+                    }
+                    .font(.callout)
                 }
-                .font(.callout)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
             }
         }
     }
@@ -121,6 +120,7 @@ struct SetupView: View {
     /// is what made "Decanter downloads nothing" something the user paid for
     /// rather than a guarantee they were given.
     private var packCard: some View {
+        GroupBox {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Label("Get everything in one file", systemImage: "shippingbox")
@@ -188,10 +188,9 @@ struct SetupView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
+        }
     }
 
     /// One header, two moods. On a Mac that cannot run anything yet this is the
@@ -229,8 +228,6 @@ struct SetupView: View {
                 rows(extras, steps: [:])
             }
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 
     @ViewBuilder private func rows(_ pieces: [Readiness.Piece], steps: [String: Int]) -> some View {
@@ -252,7 +249,7 @@ struct SetupView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 8)
-        .background(Palette.hairline.opacity(0.35))
+        .background(.quaternary.opacity(0.35))
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -308,18 +305,18 @@ struct SetupView: View {
 
     private func asideCard<C: View>(_ title: String, icon: String,
                                     @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: icon)
-                .font(.callout).bold()
-            content()
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        GroupBox {
+            VStack(alignment: .leading, spacing: 7) {
+                Label(title, systemImage: icon)
+                    .font(.callout).bold()
+                content()
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.hairline))
     }
 
 }

@@ -4,6 +4,49 @@ import Foundation
 /// APFS-cloned copy so that a Homebrew upgrade, a cask conflict, or a deleted
 /// upstream repo can't pull the runtime out from under an installed game.
 /// This is the specific failure that killed Whisky.
+/// Where a Wine build keeps its host-side modules.
+///
+/// Wine has two sides and only one of them is about this Mac. `x86_64-windows`
+/// and `i386-windows` hold Windows PE files — the game's side — and those names
+/// do not change when Wine itself is built for Apple Silicon, because an
+/// ARM64-native Wine still runs the same x86_64 Windows game. The Unix side
+/// does change, and it is the side every path below was hardcoded to.
+///
+/// This is here now rather than later on purpose. Every free macOS Wine today
+/// is x86_64, so the fallback below is the right answer on every Mac we can
+/// test against, and nothing changes visibly. What it buys is that no code
+/// written from here on carries a name that expires — which matters most for
+/// the `.app` bundles, since a bundle is written once and opened years later.
+///
+/// The ARM64 names are candidates, not knowledge. Wine's own convention gives
+/// `aarch64-unix`; `arm64-unix` is here because Apple's tools spell it the
+/// other way and nobody has had a build in hand to settle it. They are probed
+/// against the disk rather than assumed, so a wrong guess costs nothing and
+/// the right one starts working the day such a build exists.
+public enum WineLayout {
+    public static let hostDirs = ["x86_64-unix", "aarch64-unix", "arm64-unix"]
+
+    /// The name this particular build uses, or the x86_64 one if the build has
+    /// no Unix module directory at all — in which case the caller is about to
+    /// find nothing either way, and should find nothing at a familiar path.
+    public static func hostDir(under root: URL) -> String {
+        let fm = FileManager.default
+        for d in hostDirs where fm.fileExists(atPath: root.appending(path: "lib/wine/\(d)").path) {
+            return d
+        }
+        return hostDirs[0]
+    }
+
+    public static func hostPath(under root: URL, _ name: String) -> URL {
+        root.appending(path: "lib/wine/\(hostDir(under: root))/\(name)")
+    }
+
+    /// For the callers that hold a relative path rather than a URL.
+    public static func hostRelative(under root: URL, _ name: String) -> String {
+        "lib/wine/\(hostDir(under: root))/\(name)"
+    }
+}
+
 public struct RuntimeManager {
     let paths: Paths
     let fm = FileManager.default
@@ -154,7 +197,7 @@ public struct RuntimeManager {
         var out = MetalHosting()
         let fm = FileManager.default
         for name in ["winemac.drv.so", "winemac.so"] {
-            let u = root.appending(path: "lib/wine/x86_64-unix/\(name)")
+            let u = WineLayout.hostPath(under: root, name)
             if fm.fileExists(atPath: u.path) { out.driverPath = u; break }
         }
         guard let driver = out.driverPath,
@@ -341,8 +384,9 @@ public struct RuntimeManager {
     /// — a backend the runtime cannot deliver.
     public static func hasVulkan(root: URL) -> Bool {
         let fm = FileManager.default
-        for p in ["lib/libMoltenVK.dylib", "lib/wine/x86_64-unix/libMoltenVK.dylib"] {
-            if fm.fileExists(atPath: root.appending(path: p).path) { return true }
+        for u in [root.appending(path: "lib/libMoltenVK.dylib"),
+                  WineLayout.hostPath(under: root, "libMoltenVK.dylib")] {
+            if fm.fileExists(atPath: u.path) { return true }
         }
         // Some builds tuck it into a Frameworks directory rather than lib/.
         guard let walk = fm.enumerator(at: root.appending(path: "lib"),

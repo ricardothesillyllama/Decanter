@@ -423,7 +423,7 @@ public final class Engine: @unchecked Sendable {
             rep.blockers.append("this game is set to Metal graphics, but its Windows environment is not set up for it")
             }
             if !FileManager.default.fileExists(
-                atPath: rt.root.appending(path: "lib/wine/x86_64-unix/winemetal.so").path) {
+                atPath: WineLayout.hostPath(under: rt.root, "winemetal.so").path) {
                 rep.problems.append("\(rt.id) does not carry DXMT's Metal bridge")
             rep.blockers.append("\(rt.id) does not carry the Metal bridge this game’s graphics option needs")
             }
@@ -1397,9 +1397,9 @@ public final class Engine: @unchecked Sendable {
     /// endorsing something nobody has run would make the tier into the guess it
     /// exists to be distinguishable from.
     ///
-    /// The note is signed along with everything else, so editing it later
-    /// invalidates the endorsement rather than quietly changing what was
-    /// vouched for.
+    /// The note is signed along with everything else. Editing it later breaks
+    /// the endorsement outright, which is the safe failure: the alternative is
+    /// quietly changing what was vouched for.
     @discardableResult
     public func endorse(_ game: Game, note: String? = nil) throws -> Knowledge.Observation {
         guard Endorsement.canEndorse else { throw Endorsement.KeyError.noPrivateKey }

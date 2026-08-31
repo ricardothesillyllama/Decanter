@@ -6,12 +6,13 @@
 
 **Run Windows games on your Apple Silicon Mac.**
 
-Add a game. Decanter works out what it needs, builds it an isolated Windows
-environment, and picks the graphics translation most likely to work —
-instead of leaving you to guess between five combinations and try each by hand.
+Point Decanter at a game. It reads what the game is, gives it a Windows
+environment of its own, and sets the graphics translation it expects to work.
+There are five plausible combinations and no way to tell them apart by looking.
+Working that out is the job Decanter exists to do.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=936%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1063%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -30,17 +31,17 @@ of every runtime it uses.**
 
 1. **[Download the latest release](https://github.com/ricardothesillyllama/Decanter/releases/latest)**
    and drag Decanter into Applications.
-2. Open it. **Setup** lists what it needs, what it already found on your Mac,
-   and where each missing piece comes from.
-3. Fetch those — they are free — **drop them on the window**, and press Play.
+2. Open it. It asks for one more file: a 200 MB pack holding Wine and both
+   graphics translators. There is a button that takes you straight to it.
+3. Drag that file onto the window. About a minute later, press Play.
 
 No Terminal at any point.
 
 ![Setup](Resources/screenshots/setup.png)
 
-Decanter tells you what it needs in words that assume nothing, and links to
-where each piece comes from. The question mark beside each row carries the
-exact project and version, for when you already know what these are.
+If you would sooner assemble the pieces yourself, Setup still lists them one by
+one and links to each project. The question mark beside a row gives the exact
+name and version, for when you already know what you are looking at.
 
 > [!NOTE]
 > macOS will refuse to open it the first time, because releases are not
@@ -49,10 +50,11 @@ exact project and version, for when you already know what these are.
 > A locally built app is never quarantined, so `./install.sh` avoids this
 > entirely.
 
-**Requires** macOS 14 or later on Apple Silicon, and Rosetta 2 (Setup installs
-it for you). You also supply a Wine build, and ideally Apple's Game Porting
-Toolkit — see **[Getting the runtimes](docs/RUNTIMES.md)** for what each one
-buys you and where to get it.
+**Requires** macOS 14 or later on Apple Silicon, and Rosetta 2, which Setup
+installs for you. Everything else is in the pack. Apple's Game Porting Toolkit
+works too and is deliberately not included, because Apple's licence does not
+allow anyone to redistribute it; **[Getting the runtimes](docs/RUNTIMES.md)**
+covers what it buys you and where to find it.
 
 <details>
 <summary>Or from the CLI, if you prefer</summary>
@@ -72,44 +74,47 @@ The CLI and the app are one engine with two faces; either is enough on its own.
 
 ## What you get
 
-- **A recommendation, not a guessing game.** Decanter reads the game's engine,
-  architecture and graphics API, combines that with what has already worked on
-  your machine for games of the same shape, and tells you which runtime and
-  graphics layer to use — and why.
-- **Every game isolated.** Each gets its own Windows environment, cloned
-  instantly with APFS copy-on-write. No game can break another.
-- **Games cannot read your files.** Unlike Whisky, no game gets a view of your
-  whole Mac — just its own folder.
-- **Your saves kept safe.** Saves are stored outside the Windows environment and
-  linked back in, so rebuilding a broken game never destroys your progress.
-  Snapshots on demand.
-- **Real answers when something breaks.** One button produces a problem report
-  with the runtime actually in use, the graphics layer actually loaded, an
-  automatic diagnosis, and the relevant log lines.
-- **Mod support.** BepInEx is detected and wired up automatically, with plugin
-  status and loader errors surfaced in the app.
-- **Setup that never phones home.** Decanter makes no network requests at all —
-  a rule the build enforces, not just documents.
+- **It picks the setup, and shows its working.** Decanter reads the game's
+  engine, its architecture and which version of Direct3D it wants, weighs that
+  against what has already worked on your machine for games built the same way,
+  and tells you which runtime and graphics layer to use. The reasoning is on
+  screen; you can overrule it.
+- **One Windows environment per game.** Cloned in about half a second by APFS,
+  so there is no reason to share one. Nothing a game does can reach another.
+- **A game sees its own folder and no more.** Whisky handed every bottle a view
+  of your whole home directory. Decanter does not.
+- **Saves live outside the environment** and are linked back in, which is what
+  makes it safe to throw a broken environment away and build a new one. You can
+  snapshot by hand as well.
+- **When something breaks, one button writes the report** — the runtime that
+  was really in use, the graphics layer that really loaded, a diagnosis, and
+  the log lines it came from.
+- **BepInEx mods work.** Decanter spots them, wires them up, and tells you which
+  plugin failed when one does.
+- **Nothing ever leaves your Mac.** Decanter makes no network requests, and the
+  build refuses to compile if anybody adds one.
 
 ### Pick a graphics mode without guessing
 
-Options are named for what they are, never for how well they work — compatibility
-is per-game, not a ranking. Decanter's pick is a badge beside the name, and the
-real names (D3DMetal, DXVK, WineD3D) sit right there for when a forum thread
-uses them.
+Each option is named for what it does. None of the names carries a claim about
+how well it works, because compatibility is a per-game question and there is no
+ranking to give. Decanter's own pick sits beside the name as a badge, and the
+technical names — D3DMetal, DXVK, WineD3D — are printed underneath, for when a
+forum thread uses one.
 
 ![Graphics settings](Resources/screenshots/graphics.png)
 
-When a graphics option is missing from the list, the app says which one and
-why — measured from the Wine build itself, not assumed.
+When an option is missing from the list, the app names it and says what is
+absent from your Wine build. That comes from reading the build, so it is true
+of the copy you actually have.
 
 ### Check before you launch
 
-**Test Launch** does everything starting the game does except start it: resolves
-the path, applies the drive scopes, and asks Wine itself whether it can see the
-program. The failure this is for is the quiet one — a graphics option the Wine
-build cannot actually provide, where Wine's own graphics load instead and the
-game dies with nothing in the log to find.
+**Test Launch** does everything starting the game does except start it: it
+resolves the path, applies the drive scopes, and asks Wine whether it can see
+the program. It exists for the quiet failure. If your Wine build cannot really
+provide the graphics option you chose, Wine quietly loads its own instead, the
+game dies, and there is nothing in the log to find.
 
 ### Saves that survive a rebuild
 
@@ -131,11 +136,11 @@ says which one and why, with the exact log line underneath.
 A game remembers the setup it last worked on, with a date, and offers to go back
 to it. Saves are kept.
 
-And when a launch is ambiguous — a window that appeared and then vanished, a
-process with no window at all — Decanter says what it saw and asks you once
-whether it played. A launch that plainly worked is recorded without asking:
-being made to confirm the obvious is how a prompt becomes something you dismiss
-without reading.
+Some launches are ambiguous: a window appears and vanishes, or a process runs
+with no window at all. In those cases Decanter describes what it saw and asks
+you once whether the game played. When a launch plainly worked it records that
+and says nothing. Being asked to confirm the obvious is how a prompt turns into
+something you dismiss without reading it.
 
 ## How this compares
 
@@ -166,13 +171,12 @@ project exists — two of the four projects above are archived, and Whisky's
 installed copies broke because something upstream disappeared. Nothing upstream
 can reach into a Decanter install.
 
-**It decides for you, and says why.** Five runtime and renderer combinations
-exist and picking between them by hand is miserable. Decanter reads the game's
-engine, architecture and graphics API, combines that with what has already
-worked on your machine for games of the same shape, and applies the answer.
-Two of its rules were measured rather than guessed — a game that plays video
-cannot use D3DMetal, and 32-bit games belong on current Wine rather than the
-Game Porting Toolkit's 2022 base.
+**It decides for you, and says why.** There are five runtime and renderer
+combinations, and choosing between them by hand is miserable. Decanter reads
+the game, weighs it against what has worked here before, and applies the
+answer. Two of its rules came out of measurement on this machine rather than
+from a forum: a game that plays video cannot use D3DMetal, and 32-bit games
+belong on current Wine instead of the Game Porting Toolkit's 2022 base.
 
 **Games cannot see your files.** Whisky mapped your entire filesystem into every
 bottle, so any Windows binary could read `~/Documents`, `~/.ssh` and iCloud.
@@ -180,10 +184,11 @@ Decanter grants a game its own folder and a shared games directory, closes the
 seventeen further routes Wine opens through its mapped user folders, and
 verifies it before every launch.
 
-**Saves survive a rebuild.** A broken Windows environment is replaced rather
-than repaired, because repair heuristics rot and an environment is rebuilt in
-half a second anyway. That is only safe because saves are moved out of it first
-and linked back in.
+**Saves survive a rebuild.** When a Windows environment goes wrong Decanter
+throws it away and builds another, which takes about half a second. It does not
+try to repair one: repair heuristics accumulate, go stale, and are wrong in
+ways nobody notices. Throwing the environment away is only safe because the
+saves were moved out of it first and linked back in.
 
 **A Wine build is a different matter, and Decanter checks it.** A missing
 library there is silent: the game renders blank boxes or plays no video, and
@@ -193,8 +198,8 @@ already on your Mac. Nothing is downloaded, and it can be undone.
 
 **It is much younger than the alternatives**, has been used in anger by one
 person, and is not notarised. If you need something proven today, use one of
-the others — and if Decanter is ever archived, the design at least means your
-installed games keep working.
+the others. And if Decanter is ever archived, the whole design means your
+installed games carry on working anyway.
 
 ## Questions
 
@@ -386,12 +391,14 @@ Screen Recording permission.
 Tested by one person, on an M2 MacBook Air running macOS 26.5, with Wine 11.0
 and Apple's Game Porting Toolkit pinned side by side.
 
-Runtimes are pinned and measured rather than trusted, every game gets its own
-copy-on-write environment, a broken environment is replaced rather than
-repaired, and no game can see your files.
-Decanter is a CLI and a SwiftUI app over one engine, written in Swift with no
-external dependencies — every dependency is a future 404. **936 checks** run in
-a hand-rolled harness.
+Every runtime Decanter uses is copied into its own store and then measured, so
+what the app says about a build comes from reading that build. Each game gets a
+copy-on-write environment of its own, which is thrown away and rebuilt when it
+goes wrong. No game can see your files.
+
+Decanter is a CLI and a SwiftUI app over a single engine, written in Swift with
+no external dependencies at all, on the view that every dependency is a future
+404. **1063 checks** run in a hand-rolled harness.
 
 ## Documentation
 

@@ -817,9 +817,9 @@ final class AppModel: ObservableObject {
     /// itself rather than discovered. It is the same rule the rest of Decanter
     /// keeps: nothing appears on screen that was not asked for.
     ///
-    /// Written out rather than routed through `perform`, because what happens
-    /// next depends on the *report* and `perform` hands its caller only the
-    /// sentence it produced. The first version of this decided whether to
+    /// Written out longhand instead of going through `perform`, because what
+    /// happens next depends on the *report* and `perform` hands its caller only
+    /// the sentence it produced. The first version of this decided whether to
     /// launch by looking for a phrase in that sentence — behaviour keyed on
     /// prose, which holds right up until somebody improves the wording and it
     /// starts a game that should not have been started.

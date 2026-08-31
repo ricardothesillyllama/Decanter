@@ -382,9 +382,10 @@ public struct Bench: Sendable {
     static func fingerprint(of runtime: RuntimeSpec) -> String {
         let fm = FileManager.default
         var parts: [String] = []
-        for rel in ["bin/wine", "lib/wine/x86_64-unix/winemac.so",
-                    "lib/wine/x86_64-unix/winemac.drv.so",
-                    "lib/wine/x86_64-unix/winemetal.so"] {
+        let host = WineLayout.hostDir(under: runtime.root)
+        for rel in ["bin/wine", "lib/wine/\(host)/winemac.so",
+                    "lib/wine/\(host)/winemac.drv.so",
+                    "lib/wine/\(host)/winemetal.so"] {
             let p = runtime.root.appending(path: rel).path
             guard let a = try? fm.attributesOfItem(atPath: p) else { continue }
             let size = (a[.size] as? NSNumber)?.intValue ?? 0
@@ -453,7 +454,7 @@ public struct Bench: Sendable {
         // DXMT — Direct3D 11 straight to Metal. Two independent conditions,
         // both learned the hard way; see RuntimeManager.MetalHosting.
         let hosting = RuntimeManager.metalHosting(root: root)
-        let bridge = root.appending(path: "lib/wine/x86_64-unix/winemetal.so")
+        let bridge = WineLayout.hostPath(under: root, "winemetal.so")
         let hasBridge = fm.fileExists(atPath: bridge.path)
         var dxmtEvidence: [String] = []
         if let d = hosting.driverPath { dxmtEvidence.append(rel(d)) }
@@ -480,8 +481,8 @@ public struct Bench: Sendable {
     /// `lib/libMoltenVK.dylib` alone would miss.
     public static func moltenVK(in root: URL) -> URL? {
         let fm = FileManager.default
-        for p in ["lib/libMoltenVK.dylib", "lib/wine/x86_64-unix/libMoltenVK.dylib"] {
-            let u = root.appending(path: p)
+        for u in [root.appending(path: "lib/libMoltenVK.dylib"),
+                  WineLayout.hostPath(under: root, "libMoltenVK.dylib")] {
             if fm.fileExists(atPath: u.path) { return u }
         }
         guard let walk = fm.enumerator(at: root.appending(path: "lib"),

@@ -21,9 +21,9 @@ import Foundation
 /// rather than by care. What the pack adds is what upstream cannot: one file
 /// instead of three, a manifest saying what is inside, checksums so a
 /// half-finished download is caught before it is unpacked, a licences file
-/// assembled from the components rather than maintained beside them, and a
-/// signature so the copy that arrived can be shown to be the copy that was
-/// published.
+/// assembled from the components themselves so it cannot fall out of step with
+/// them, and a signature so the copy that arrived can be shown to be the copy
+/// that was published.
 public extension Pack {
 
     /// One archive going in, with the facts about it that only the person

@@ -35,8 +35,8 @@ public struct Diagnostics {
         /// A native plugin the game ships failed to load.
         case nativePluginMissing(String)
         /// DXVK refused to start. 2.x and 3.x require Vulkan 1.3, which
-        /// MoltenVK does not fully implement, so they fail at initialisation
-        /// rather than rendering badly.
+        /// MoltenVK does not fully implement, so they fail outright at
+        /// initialisation instead of limping along and rendering badly.
         case dxvkNeedsNewerVulkan
         case needsVisualCppRuntime(String)
         /// The Wine build has no FreeType, so it can render no TrueType font.

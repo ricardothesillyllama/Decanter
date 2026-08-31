@@ -110,8 +110,8 @@ runtime repository it fetched from was deleted. A file the user already has on d
 not such a dependency. So Setup accepts anything dropped on the window, identifies it by
 content rather than by filename, and mounts a disk image the user hands over; the links
 it shows open in the user's own browser. `check-rules.sh` fails the build if a
-networking API appears anywhere in the sources, so the claim is enforced rather than
-remembered.
+networking API appears anywhere in the sources, so nobody has to remember the claim
+for it to hold.
 
 **Names say what a thing is; the recommendation is separate.** The graphics options were
 once Apple, Standard and Compatibility. Both of the latter smuggled a claim: a stuck user

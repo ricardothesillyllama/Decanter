@@ -8,16 +8,20 @@ import DecanterKit
 enum Palette {
     static let amber      = Color(red: 0.80, green: 0.53, blue: 0.18)
     static let amberDeep  = Color(red: 0.62, green: 0.38, blue: 0.09)
-    static let running    = Color(red: 0.30, green: 0.68, blue: 0.44)
-    static let caution    = Color(red: 0.85, green: 0.60, blue: 0.20)
-    static let danger     = Color(red: 0.79, green: 0.31, blue: 0.27)
+
+    /// Green, orange and red were mixed by hand here until 0.8. They looked
+    /// fine on the one Mac they were mixed on, which is the whole problem: a
+    /// hand-mixed green stays that green when somebody turns on Increase
+    /// Contrast, and stays it on a display nobody here has seen. The system's
+    /// colours move with all of that. Ours moved with none of it.
+    ///
+    /// The amber above is the exception and stays hand-mixed, because it is
+    /// the one colour on screen that means Decanter rather than AppKit.
+    static let running    = Color.green
+    static let caution    = Color.orange
+    static let danger     = Color.red
 
     static func accent(_ scheme: ColorScheme) -> Color { scheme == .dark ? amber : amberDeep }
-
-    /// Surfaces for grouped rows. Kept semantic so the two list-shaped
-    /// controls — graphics options and setup pieces — cannot drift apart.
-    static let card     = Color(nsColor: .controlBackgroundColor)
-    static let hairline = Color.secondary.opacity(0.18)
 }
 
 extension Font {

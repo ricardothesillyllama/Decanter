@@ -140,6 +140,42 @@ if [ "${ROWS:-0}" -gt 6 ]; then
   note "the detail pane has $ROWS rows (max 6) — it answers why, and the page answers what"
 fi
 
+# 11. Let the system draw the surfaces.
+#
+#    Twenty-seven grouped surfaces were hand-drawn here until 0.8: a
+#    RoundedRectangle filled with an opaque .controlBackgroundColor. Each one
+#    looked right on the Mac it was written on, and none of them moved when the
+#    system did — not for Liquid Glass, not for Reduce Transparency, not for
+#    Increase Contrast. GroupBox and Form get all of that without being asked.
+#    The amber accent is the deliberate exception and is not drawn this way,
+#    and neither are the tinted alert banners: those use a semantic colour to
+#    say something, rather than a neutral one to draw a box. A neutral fill is
+#    what this looks for. Where a box inside a box would be one too many,
+#    .quaternary and its neighbours are the system's own tints and are fine.
+PAINTED=$(grep -rn --include='*.swift' -E \
+         'Color\(nsColor: \.(control|window|underPageBackground)|RoundedRectangle\([^)]*\)\.fill\(Color\.(primary|secondary)\.opacity' \
+         Sources/DecanterApp/ 2>/dev/null || true)
+if [ -n "$PAINTED" ]; then
+  printf '%s\n' "$PAINTED"
+  note "a container surface is painted by hand — use GroupBox, Form or List so it follows the system"
+fi
+
+# 12. Wine's host directory is read, never spelled.
+#
+#    `lib/wine/x86_64-unix` is the architecture Wine's own loader was built
+#    for, and it is the one name in the layout that changes on an ARM64-native
+#    Wine. Nine places spelled it out, and each was a capability gate that
+#    would answer "no" on such a build — no Mac driver, no Metal bridge, no
+#    Vulkan — because of a directory name. WineLayout.hostPath reads it off
+#    disk. The Windows-side names (x86_64-windows, i386-windows) describe the
+#    game and are not covered by this.
+SPELLED=$(grep -rn --include='*.swift' 'lib/wine/x86_64-unix' Sources/DecanterKit/ 2>/dev/null \
+          | grep -v 'Runtimes.swift' || true)
+if [ -n "$SPELLED" ]; then
+  printf '%s\n' "$SPELLED"
+  note "Wine's host directory is spelled out — use WineLayout.hostPath so an ARM64 build reads correctly"
+fi
+
 # 9. Build the way CI builds.
 #
 #    CI uses -warnings-as-errors and a plain `swift build` does not, so a

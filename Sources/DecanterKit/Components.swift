@@ -353,7 +353,7 @@ public struct DXMTInstaller {
         let runtime = base
 
         if let existing = store.state.runtimes.first(where: { $0.id == id }),
-           fm.fileExists(atPath: dest.appending(path: "lib/wine/x86_64-unix/winemetal.so").path) {
+           fm.fileExists(atPath: WineLayout.hostPath(under: dest, "winemetal.so").path) {
             return existing
         }
 
@@ -386,7 +386,7 @@ public struct DXMTInstaller {
         guard fm.fileExists(atPath: bridge.path) else {
             throw DecanterError.notFound("DXMT \(version) has no x86_64-unix/winemetal.so — its Metal bridge is missing")
         }
-        let bridgeDest = dest.appending(path: "lib/wine/x86_64-unix/winemetal.so")
+        let bridgeDest = WineLayout.hostPath(under: dest, "winemetal.so")
         try? fm.removeItem(at: bridgeDest)
         try fm.copyItem(at: bridge, to: bridgeDest)
 
@@ -463,7 +463,7 @@ public struct DXMTInstaller {
     public static func wineMacDriver(in runtime: RuntimeSpec) -> URL? {
         let fm = FileManager.default
         for name in ["winemac.so", "winemac.drv.so"] {
-            let u = runtime.root.appending(path: "lib/wine/x86_64-unix/\(name)")
+            let u = WineLayout.hostPath(under: runtime.root, name)
             if fm.fileExists(atPath: u.path) { return u }
         }
         return nil

@@ -370,7 +370,7 @@ struct ModsCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
             }
 
             // Red text in the log that no mod is responsible for. Shown, and
@@ -403,7 +403,7 @@ struct ModsCard: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.10)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
             }
 
             if !st.plugins.isEmpty {
@@ -1002,23 +1002,24 @@ struct DetailSection<Content: View>: View {
     var body: some View {
         let isOpen = Binding(get: { expanded ?? startsOpen },
                              set: { expanded = $0 })
-        return DisclosureGroup(isExpanded: isOpen) {
-            content.padding(.top, 10)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage).imageScale(.medium).foregroundStyle(.secondary)
-                    .frame(width: 18)
-                Text(title).font(.headline)
-                if let subtitle, !isOpen.wrappedValue {
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.tail)
+        return GroupBox {
+            DisclosureGroup(isExpanded: isOpen) {
+                content.padding(.top, 10)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: systemImage).imageScale(.medium).foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    Text(title).font(.headline)
+                    if let subtitle, !isOpen.wrappedValue {
+                        Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .padding(4)
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.035)))
     }
 }
 
@@ -1204,7 +1205,7 @@ struct GameDetail: View {
     /// last time is the fact most likely to change what should happen next,
     /// and every recommendation below it is formed without knowing the answer.
     /// A diagnosis of a real failure comes next, because it describes
-    /// something that already went wrong rather than something that might. An
+    /// something that has already gone wrong instead of something that might. An
     /// unsound environment beats a setup recommendation, because a
     /// recommendation about graphics is beside the point in a Windows
     /// environment that is missing pieces. Stray Wine processes are last: they
@@ -1363,8 +1364,6 @@ struct GameDetail: View {
                         if bk != availableBackends.last { Divider().padding(.leading, 38) }
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 9).fill(Palette.card))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Palette.hairline))
                 .frame(maxWidth: 460)
 
                 HStack(spacing: 6) {
