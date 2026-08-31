@@ -558,19 +558,54 @@ public struct Detector {
         // it happened to be larger than the game's own launcher stub.
         if let unity = unityExecutable(in: folder) { return unity }
 
-        guard let en = fm.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey],
-                                     options: [.skipsHiddenFiles]) else { return nil }
+        // Bounded three ways, because the Add panel accepts any folder and
+        // somebody will eventually hand it a home directory. Unbounded, this
+        // walked every file on the disk while `busy` disabled every control in
+        // the app and offered no way to cancel.
+        //
+        // `.skipsPackageDescendants` matters most: without it the walk
+        // descends into every .app bundle it meets, which on a Mac is where
+        // the file count lives.
+        guard let en = fm.enumerator(at: folder,
+                                     includingPropertiesForKeys: [.fileSizeKey, .isPackageKey],
+                                     options: [.skipsHiddenFiles, .skipsPackageDescendants])
+        else { return nil }
         var best: (URL, Int)? = nil
+        var visited = 0
         let noise = ["unins", "crashhandler", "crashreport", "setup", "vcredist",
                      "dxsetup", "unitycrash", "notification_helper", "updater"]
+        // One listing per directory rather than one per .exe. A folder holding
+        // fifty executables used to read its own contents fifty times.
+        var siblingsByDir: [String: Set<String>] = [:]
         for case let u as URL in en {
+            visited += 1
+            if visited > Self.walkBudget { break }
+            // Game trees are wide, not deep. Anything past this is either not
+            // a game or is reachable by pointing at the .exe directly.
+            if en.level > Self.walkDepth { en.skipDescendants(); continue }
+            // Bundles are opaque, and `.skipsPackageDescendants` does not
+            // reliably make them so: a walk of /Applications with that option
+            // set still descended into Visual Studio Code and came back with
+            // an .exe shipped inside it, which Decanter then added as a game.
+            // Checked by hand rather than trusted to the enumerator.
+            if Self.opaqueBundleExtensions.contains(u.pathExtension.lowercased())
+                || (try? u.resourceValues(forKeys: [.isPackageKey]).isPackage) == true {
+                en.skipDescendants(); continue
+            }
             guard u.pathExtension.lowercased() == "exe" else { continue }
             let n = u.lastPathComponent.lowercased()
             if noise.contains(where: { n.contains($0) }) { continue }
             let size = (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             // Prefer an exe sitting next to engine markers over the biggest one.
-            let sib = (try? fm.contentsOfDirectory(atPath: u.deletingLastPathComponent().path)) ?? []
-            let sibLower = Set(sib.map { $0.lowercased() })
+            let dir = u.deletingLastPathComponent().path
+            let sibLower: Set<String>
+            if let cached = siblingsByDir[dir] {
+                sibLower = cached
+            } else {
+                let sib = (try? fm.contentsOfDirectory(atPath: dir)) ?? []
+                sibLower = Set(sib.map { $0.lowercased() })
+                siblingsByDir[dir] = sibLower
+            }
             var score = size / 1024
             if sibLower.contains("unityplayer.dll") || sibLower.contains(where: { $0.hasSuffix("_data") }) { score += 500_000 }
             if sibLower.contains("nw.dll") || sibLower.contains("renpy") { score += 500_000 }
@@ -580,6 +615,19 @@ public struct Detector {
         }
         return best?.0
     }
+
+    /// How many filesystem entries one search will look at before giving up.
+    /// Comfortably past the largest game trees — a 100 GB Unreal install is
+    /// tens of thousands of files — and far short of a home directory.
+    static let walkBudget = 60_000
+    /// How deep below the chosen folder to look. Game layouts bottom out
+    /// around six; twelve leaves room without following a source tree down.
+    static let walkDepth = 12
+    /// Directories that are a single thing to a person and must never be
+    /// walked into looking for a game.
+    static let opaqueBundleExtensions: Set<String> = [
+        "app", "bundle", "framework", "plugin", "kext", "xpc", "appex", "component"
+    ]
 }
 
 /// Inspects a BepInEx installation sitting next to a game.

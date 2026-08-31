@@ -435,6 +435,19 @@ public enum DecanterError: LocalizedError {
     case templateMissing
     case noTemplate(String)
     case notAnExecutable(URL)
+    /// Nothing is at that path. Distinct from `notAnExecutable`, which used to
+    /// swallow this case and answer "Not a Windows executable" about a path
+    /// with no file on it at all — a diagnosis of a thing that is not there.
+    case pathNotThere(URL)
+    /// A real folder that holds no .exe. Also swallowed by `notAnExecutable`,
+    /// which said the folder was not a Windows executable. Folders are not
+    /// executables; the useful fact is that the search found nothing in it.
+    case noExecutableInFolder(URL)
+    /// This exact executable is already in the library. Reported as
+    /// `notFound` until 0.8.3, which produced "Not found: Game.exe is already
+    /// in the library" — an error saying it could not find the thing it just
+    /// found.
+    case alreadyInLibrary(exe: String, as: String)
     case pathEscapesScope(URL)
     case runtimeLacks32Bit(String)
     case cloneFailed(String)
@@ -456,6 +469,11 @@ public enum DecanterError: LocalizedError {
         case .templateMissing: "Golden template not built yet. Run `decanter template build`."
         case .noTemplate(let r): "No golden template for runtime \(r). Run `decanter template build \(r)`."
         case .notAnExecutable(let u): "Not a Windows executable: \(u.path)"
+        case .pathNotThere(let u): "There is nothing at \(u.path)."
+        case .noExecutableInFolder(let u):
+            "No Windows program found in \(u.lastPathComponent). Decanter looked through it and every folder inside it for a .exe."
+        case .alreadyInLibrary(let exe, let name):
+            "\(exe) is already in the library, as \"\(name)\"."
         case .pathEscapesScope(let u): "Path is outside this game's allowed folders: \(u.path)"
         case .runtimeLacks32Bit(let s): "Runtime \(s) cannot run 32-bit Windows programs."
         case .cloneFailed(let s): "Could not clone prefix: \(s)"
@@ -476,7 +494,11 @@ public enum DecanterError: LocalizedError {
     public var exitCode: Int32 {
         switch self {
         case .usage:                                                   2
-        case .notFound, .badFile, .notAnExecutable:                    3
+        // All three new cases were reported as `notFound` or `notAnExecutable`
+        // before 0.8.3 and so already exited 3. Splitting the message must not
+        // move the code — a script branching on 3 keeps working.
+        case .notFound, .badFile, .notAnExecutable,
+             .pathNotThere, .noExecutableInFolder, .alreadyInLibrary:  3
         case .noRuntime, .templateMissing, .noTemplate,
              .runtimeLacks32Bit, .notReady:                            4
         case .outOfSpace:                                              5
@@ -493,7 +515,7 @@ public enum DecanterError: LocalizedError {
 /// tree was modified, which is the case a hash was ever for; "dev" outside a
 /// repository.
 public enum Build {
-    public static let version = "0.8.2"
+    public static let version = "0.8.3"
     public static let commit = "3799ac1"
     /// A released build says its version and stops. The version is the whole
     /// of the attribution when the source it was built from is public and

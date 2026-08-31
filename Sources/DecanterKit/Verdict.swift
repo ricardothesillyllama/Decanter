@@ -132,6 +132,14 @@ public struct Verdict: Sendable {
 /// nothing can test is a claim that quietly stops being true. The view maps
 /// its own conditions onto these cases and asks for the first one.
 public enum Concern: Int, Sendable, CaseIterable, Comparable {
+    /// This game cannot start at all, for a reason no setting here changes —
+    /// its files are gone, or it ships a kernel anti-cheat.
+    ///
+    /// Above the unanswered verdict, which is otherwise first: asking how last
+    /// night's launch went is the wrong question to put to somebody whose game
+    /// is not on the disk any more. Both of these are certainties rather than
+    /// advice, which is why they outrank everything formed by inference.
+    case cannotStart
     /// What happened last time. First because every recommendation below it is
     /// formed without knowing the answer — asking after advising means the
     /// advice was given blind.
