@@ -516,7 +516,7 @@ public enum DecanterError: LocalizedError {
 /// repository.
 public enum Build {
     public static let version = "0.8.3"
-    public static let commit = "3799ac1"
+    public static let commit = ""
     /// A released build says its version and stops. The version is the whole
     /// of the attribution when the source it was built from is public and
     /// unmodified, and a hash there was worse than nothing: it named the commit
