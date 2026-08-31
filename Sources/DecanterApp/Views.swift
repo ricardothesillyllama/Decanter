@@ -19,6 +19,21 @@ struct RootView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        // The banner is a sibling of the split view, not a safe-area inset on
+        // it. As an inset it drew *over* the sidebar's own header and the Add
+        // Game button in the toolbar: a split view manages the safe areas of
+        // its columns itself, so an inset applied to the whole thing overlaps
+        // rather than displacing. A message saying the window is out of date,
+        // rendered on top of two other controls, is a bad advertisement for
+        // noticing things.
+        VStack(spacing: 0) {
+            StaleBuildBanner()
+            splitView
+        }
+        .onAppear { if model.setupNeeded && selection == nil { selection = .setup } }
+    }
+
+    private var splitView: some View {
         NavigationSplitView {
             Sidebar(selection: $selection)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
@@ -58,13 +73,12 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottom) { BusyBar() }
-        .safeAreaInset(edge: .top, spacing: 0) { StaleBuildBanner() }
-        // First run lands on the Setup page rather than raising a sheet over
-        // it. A sheet taller than the window spills past its edges, and it put
-        // the same content in two places — the page has to exist anyway,
-        // because "what am I missing?" is asked again every time a game
-        // misbehaves.
-        .onAppear { if model.setupNeeded && selection == nil { selection = .setup } }
+        // First run lands on the Setup page instead of raising a sheet over it.
+        // A sheet taller than the window spills past its edges, and it put the
+        // same content in two places — the page has to exist anyway, because
+        // "what am I missing?" is asked again every time a game misbehaves.
+        // (The .onAppear that does it is on the VStack above, so it still fires
+        // when the banner is showing.)
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             for p in providers {
                 _ = p.loadObject(ofClass: URL.self) { url, _ in

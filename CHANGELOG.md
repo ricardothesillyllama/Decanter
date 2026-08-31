@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.2 — 2026-08-31
+
+**The out-of-date banner was drawn on top of the two things it sat next to.**
+It overlapped the sidebar's own "Library" header and the Add Game button in the
+toolbar, so the message telling you the window is stale was itself the least
+readable thing on screen.
+
+It was attached as a top safe-area inset on the `NavigationSplitView`. A split
+view manages the safe areas of its columns itself, so an inset applied to the
+whole thing draws over them instead of displacing them — and the toolbar lives
+in the title bar, above all of it. The banner is now a sibling above the split
+view, which pushes both columns down and cannot reach the toolbar at all.
+
+Only visible with the banner actually showing, which needs a newer build
+installed while an older one is still running. That is a narrow window, and it
+is why this shipped.
+
 ## v0.8.1 — 2026-08-31
 
 **Two sections on the game page were both called "Advanced", with the same
