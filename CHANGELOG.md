@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.8.4 — 2026-09-13
+
+**Decanter never saw a running game.** The app decided whether a game was
+still going with `pgrep -f <bottle id>`, which searches a process's
+*arguments*. The bottle id is never in a Wine process's arguments — it is in
+its environment, as `WINEPREFIX`. Measured with a real program running in a
+real prefix, on both Wine 11 and the Game Porting Toolkit, that search matched
+nothing at 1.5, 4 and 8 seconds.
+
+So the watcher never saw a game appear. It waited out its 45 seconds, turned
+Running back into Play, dropped the Stop button, and asked "did that work?" —
+over a game that was on screen, in fullscreen, being played. It now reads the
+environment, and ignores two things measured alongside it: `wineserver`, which
+outlives the last program in a prefix by several seconds and would keep a game
+"running" after it quit, and Wine's own services.
+
+That also undoes two things 0.8.3 made worse. The new **Starting…** label is
+cleared when a process appears, and none ever did, so every launch said
+Starting… for 45 seconds. And the refusal rule 0.8.3 added matched any line
+containing "failed to open" — including `Failed to open the Vulkan driver`, a
+warning in real logs from launches that go on to work. The watcher read that
+as a game that would never start, and said so while it was starting. The rule
+now matches only Wine's own loader message.
+
+**The leftover-processes card could end the game you were playing.** It
+appears for Wine using more than half a CPU or running over an hour, and a
+game in fullscreen does both. Nothing excluded a game Decanter was running,
+and once the watcher had wrongly given up on it, nothing could have. Running
+games are now left out of the card, and End Them spares them.
+
+**Trying another graphics option once silenced the recommendation for good.**
+Every press of the picker marked the game as overridden by you, and nothing
+ever cleared the mark — not even choosing the recommended option again. An
+overridden game is one Decanter stops offering its recommendation to. Choosing
+exactly what Decanter recommends now clears the mark, and Decanter moving a
+game onto the runtime that hosts Metal graphics, on its own advice, no longer
+sets it. Pressing the option that is already selected used to redo the whole
+switch and set the mark on the way; it does nothing now. The change log had
+two identical switches recorded in the same second.
+
+**Saves kept from a removed game were kept, and then shown nowhere.** The
+Saves page lists games in the library, and a removed game is by definition not
+in it. The code to find kept saves existed and nothing called it. They appear
+now under **Removed from the library**, named as their last snapshot recorded
+them, with Show in Finder and a delete that asks first — and refuses anything
+that is not a kept store.
+
+**"Saves kept" could be untrue.** A snapshot skipped any file it failed to
+copy and still counted it, and removing a game, rebuilding one and switching
+its engine all delete the Windows environment immediately afterwards. A
+snapshot that cannot copy everything now fails, and nothing that would delete
+the originals goes ahead. Importing saves takes a snapshot first, since it
+overwrites files of the same name.
+
+Two messages still sent people to "Saves & Maintenance", a section that was
+renamed a release ago.
+
+
 ## v0.8.3 — 2026-09-01
 
 An adversarial pass over every surface, and the fixes it turned up. The theme
