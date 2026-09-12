@@ -238,15 +238,13 @@ public struct Diagnostics {
             // executable itself, everything after it in the log is a
             // consequence, and the module lines are the noise.
             //
-            // "failed to open descriptor file" is Unreal's, matched further
-            // down, and means something entirely different.
-            if (l.contains("failed to open") && !l.contains("descriptor file"))
-                || (l.contains("wine:") && l.contains("cannot find")) {
-                let exe = Self.firstMatch(#"[\"“]([^\"”]+)[\"”]"#, in: line)
-                    ?? Self.firstMatch(#"([A-Za-z]:\\[^\s\"]+)"#, in: line)
-                    ?? "the game"
-                let status = Self.firstMatch(#"\b(c0[0-9a-fA-F]{6})\b"#, in: line)?.lowercased()
-                found.append(.executableWouldNotStart(exe: exe, status: status))
+            // Anchored to Wine's own loader message. 0.8.3 matched any line
+            // containing "failed to open", and a real log carries
+            // `warn:vulkan:d3dkmt_init_vulkan Failed to open the Vulkan driver`
+            // during launches that go on to work. The launch watcher read that
+            // as a game that would never start, and said so while it started.
+            if let refusal = Self.wineRefusal(in: line) {
+                found.append(.executableWouldNotStart(exe: refusal.exe, status: refusal.status))
             }
             if l.contains("err:module:") || l.contains("failed to load") {
                 // Checked before the generic DLL case: an api-ms-win-* name is
@@ -316,6 +314,19 @@ public struct Diagnostics {
         var seen = Set<String>()
         r.findings = found.filter { seen.insert($0.summary).inserted }
         return r
+    }
+
+    /// Wine's loader refusing an executable — `wine: failed to open
+    /// "H:\game.exe": c0000135` or `wine: cannot find L"C:\x.exe"` — and
+    /// nothing else that happens to share a phrase with it.
+    static func wineRefusal(in line: String) -> (exe: String, status: String?)? {
+        let pattern = #"(?:^|[\s:])wine: (?:failed to open|cannot find) L?"([^"]+)"(?:\s*:\s*(c0[0-9a-fA-F]{6}))?"#
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let ns = line as NSString
+        guard let m = re.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let exe = ns.substring(with: m.range(at: 1))
+        let st = m.range(at: 2)
+        return (exe, st.location == NSNotFound ? nil : ns.substring(with: st).lowercased())
     }
 
     /// What an NT status means in the words somebody can act on, and what to

@@ -124,6 +124,65 @@ public struct WineReaper {
         return out.sorted { $0.cpu > $1.cpu }
     }
 
+    /// Whether a program — not Wine's own plumbing — is still running in this
+    /// Windows environment.
+    ///
+    /// The app used to answer this with `pgrep -f <bottle id>`, which searches
+    /// process *arguments*. The bottle id is never in a Wine process's
+    /// arguments; it is in its environment, as WINEPREFIX. Measured on both
+    /// runtimes with a real process running in a real prefix, that search
+    /// matched nothing at 1.5, 4 and 8 seconds. So the watcher never saw a game
+    /// appear, gave up after 45 seconds, turned Running back into Play, and
+    /// asked "did that work?" over a game that was on screen and being played.
+    ///
+    /// Two exclusions, both measured too. `wineserver` outlives the last
+    /// program in a prefix by several seconds, so counting it would keep a game
+    /// "running" after it quit. Wine's own services are not the game either.
+    public func sessionIsLive(in bottlePrefix: URL) -> Bool {
+        guard let r = try? Shell.run(URL(filePath: "/bin/ps"), ["-Ao", "pid=,command="], timeout: 20)
+        else { return false }
+        let target = bottlePrefix.pathKey
+        let me = ProcessInfo.processInfo.processIdentifier
+        for c in Self.wineCandidates(psOutput: r.out, runtimeRoot: paths.runtimes.path)
+            where c.pid != me && Self.isProgram(command: c.command) {
+            if self.prefix(of: c.pid)?.pathKey == target { return true }
+        }
+        return false
+    }
+
+    /// The processes worth reading an environment for: anything run out of
+    /// this install's runtimes, anything whose argv Wine relabelled with a
+    /// Windows drive — any letter, since games run from mapped drives — and
+    /// Wine's bare helpers. Everything else on the Mac is skipped, because
+    /// reading an environment costs a `ps` call each.
+    public static func wineCandidates(psOutput: String, runtimeRoot: String) -> [(pid: Int32, command: String)] {
+        var out: [(pid: Int32, command: String)] = []
+        for line in psOutput.split(whereSeparator: \.isNewline) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard let space = t.firstIndex(of: " "), let pid = Int32(t[t.startIndex..<space]) else { continue }
+            let command = t[t.index(after: space)...].trimmingCharacters(in: .whitespaces)
+            let drive = command.count > 2 && command.first!.isLetter
+                && command.dropFirst().hasPrefix(":\\")
+            let first = command.split(separator: " ").first.map(String.init)?
+                .split(separator: "/").last.map(String.init)?.lowercased() ?? ""
+            if command.contains(runtimeRoot) || drive || bareHelpers.contains(first) {
+                out.append((pid, command))
+            }
+        }
+        return out
+    }
+
+    /// Whether a process is a program somebody ran, as opposed to the Wine
+    /// machinery that runs alongside one.
+    public static func isProgram(command: String) -> Bool {
+        let leaf = Stray(pid: 0, cpu: 0, elapsed: "0", command: command,
+                         prefix: nil, isService: false).displayName.lowercased()
+        if leaf == "wineserver" || leaf == "winedbg" || leaf.hasPrefix("winedbg ") { return false }
+        if leaf == "wineboot" || leaf == "wineboot.exe" { return false }
+        if services.contains(leaf) { return false }
+        return true
+    }
+
     /// Reads WINEPREFIX out of a running process's environment.
     ///
     /// The value routinely contains spaces ("Application Support"), so it is

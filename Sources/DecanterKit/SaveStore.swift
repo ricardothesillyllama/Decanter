@@ -414,14 +414,30 @@ public struct SaveStore {
         try fm.createDirectory(at: dir.appending(path: "files"), withIntermediateDirectories: true)
 
         var bytes = 0
+        var failed: [String] = []
         for f in d.files {
             let src = sourceURL(for: f.relPath, game: game, prefix: prefix)
             let dst = dir.appending(path: "files").appending(path: f.relPath)
             try? fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
             // clonefile where possible; fall back to a plain copy.
             let r = try? Shell.run(URL(filePath: "/bin/cp"), ["-c", src.path, dst.path], timeout: 120)
-            if r?.code != 0 { try? fm.copyItem(at: src, to: dst) }
+            if r?.code != 0 {
+                // A clone that failed part-way can leave a stub behind, and a
+                // stub makes the fallback copy fail too.
+                try? fm.removeItem(at: dst)
+                do { try fm.copyItem(at: src, to: dst) } catch { failed.append(f.relPath); continue }
+            }
             bytes += f.bytes
+        }
+        // Both copies used to be `try?`, so a file that could not be read was
+        // skipped and the manifest still counted it. Removing a game with
+        // "keep saves", rebuilding one and switching its engine all delete the
+        // prefix straight after this returns — so a snapshot that quietly
+        // missed a file was a save deleted under a message saying it was kept.
+        if !failed.isEmpty {
+            try? fm.removeItem(at: dir)
+            throw DecanterError.badFile(
+                "\(failed.count == 1 ? "A save file" : "\(failed.count) save files") could not be copied into a snapshot, so nothing that would delete the originals went ahead. The first was \(failed[0]).")
         }
         if let reg = exportRegistry(from: prefix, keys: d.registryKeys) {
             try reg.write(to: dir.appending(path: "registry.reg"), atomically: true, encoding: .utf8)
@@ -497,16 +513,88 @@ public struct SaveStore {
         return removed
     }
 
+    /// Saves kept from a game that is no longer in the library.
+    public struct OrphanedStore: Sendable, Identifiable, Hashable {
+        public var id: String { slug }
+        public var slug: String
+        public var url: URL
+        public var bytes: Int
+        /// Save files held, counted once: the live folder if the game's saves
+        /// were protected, otherwise the newest snapshot.
+        public var savedFiles: Int
+        public var snapshotCount: Int
+        public var lastModified: Date?
+        /// The game's name as the newest snapshot recorded it. Local only —
+        /// read from this Mac's own store and shown on this Mac's own screen.
+        public var recordedName: String?
+    }
+
     /// Save stores with no game pointing at them — left behind deliberately by
-    /// `remove --keep-saves`, but otherwise invisible.
-    public func orphanedStores(knownSlugs: Set<String>) -> [(slug: String, bytes: Int, url: URL)] {
+    /// removing a game with "keep saves".
+    ///
+    /// This existed and nothing called it, so saves kept on purpose were
+    /// invisible everywhere: the Saves page lists only games in the library,
+    /// and a removed game is by definition not one. Stores holding no save
+    /// files at all are left out; there is nothing in them to find.
+    public func orphanedStores(knownSlugs: Set<String>) -> [OrphanedStore] {
         let names = (try? fm.contentsOfDirectory(atPath: paths.saves.path)) ?? []
         return names.filter { !$0.hasPrefix(".") && !knownSlugs.contains($0) }
-            .map { n in
+            .compactMap { n -> OrphanedStore? in
                 let u = paths.saves.appending(path: n)
-                return (slug: n, bytes: Self.dirSize(u), url: u)
+                let live = Self.regularFiles(under: u.appending(path: "live"))
+                let snapRoot = u.appending(path: "snapshots")
+                let snaps = ((try? fm.contentsOfDirectory(atPath: snapRoot.path)) ?? [])
+                    .filter { fm.fileExists(atPath: snapRoot.appending(path: "\($0)/manifest.json").path) }
+                    .sorted(by: >)
+                var name: String?
+                var newestFiles = 0
+                if let newest = snaps.first {
+                    let dir = snapRoot.appending(path: newest)
+                    newestFiles = Self.regularFiles(under: dir.appending(path: "files")).count
+                    if let data = try? Data(contentsOf: dir.appending(path: "manifest.json")),
+                       let m = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let g = m["game"] as? String, !g.isEmpty { name = g }
+                }
+                let files = max(live.count, newestFiles)
+                guard files > 0 else { return nil }
+                let modified = (live + Self.regularFiles(under: snapRoot))
+                    .compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+                    .max()
+                return OrphanedStore(slug: n, url: u, bytes: Self.dirSize(u), savedFiles: files,
+                                     snapshotCount: snaps.count, lastModified: modified,
+                                     recordedName: name)
             }
-            .sorted { $0.bytes > $1.bytes }
+            .sorted { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
+    }
+
+    /// Deletes one kept store, and refuses anything that is not one.
+    ///
+    /// The slug arrives from a list on screen, but it names a directory, so it
+    /// is checked as if it came from anywhere: a current game's store, a path,
+    /// or a hidden entry is refused rather than resolved.
+    public func deleteOrphanedStore(slug: String, knownSlugs: Set<String>) throws {
+        guard !slug.isEmpty, !slug.hasPrefix("."), !slug.contains("/"), !slug.contains("\\") else {
+            throw DecanterError.usage("\(slug) is not the name of a kept save store")
+        }
+        guard !knownSlugs.contains(slug) else {
+            throw DecanterError.usage("those saves belong to a game still in the library")
+        }
+        let u = paths.saves.appending(path: slug)
+        guard u.deletingLastPathComponent().pathKey == paths.saves.pathKey,
+              fm.fileExists(atPath: u.path) else {
+            throw DecanterError.notFound("kept saves called \(slug)")
+        }
+        try fm.removeItem(at: u)
+    }
+
+    static func regularFiles(under url: URL) -> [URL] {
+        guard let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey],
+                                                      options: [.skipsHiddenFiles]) else { return [] }
+        var out: [URL] = []
+        for case let f as URL in en where (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+            out.append(f)
+        }
+        return out
     }
 
     public func deleteAll(for game: Game) throws {
