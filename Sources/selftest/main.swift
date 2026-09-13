@@ -10,6 +10,7 @@ if wantAll || args.contains("abuse")   { runAbuseTests(t) }
 if wantAll || args.contains("stress")  { runStressTests(t) }
 if wantAll || args.contains("saves")   { runSavesTests(t) }
 if wantAll || args.contains("saves")   { runOrphanedSavesTests(t) }
+if wantAll || args.contains("saves")   { runReadOnlyLibraryTests(t); runKeptSavesReconnectTests(t) }
 if wantAll || args.contains("schema")  { runSchemaTests(t) }
 if wantAll || args.contains("kb")      { runKnowledgeTests(t) }
 if wantAll || args.contains("fonts")   { runFontTests(t) }
@@ -30,7 +31,9 @@ if wantAll || args.contains("endorse") { runEndorsementSurvivalTests(t) }
 if wantAll || args.contains("verdict") { runVerdictTests(t) }
 if wantAll || args.contains("verdict") { runConcernOrderTests(t) }
 if wantAll || args.contains("verdict") { runRefusalRuleTests(t) }
+if wantAll || args.contains("verdict") { runPerGameVerdictTests(t) }
 if wantAll || args.contains("reload")  { runRecommendationLockTests(t) }
+if wantAll || args.contains("reload")  { runHandChoiceAdviceTests(t) }
 if wantAll || args.contains("reload")  { runReloadTests(t) }
 if wantAll || args.contains("reload")  { runCLIExitTests(t) }
 if wantAll || args.contains("reload")  { runSurfaceParityTests(t) }
@@ -58,5 +61,8 @@ if wantAll || args.contains("setup")   { runReadinessTests(t) }
 if wantAll || args.contains("setup")   { runFirstRunReadinessTests(t) }
 if wantAll || args.contains("setup")   { runPackSourceTests(t) }
 if wantAll || args.contains("setup")   { runSetupOrderTests(t) }
+
+// Only on request: see RaceTests.swift.
+if args.contains("race")                { runRaceTests(t) }
 
 exit(t.summary())

@@ -34,6 +34,7 @@ func runVerdictTests(_ t: Harness) {
              "in words that need nothing explained first")
 
     t.suite("a question nobody answers in time is dropped, not asked")
+    v.clearAll()
     // Being asked on Friday how Tuesday's launch went produces an answer that
     // should not be recorded as an observation.
     try? v.park(pending(at: Date().addingTimeInterval(-60 * 60 * 24 * 5)))
@@ -64,6 +65,7 @@ func runVerdictTests(_ t: Harness) {
              "and reads as something a person would say")
 
     t.suite("skipping records nothing")
+    v.clearAll()
     try? v.park(pending())
     v.clear()
     t.equal(v.pending() == nil, true, "a skipped question does not come back")
@@ -161,7 +163,9 @@ func runConcernOrderTests(_ t: Harness) {
     // controls for them points somebody at the wrong five.
     t.expect(!Concern.strayProcesses.callsForRepairTools,
              "stray processes do not open a section of repairs")
-    for c in Concern.allCases where c != .strayProcesses {
+    t.expect(!Concern.keptSaves.callsForRepairTools,
+             "and neither does an offer to bring back kept saves, which is not a repair")
+    for c in Concern.allCases where c != .strayProcesses && c != .keptSaves {
         t.expect(c.callsForRepairTools, "\(c) opens the repair tools")
     }
 

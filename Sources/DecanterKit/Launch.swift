@@ -133,11 +133,17 @@ public struct Launcher {
         let scopes = game.scopes.isEmpty ? defaultScopes(for: game.exePath) : game.scopes
         let closed = try pb.applyScopes(prefix: bottle.prefixPath, scopes: scopes)
         let win = try windowsPath(for: game.exePath, scopes: scopes)
-        let log = paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
+        let log = logFile(for: game)
         return Plan(runtime: runtime, bottle: bottle, env: env, winPath: win,
                     arguments: game.launchArguments ?? [],
                     cwd: game.exePath.deletingLastPathComponent(), logFile: log,
                     closedDrives: closed)
+    }
+
+    /// Where a game's launch log is written. One place, so removing a game
+    /// can find the log it leaves.
+    public func logFile(for game: Game) -> URL {
+        paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
     }
 
     @discardableResult

@@ -100,37 +100,76 @@ public struct DecanterState: Codable, Sendable {
 
 public final class Store: @unchecked Sendable {
     public let paths: Paths
-    public private(set) var state: DecanterState
-    /// Set when the on-disk state could not be decoded; surfaced by `doctor`.
-    public private(set) var loadError: String?
+
+    /// The library in memory, read and written only under `lock`.
+    ///
+    /// This was a plain stored property on a class the app shares across
+    /// threads. Every action runs as a detached task and writes it through
+    /// `mutate`; the main thread re-reads it through `refresh` on every
+    /// activation and reads it to draw. The file lock serialises one write
+    /// against another — including the CLI's — and did nothing for a read in
+    /// the same process racing a write. Recursive, because the body passed to
+    /// `mutate` routinely reads the store it is mutating.
+    private let lock = NSRecursiveLock()
+    private var _state: DecanterState
+    private var _loadError: String?
+    private var _unreadableBackup: URL?
+
+    public var state: DecanterState { lock.lock(); defer { lock.unlock() }; return _state }
+
+    /// Set when the file on disk could not be decoded. While it is set,
+    /// nothing is written.
+    public var loadError: String? { lock.lock(); defer { lock.unlock() }; return _loadError }
+
+    /// Where the unreadable file was copied, when it was.
+    public var unreadableBackup: URL? { lock.lock(); defer { lock.unlock() }; return _unreadableBackup }
 
     public init(paths: Paths = Paths()) throws {
         self.paths = paths
         try paths.ensure()
+        self._state = DecanterState()
         if let d = try? Data(contentsOf: paths.statePath) {
             do {
-                self.state = try JSONDecoder().decode(DecanterState.self, from: d)
+                self._state = try JSONDecoder().decode(DecanterState.self, from: d)
             } catch {
-                // Never quietly start empty on top of a state file we could not
-                // read: the next save would overwrite the user's library.
-                let backup = paths.root.appending(path: "state.unreadable-\(Int(Date().timeIntervalSince1970)).json")
-                try? d.write(to: backup)
-                self.state = DecanterState()
-                self.loadError = "state.json could not be read (\(error)). A copy was kept at \(backup.lastPathComponent)."
+                setAside(d, because: error)
             }
-        } else {
-            self.state = DecanterState()
         }
     }
 
+    /// Keeps a copy of a file that would not decode, and stops writing.
+    ///
+    /// Keeping the copy was already done. What was not done was stopping: the
+    /// store carried on with an empty library, and the next change of any kind
+    /// saved that empty library over the file. That is how a library of five
+    /// games became an empty one on 27 August — with the copy sitting beside
+    /// it and nothing in the app saying so.
+    private func setAside(_ data: Data, because error: Error) {
+        let backup = paths.root.appending(path: "state.unreadable-\(Int(Date().timeIntervalSince1970)).json")
+        try? data.write(to: backup)
+        _unreadableBackup = backup
+        _loadError = "state.json could not be read (\(error)). A copy was kept at \(backup.lastPathComponent)."
+    }
+
     public func save() throws {
+        lock.lock(); defer { lock.unlock() }
+        try saveLocked()
+    }
+
+    private func saveLocked() throws {
+        guard _loadError == nil else {
+            throw DecanterError.notReady(
+                "Decanter could not read your library, so it is not writing anything over it. "
+                + "A copy was kept at \(_unreadableBackup?.lastPathComponent ?? "state.json"). "
+                + "Start a new library, or open it with a Decanter that can read it.")
+        }
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         // .atomic is a temp file plus rename, so a crash mid-write cannot
         // truncate the library. The merge puts back any field a newer version
         // wrote that this binary does not know about.
-        let encoded = try enc.encode(state)
-        let merged = UnknownKeys.merge(state.unknownKeys, into: encoded)
+        let encoded = try enc.encode(_state)
+        let merged = UnknownKeys.merge(_state.unknownKeys, into: encoded)
         try merged.write(to: paths.statePath, options: .atomic)
     }
 
@@ -143,25 +182,57 @@ public final class Store: @unchecked Sendable {
         if !FileManager.default.fileExists(atPath: lockPath.path) {
             FileManager.default.createFile(atPath: lockPath.path, contents: nil)
         }
+        // The file lock first, then the memory lock. Waiting for another
+        // process to finish writing must not hold up a read on the main thread.
         let fd = open(lockPath.path, O_RDWR | O_CREAT, 0o644)
         defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
         if fd >= 0 { _ = flock(fd, LOCK_EX) }
+        lock.lock(); defer { lock.unlock() }
 
-        // Adopt whatever another process committed while we were idle.
-        if let d = try? Data(contentsOf: paths.statePath),
-           let disk = try? JSONDecoder().decode(DecanterState.self, from: d) {
-            state = disk
+        // Adopt whatever another process committed while we were idle. A file
+        // that no longer decodes — a newer Decanter wrote a shape this one does
+        // not know — used to be skipped here, and the stale copy in memory was
+        // saved over it. Now it is set aside and nothing is written.
+        if let d = try? Data(contentsOf: paths.statePath) {
+            do {
+                _state = try JSONDecoder().decode(DecanterState.self, from: d)
+                _loadError = nil; _unreadableBackup = nil
+            } catch {
+                if _loadError == nil { setAside(d, because: error) }
+            }
         }
-        try body(&state)
-        try save()
+        guard _loadError == nil else { try saveLocked(); return }
+        try body(&_state)
+        try saveLocked()
     }
 
     /// Pull in changes made by another process without mutating anything.
+    /// A file that reads again ends read-only mode.
     public func refresh() {
+        lock.lock(); defer { lock.unlock() }
         if let d = try? Data(contentsOf: paths.statePath),
            let disk = try? JSONDecoder().decode(DecanterState.self, from: d) {
-            state = disk
+            _state = disk
+            _loadError = nil; _unreadableBackup = nil
         }
+    }
+
+    /// Gives up on a library that cannot be read, on purpose.
+    ///
+    /// The unreadable file is moved aside rather than deleted — a copy was
+    /// already kept when it failed to load, and this keeps the original too.
+    /// Nothing on disk that the library pointed at is touched.
+    public func abandonUnreadable() throws {
+        lock.lock(); defer { lock.unlock() }
+        guard _loadError != nil else { return }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: paths.statePath.path) {
+            let aside = paths.root.appending(path: "state.replaced-\(Int(Date().timeIntervalSince1970)).json")
+            try fm.moveItem(at: paths.statePath, to: aside)
+        }
+        _state = DecanterState()
+        _loadError = nil; _unreadableBackup = nil
+        try saveLocked()
     }
 
     /// Exact match wins, then case-insensitive exact, then a substring match
