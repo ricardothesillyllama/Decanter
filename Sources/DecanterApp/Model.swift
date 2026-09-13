@@ -186,6 +186,11 @@ final class AppModel: ObservableObject {
             // way a leaked Wine session ever becomes visible: it keeps running
             // after the app quits, so nothing else in the UI would show it.
             strays = e.strayWineProcesses()
+            libraryUnreadable = e.store.loadError
+            unreadableLibraryCopy = e.store.unreadableBackup
+            var offers: [UUID: SaveStore.OrphanedStore] = [:]
+            for g in games { if let o = e.keptSaves(matching: g) { offers[g.id] = o } }
+            keptSavesOffers = offers
             if !activityLoaded { loadActivity(from: e); activityLoaded = true }
             // One stat() per game. Cheap enough to ask on every refresh, and
             // it is the difference between an honest page and a confident one.
@@ -201,7 +206,7 @@ final class AppModel: ObservableObject {
             // A question about a launch nobody judged, and whether the builds
             // underneath still hold together. Both are cheap to ask for and
             // both are things somebody would want to see without going looking.
-            pendingVerdict = Verdict(paths: e.paths).pending()
+            pendingVerdicts = Verdict(paths: e.paths).allPending()
             // Reading a small JSON file. Nothing is measured here — `bench` is
             // the command that measures, and it starts every Wine build to do
             // it.
@@ -493,6 +498,9 @@ final class AppModel: ObservableObject {
                 // about a second after launch, while the game was still coming
                 // up. Wait for it to appear before watching for it to leave.
                 var appeared = false
+                // Whether a real game window from this prefix was seen, and
+                // when — the bar for recording the setup as working.
+                var firstWindow: Date?
                 let appearBy = Date().addingTimeInterval(45)
                 while true {
                     // 1.5s, not 0.7: each look reads the environment of
@@ -505,6 +513,10 @@ final class AppModel: ObservableObject {
                             // removed, which makes MainActor.run's result
                             // non-Void — and warnings are errors here.
                             await MainActor.run { _ = self.starting.remove(game.id) }
+                        }
+                        if firstWindow == nil,
+                           Self.sawGameWindow(in: plan.bottle.prefixPath, paths: e.paths) {
+                            firstWindow = Date()
                         }
                         continue
                     }
@@ -549,14 +561,32 @@ final class AppModel: ObservableObject {
                     let rep = Diagnostics().analyse(logAt: plan.logFile)
                     let ran = Date().timeIntervalSince(started)
                     let quick = ran < 12
+                    // The engine's own log, when this run wrote it. Unity
+                    // records failures there that Wine never mentions.
+                    let engineFindings: [Diagnostics.Finding] = {
+                        guard let log = e.engineLog(for: game),
+                              let mod = try? log.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                              mod >= started.addingTimeInterval(-5),
+                              let text = try? String(contentsOf: log, encoding: .utf8) else { return [] }
+                        return Diagnostics().analysePlayerLog(text)
+                    }()
+                    // The command line's bar, unchanged: a window big enough to
+                    // be a game, still there eighteen seconds after it first
+                    // appeared, and nothing wrong in either log. The app never
+                    // recorded anything on its own, so every clean session
+                    // taught the knowledge base nothing.
+                    let stayed = firstWindow.map { Date().timeIntervalSince($0) >= 18 } ?? false
+                    let clean = stayed && rep.isEmpty && engineFindings.isEmpty
                     // A game that quit almost immediately, or one that left
                     // complaints in its log, is the ambiguous case: it may have
                     // been played and closed, or it may have died. Decanter
                     // does not know, so it asks rather than recording a guess.
                     await MainActor.run {
-                        if quick {
+                        if clean {
+                            try? e.rememberWorking(game)
+                        } else if quick {
                             e.askAbout(game, observed: "it closed again after \(Int(ran)) seconds")
-                        } else if !rep.isEmpty {
+                        } else if !rep.isEmpty || !engineFindings.isEmpty {
                             e.askAbout(game, observed: "it ran, but its log reports problems")
                         }
                         self.running.remove(game.id)
@@ -611,6 +641,77 @@ final class AppModel: ObservableObject {
     }
 
     var pinnedRuntimes: [RuntimeSpec] { health?.pinnedRuntimes ?? [] }
+
+    /// A window big enough to be a game, owned by a process in this prefix.
+    nonisolated static func sawGameWindow(in prefix: URL, paths: Paths) -> Bool {
+        let reaper = WineReaper(paths: paths)
+        let target = prefix.pathKey
+        for w in Reporter.wineWindows() where w.width >= 640 && w.height >= 480 && w.pid > 0 {
+            if reaper.prefix(of: w.pid)?.pathKey == target { return true }
+        }
+        return false
+    }
+
+    // MARK: Hand choices
+
+    /// Hand choices somebody has said they know about: game id → the exact
+    /// situation that was dismissed. A different setup or a different
+    /// suggestion is a different situation, and the card may come back for it.
+    @Published private(set) var dismissedHandChoices: [String: String] =
+        (UserDefaults.standard.dictionary(forKey: "dismissedHandChoices") as? [String: String]) ?? [:]
+
+    private func handChoiceKey(_ game: Game) -> String? {
+        guard let b = bottle(for: game), let rec = recommendations[game.id] else { return nil }
+        return "\(b.runtimeID)|\(b.backend.rawValue)|\(rec.runtimeKind.rawValue)|\(rec.backend.rawValue)"
+    }
+
+    func isHandChoiceDismissed(_ game: Game) -> Bool {
+        guard let k = handChoiceKey(game) else { return false }
+        return dismissedHandChoices[game.id.uuidString] == k
+    }
+
+    func dismissHandChoice(_ game: Game) {
+        guard let k = handChoiceKey(game) else { return }
+        dismissedHandChoices[game.id.uuidString] = k
+        UserDefaults.standard.set(dismissedHandChoices, forKey: "dismissedHandChoices")
+    }
+
+    // MARK: Kept saves
+
+    @Published var keptSavesOffers: [UUID: SaveStore.OrphanedStore] = [:]
+    @Published private(set) var declinedKeptSaves: Set<String> =
+        Set((UserDefaults.standard.array(forKey: "declinedKeptSaves") as? [String]) ?? [])
+
+    func keptSavesOffer(for game: Game) -> SaveStore.OrphanedStore? {
+        guard let o = keptSavesOffers[game.id],
+              !declinedKeptSaves.contains("\(game.id.uuidString)|\(o.slug)") else { return nil }
+        return o
+    }
+
+    func declineKeptSaves(_ game: Game, _ o: SaveStore.OrphanedStore) {
+        declinedKeptSaves.insert("\(game.id.uuidString)|\(o.slug)")
+        UserDefaults.standard.set(Array(declinedKeptSaves), forKey: "declinedKeptSaves")
+    }
+
+    func reconnectKeptSaves(_ game: Game, _ o: SaveStore.OrphanedStore) {
+        perform("Bringing back \(game.name)'s kept saves…", key: "reconnect", scope: game.id) { e in
+            let n = try e.reconnectKeptSaves(game, slug: o.slug)
+            return "Brought back \(plural(n, "save file")). What it had before is in a snapshot."
+        }
+    }
+
+    // MARK: Unreadable library
+
+    /// Why the library could not be read, while it cannot.
+    @Published var libraryUnreadable: String?
+    @Published var unreadableLibraryCopy: URL?
+
+    func startNewLibrary() {
+        perform("Starting a new library…", key: "newLibrary") { e in
+            try e.startNewLibrary()
+            return "Started a new library. The file that could not be read was moved aside, not deleted."
+        }
+    }
 
     /// Launched, but no process has shown up in its prefix yet.
     ///
@@ -796,13 +897,14 @@ final class AppModel: ObservableObject {
     // MARK: - Going back, and being asked
 
     /// The launch Decanter could not judge for itself, if there is one.
-    @Published var pendingVerdict: Verdict.Pending?
+    /// One waiting question per game.
+    @Published var pendingVerdicts: [UUID: Verdict.Pending] = [:]
     /// Whether each runtime holds together, and what could be done if not.
     @Published var runtimeSoundness: [String: RuntimeAudit.Report] = [:]
 
     func refreshVerdict() {
         guard let e = engine else { return }
-        pendingVerdict = Verdict(paths: e.paths).pending()
+        pendingVerdicts = Verdict(paths: e.paths).allPending()
     }
 
     /// Measured off the main thread: an audit reads every binary in a Wine
@@ -933,17 +1035,18 @@ final class AppModel: ObservableObject {
         return DXVKInstaller(paths: e.paths).stagedVersions()
     }
 
-    func answerVerdict(worked: Bool, failure: Knowledge.Failure = .unspecified,
+    func answerVerdict(_ p: Verdict.Pending, worked: Bool, failure: Knowledge.Failure = .unspecified,
                        reason: Verdict.SwitchReason? = nil) {
-        perform(worked ? "Recording that it worked…" : "Recording what happened…", key: "verdict") { e in
-            try e.settleVerdict(worked: worked, failure: failure, switchReason: reason)
+        perform(worked ? "Recording that it worked…" : "Recording what happened…", key: "verdict",
+                scope: p.gameID) { e in
+            try e.settleVerdict(worked: worked, failure: failure, switchReason: reason, gameID: p.gameID)
         } then: { self.refreshVerdict() }
     }
 
-    func skipVerdict() {
+    func skipVerdict(_ p: Verdict.Pending) {
         guard let e = engine else { return }
-        Verdict(paths: e.paths).clear()
-        pendingVerdict = nil
+        Verdict(paths: e.paths).clear(gameID: p.gameID)
+        pendingVerdicts[p.gameID] = nil
     }
 
     /// The setup this game last worked on, when it is on something else now.
