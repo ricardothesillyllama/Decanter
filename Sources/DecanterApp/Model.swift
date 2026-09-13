@@ -119,7 +119,18 @@ final class AppModel: ObservableObject {
     @Published var strays: [WineReaper.Stray] = []
     @Published var mods: [UUID: ModInspector.Status] = [:]
     /// Only worth interrupting the user for: pinned CPU, or running for hours.
-    var leakedWine: [WineReaper.Stray] { strays.filter { $0.cpu >= 50 || $0.age > 3600 } }
+    ///
+    /// A game Decanter is running is never leftover. A game in fullscreen
+    /// pins the CPU and a long session passes the hour, so both tests matched
+    /// the game being played — and the card offering to end "leftover"
+    /// processes was offering to end it.
+    var leakedWine: [WineReaper.Stray] {
+        let live = Set(games.filter { running.contains($0.id) }
+            .compactMap { bottle(for: $0)?.prefixPath.pathKey })
+        return strays.filter {
+            ($0.cpu >= 50 || $0.age > 3600) && !live.contains($0.prefix?.pathKey ?? "")
+        }
+    }
 
     private var engine: Engine?
     private var processes: [UUID: Process] = [:]
@@ -484,8 +495,10 @@ final class AppModel: ObservableObject {
                 var appeared = false
                 let appearBy = Date().addingTimeInterval(45)
                 while true {
-                    try? await Task.sleep(nanoseconds: 700_000_000)
-                    if Self.wineAlive(prefix: plan.bottle.prefixPath) {
+                    // 1.5s, not 0.7: each look reads the environment of
+                    // every Wine process, one `ps` each.
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if WineReaper(paths: e.paths).sessionIsLive(in: plan.bottle.prefixPath) {
                         if !appeared {
                             appeared = true
                             // `_ =` because Set.remove returns the element it
@@ -527,7 +540,7 @@ final class AppModel: ObservableObject {
                             self.starting.remove(game.id)
                             self.diagnosis[game.id] = rep
                             if rep.isEmpty {
-                                self.lastError = "\(game.name) did not start, and its log says nothing. Try Troubleshoot Launch under Saves & Maintenance."
+                                self.lastError = "\(game.name) did not start, and its log says nothing. Try Troubleshoot Launch under If something is wrong."
                             }
                             self.refreshVerdict()
                         }
@@ -560,18 +573,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Wine detaches from the process we spawn, so liveness is judged by
-    /// whether any process still holds this prefix.
-    nonisolated static func wineAlive(prefix: URL) -> Bool {
-        let p = Process()
-        p.executableURL = URL(filePath: "/usr/bin/pgrep")
-        p.arguments = ["-f", prefix.lastPathComponent]
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
-        do { try p.run() } catch { return false }
-        let d = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return !String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     func rederive(_ game: Game) {
         perform("Rebuilding \(game.name)'s Windows environment…", key: "rebuild", scope: game.id) { e in
@@ -588,6 +589,11 @@ final class AppModel: ObservableObject {
     }
 
     func setBackend(_ game: Game, _ backend: GraphicsBackend) {
+        // Pressing the option already chosen did the whole switch again, and
+        // locked the game as overridden on the way. A second press that lands
+        // before the first has redrawn the picker did the same twice — the
+        // change log shows two identical switches in one second.
+        guard busy == nil, bottle(for: game)?.backend != backend else { return }
         perform("Switching \(game.name) to \(Help.plainName(backend)) graphics…", key: "backend", scope: game.id) { e in
             // Through the engine, not by setting the field: DXVK and DXMT are
             // real DLLs in the prefix and swapping between them needs an
@@ -1237,10 +1243,22 @@ final class AppModel: ObservableObject {
                                                registryKeys: d.registryKeys.count)
             }
             let o = ov, f = files, sn = snaps, x = ext
+            let kept = e.orphanedSaves()
             await MainActor.run {
                 self.saveOverview = o; self.saveFiles = f
                 self.snapshots = sn; self.externalised = x
+                self.orphanedSaves = kept
             }
+        }
+    }
+
+    /// Saves kept from games no longer in the library.
+    @Published var orphanedSaves: [SaveStore.OrphanedStore] = []
+
+    func deleteOrphanedSaves(_ o: SaveStore.OrphanedStore) {
+        perform("Deleting kept saves…", key: "orphanDelete") { e in
+            try e.deleteOrphanedSaves(slug: o.slug)
+            return "Deleted the saves kept from \(o.recordedName ?? o.slug)"
         }
     }
 
@@ -1294,7 +1312,7 @@ final class AppModel: ObservableObject {
     func remove(_ game: Game, keepSaves: Bool) {
         perform("Removing \(game.name)…", key: "remove", scope: game.id) { e in
             _ = try e.remove(game, keepSaves: keepSaves)
-            return keepSaves ? "Removed; saves kept" : "Removed, saves deleted"
+            return keepSaves ? "Removed. Its saves are kept, under All Saves." : "Removed, saves deleted"
         }
     }
 
@@ -1307,8 +1325,9 @@ final class AppModel: ObservableObject {
     }
 
     func reapWine() {
+        let live = Set(games.filter { running.contains($0.id) }.compactMap { bottle(for: $0)?.prefixPath })
         perform("Ending leftover Wine processes…", key: "reap") { e in
-            let o = e.reapWine()
+            let o = e.reapWine(keeping: live)
             return "Ended \(plural(o.killed.count, "leftover process"))"
         }
     }

@@ -290,7 +290,7 @@ struct StrayWineCard: View {
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("End Them") { model.reapWine() }.buttonStyle(.borderedProminent)
-                Text("This also stops any game you are playing.")
+                Text("A game Decanter is running right now is left alone.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ReactionNote(key: "reap")
@@ -1491,7 +1491,7 @@ struct GameDetail: View {
                 }
 
                 if b.backend == .dxvk && !dxvkReallyPresent {
-                    Label("This game is set to Vulkan graphics, but its Windows environment has Wine's built-in graphics instead. Rebuild it under Saves & Maintenance.",
+                    Label("This game is set to Vulkan graphics, but its Windows environment has Wine's built-in graphics instead. Rebuild it under If something is wrong.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(Palette.caution)
                         .fixedSize(horizontal: false, vertical: true)

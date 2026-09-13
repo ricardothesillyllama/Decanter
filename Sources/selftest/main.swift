@@ -9,10 +9,12 @@ if wantAll || args.contains("unit")    { runUnitTests(t); runVideoDetectionTests
 if wantAll || args.contains("abuse")   { runAbuseTests(t) }
 if wantAll || args.contains("stress")  { runStressTests(t) }
 if wantAll || args.contains("saves")   { runSavesTests(t) }
+if wantAll || args.contains("saves")   { runOrphanedSavesTests(t) }
 if wantAll || args.contains("schema")  { runSchemaTests(t) }
 if wantAll || args.contains("kb")      { runKnowledgeTests(t) }
 if wantAll || args.contains("fonts")   { runFontTests(t) }
 if wantAll || args.contains("reap")    { runReaperTests(t) }
+if wantAll || args.contains("reap")    { runLivenessTests(t) }
 if wantAll || args.contains("dxvk")    { runDXVKTests(t) }
 if wantAll || args.contains("mods")    { runModLogTests(t) }
 if wantAll || args.contains("stop")    { runStopScopeTests(t) }
@@ -27,6 +29,8 @@ if wantAll || args.contains("endorse") { runEndorsementTests(t) }
 if wantAll || args.contains("endorse") { runEndorsementSurvivalTests(t) }
 if wantAll || args.contains("verdict") { runVerdictTests(t) }
 if wantAll || args.contains("verdict") { runConcernOrderTests(t) }
+if wantAll || args.contains("verdict") { runRefusalRuleTests(t) }
+if wantAll || args.contains("reload")  { runRecommendationLockTests(t) }
 if wantAll || args.contains("reload")  { runReloadTests(t) }
 if wantAll || args.contains("reload")  { runCLIExitTests(t) }
 if wantAll || args.contains("reload")  { runSurfaceParityTests(t) }

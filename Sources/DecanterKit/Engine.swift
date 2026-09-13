@@ -494,7 +494,7 @@ public final class Engine: @unchecked Sendable {
         // Re-derive destroys the prefix contents, so capture saves first.
         // This is what makes "never repair, always re-derive" safe to use.
         progress("snapshotting saves first")
-        _ = try? saves.snapshot(game: game, prefix: old.prefixPath, template: template(for: game),
+        _ = try saves.snapshot(game: game, prefix: old.prefixPath, template: template(for: game),
                                 note: "taken automatically before rebuilding", progress: progress)
         progress("re-deriving prefix from golden template")
         var fresh = try prefixes.derive(bottleID: old.id, runtime: rt, backend: old.backend)
@@ -552,8 +552,9 @@ public final class Engine: @unchecked Sendable {
     public func strayWineProcesses() -> [WineReaper.Stray] { reaper.strays() }
 
     @discardableResult
-    public func reapWine(progress: (String) -> Void = { _ in }) -> WineReaper.Outcome {
-        reaper.reap(progress: progress)
+    public func reapWine(keeping live: Set<URL> = [],
+                         progress: (String) -> Void = { _ in }) -> WineReaper.Outcome {
+        reaper.reap(keeping: live, progress: progress)
     }
 
     /// Ends one game without touching anything else that is running.
@@ -655,13 +656,14 @@ public final class Engine: @unchecked Sendable {
     /// the cost of the prefix contents.
     @discardableResult
     public func setRuntime(_ game: Game, to runtimeID: String,
+                           lockRuntime: Bool = true,
                            progress: (String) -> Void = { _ in }) throws -> GraphicsBackend {
         guard let rt = store.runtime(runtimeID) else { throw DecanterError.noRuntime(runtimeID) }
         guard let bottle = store.bottle(game.bottleID) else { throw DecanterError.notFound("bottle") }
         if game.detection.bitness == .x86 && !rt.supports32Bit {
             throw DecanterError.runtimeLacks32Bit(rt.id)
         }
-        _ = try? saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
+        _ = try saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
                                 note: "taken automatically before switching engine")
         let backend = rt.backends.contains(bottle.backend) ? bottle.backend : (rt.backends.first ?? .wined3d)
 
@@ -703,7 +705,10 @@ public final class Engine: @unchecked Sendable {
         try store.mutate { s in
             s.bottles.removeAll { $0.id == bottle.id }
             s.bottles.append(fresh)
-            if let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = true }
+            // Only when asked. This locked unconditionally, so Decanter moving
+            // a game to the runtime that hosts DXMT — on its own
+            // recommendation — was recorded as the person overriding it.
+            if lockRuntime, let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = true }
         }
         note(fresh.id, "runtime -> \(rt.id), backend -> \(backend.label), environment rebuilt")
         return backend
@@ -732,7 +737,7 @@ public final class Engine: @unchecked Sendable {
             // mean moving the game to the runtime that carries it.
             let host = try dxmt.hostRuntime(basedOn: rt, version: v, store: store, progress: progress)
             if host.id != rt.id {
-                _ = try setRuntime(game, to: host.id, progress: progress)
+                _ = try setRuntime(game, to: host.id, lockRuntime: lockRuntime, progress: progress)
             }
             if let b = store.bottle(game.bottleID) { dxmt.mark(v, in: b.prefixPath) }
         default:
@@ -743,6 +748,20 @@ public final class Engine: @unchecked Sendable {
         try store.mutate { s in
             if let i = s.bottles.firstIndex(where: { $0.id == game.bottleID }) { s.bottles[i].backend = backend }
             if lockRuntime, let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = true }
+        }
+        // Choosing exactly what Decanter recommends is not overriding it.
+        // The lock was set by every press of the picker and cleared by
+        // nothing, so a game somebody tried on another setup for a minute
+        // stayed "overridden" permanently — and an overridden game is one
+        // Decanter never offers its recommendation to again.
+        if lockRuntime, let g = store.state.games.first(where: { $0.id == game.id }),
+           let b = store.bottle(g.bottleID), let r = store.runtime(b.runtimeID) {
+            let rec = recommend(for: g)
+            if rec.runtimeKind == r.kind && rec.backend == b.backend {
+                try store.mutate { s in
+                    if let i = s.games.firstIndex(where: { $0.id == game.id }) { s.games[i].runtimeLocked = false }
+                }
+            }
         }
         note(game.bottleID, "backend -> \(backend.label)")
         return backend
@@ -1821,11 +1840,13 @@ public final class Engine: @unchecked Sendable {
         if let bottle = store.bottle(game.bottleID) {
             if keepSaves {
                 progress("snapshotting saves before removal")
-                if let snap = try? saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
-                                                  note: "taken automatically before removal") {
-                    rep.snapshotTaken = snap.name
-                    rep.savedFiles = snap.fileCount
-                }
+                // `try`, not `try?`. The prefix is deleted on the next line,
+                // and a snapshot that failed used to be skipped silently —
+                // under a result that said the saves were kept.
+                let snap = try saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
+                                              note: "taken automatically before removal")
+                rep.snapshotTaken = snap.name
+                rep.savedFiles = snap.fileCount
             }
             rep.bottleBytes = Self.directorySize(bottle.prefixPath)
             progress("deleting prefix")
@@ -1843,6 +1864,16 @@ public final class Engine: @unchecked Sendable {
     }
 
     // MARK: - Saves
+
+    /// Saves kept from games that have been removed from the library.
+    public func orphanedSaves() -> [SaveStore.OrphanedStore] {
+        saves.orphanedStores(knownSlugs: Set(store.state.games.map { saves.slug(for: $0) }))
+    }
+
+    public func deleteOrphanedSaves(slug: String) throws {
+        try saves.deleteOrphanedStore(slug: slug,
+                                      knownSlugs: Set(store.state.games.map { saves.slug(for: $0) }))
+    }
 
     @discardableResult
     public func externaliseSaves(_ game: Game, progress: (String) -> Void = { _ in }) throws -> SaveStore.Externalisation {
@@ -1997,6 +2028,11 @@ public final class Engine: @unchecked Sendable {
             throw DecanterError.notFound("bottle for \(game.name)")
         }
         guard let rt = store.runtime(bottle.runtimeID) else { throw DecanterError.noRuntime(bottle.runtimeID) }
+        // Importing overwrites any file of the same name, so the progress it
+        // replaces goes into a snapshot first — the same rule every other
+        // operation here that can lose a save already follows.
+        _ = try saves.snapshot(game: game, prefix: bottle.prefixPath, template: template(for: game),
+                               note: "taken automatically before importing saves", progress: progress)
         return try SaveImporter().importSaves(from: source, into: bottle, runtime: rt, progress: progress)
     }
 }

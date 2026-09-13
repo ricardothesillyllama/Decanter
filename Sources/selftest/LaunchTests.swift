@@ -215,6 +215,52 @@ func runLaunchTests(_ t: Harness) {
                  "a real window is still the only thing that counts as rendering")
     }
 
+    // The app's launch watcher, against a real Wine process in a real prefix.
+    //
+    // It used to ask `pgrep -f <bottle id>`, which searches arguments; the id
+    // lives in WINEPREFIX, in the environment. That matched nothing, so every
+    // launch was reported as never opening a window while the game ran. This
+    // runs a headless program — `cmd` in a busy loop, no window — and checks
+    // both the old search and the new one against the same process.
+    t.suite("The launch watcher sees a real Wine program, and sees it end")
+    do {
+        let bottleID = UUID()
+        if let b = try? PrefixBuilder(paths: paths).derive(bottleID: bottleID, runtime: wine, backend: .wined3d) {
+            var env = PrefixBuilder(paths: paths).baseEnv(prefix: b.prefixPath, runtime: wine)
+            env["WINEPREFIX"] = b.prefixPath.path
+            let proc = try? Shell.spawn(wine.winePath, ["cmd", "/c", "for /l %i in (1,1,6000000) do rem"],
+                                        env: env)
+            // The live root, not the test root: a process is a candidate when
+            // it runs out of this install's runtimes, and the runtime borrowed
+            // here lives under the live one.
+            let watcher = WineReaper(paths: live.paths)
+            var seen = false, oldSaw = false
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline && !seen {
+                Thread.sleep(forTimeInterval: 0.5)
+                seen = watcher.sessionIsLive(in: b.prefixPath)
+                let pg = try? Shell.run(URL(filePath: "/usr/bin/pgrep"), ["-f", bottleID.uuidString], timeout: 10)
+                if !(pg?.out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) { oldSaw = true }
+            }
+            t.expect(proc != nil, "a headless Wine program was started in a fresh prefix")
+            t.expect(seen, "the watcher sees it running")
+            t.expect(!oldSaw, "and the search the app used before never did — the bottle id is not in any argument")
+            t.expect(!watcher.sessionIsLive(in: b.prefixPath.deletingLastPathComponent().appending(path: UUID().uuidString)),
+                     "a prefix with nothing in it is not reported as running")
+
+            shutdown(b.prefixPath)
+            var gone = false
+            let end = Date().addingTimeInterval(20)
+            while Date() < end && !gone {
+                Thread.sleep(forTimeInterval: 0.5)
+                gone = !watcher.sessionIsLive(in: b.prefixPath)
+            }
+            t.expect(gone, "and sees it end once the session is shut down")
+        } else {
+            t.skip("launch watcher", "could not derive a prefix from the cloned template")
+        }
+    }
+
     // Every launch test shuts its own bottle down, but a test that throws
     // part-way skips that — and Wine's services survive their parent, so the
     // leak is permanent and invisible. A suite-wide sweep on the way out is

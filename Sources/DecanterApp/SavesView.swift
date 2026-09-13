@@ -3,10 +3,18 @@ import DecanterKit
 
 /// One place for every game's saves, so nothing requires walking into a
 /// bottle's UUID and guessing a vendor folder name.
+/// What is selected in the saves list: a game in the library, or the saves
+/// kept from one that was removed.
+enum SavesPick: Hashable {
+    case game(UUID)
+    case removed(String)
+}
+
 struct SavesView: View {
     @EnvironmentObject var model: AppModel
     @State private var query = ""
-    @State private var selected: UUID?
+    @State private var selection: SavesPick?
+    @State private var confirmDeleteKept: SaveStore.OrphanedStore?
     @State private var confirmRestore: SaveStore.Snapshot?
 
     var body: some View {
@@ -29,9 +37,28 @@ struct SavesView: View {
         } message: {
             Text("Files in this snapshot will overwrite the current ones. Anything saved since will be lost — take a snapshot first if you are unsure.")
         }
+        .confirmationDialog("Delete the saves kept from \(confirmDeleteKept?.recordedName ?? "this game")?",
+                            isPresented: Binding(get: { confirmDeleteKept != nil },
+                                                 set: { if !$0 { confirmDeleteKept = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete Saves", role: .destructive) {
+                if let o = confirmDeleteKept { model.deleteOrphanedSaves(o); selection = nil }
+                confirmDeleteKept = nil
+            }
+            Button("Cancel", role: .cancel) { confirmDeleteKept = nil }
+        } message: {
+            Text("\(confirmDeleteKept?.savedFiles ?? 0) save files and \(confirmDeleteKept?.snapshotCount ?? 0) snapshots are deleted permanently. The game is already out of the library, so there is no other copy inside Decanter.")
+        }
     }
 
-    private var selectedGame: Game? { model.games.first { $0.id == selected } }
+    private var selectedGame: Game? {
+        if case .game(let id) = selection { return model.games.first { $0.id == id } }
+        return nil
+    }
+    private var selectedKept: SaveStore.OrphanedStore? {
+        if case .removed(let slug) = selection { return model.orphanedSaves.first { $0.slug == slug } }
+        return nil
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -78,7 +105,7 @@ struct SavesView: View {
 
     private var browser: some View {
         HSplitView {
-            List(selection: $selected) {
+            List(selection: $selection) {
                 ForEach(model.games) { g in
                     let o = model.saveOverview[g.id]
                     VStack(alignment: .leading, spacing: 2) {
@@ -95,12 +122,29 @@ struct SavesView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 2)
-                    .tag(g.id)
+                    .tag(SavesPick.game(g.id))
+                }
+                // Removing a game with "keep saves" kept them and then showed
+                // them nowhere: this list was only ever the library, and a
+                // removed game is by definition not in it.
+                if !model.orphanedSaves.isEmpty {
+                    Section("Removed from the library") {
+                        ForEach(model.orphanedSaves) { o in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(o.recordedName ?? o.slug).lineLimit(1)
+                                Text("\(o.savedFiles) files · \(fmt(o.bytes)) · \(o.snapshotCount) snapshot\(o.snapshotCount == 1 ? "" : "s")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                            .tag(SavesPick.removed(o.slug))
+                        }
+                    }
                 }
             }
             .frame(minWidth: 230, idealWidth: 270)
 
             if let g = selectedGame { detail(for: g) }
+            else if let o = selectedKept { keptDetail(for: o) }
             else {
                 VStack(spacing: 8) {
                     Image(systemName: "externaldrive.badge.checkmark")
@@ -194,6 +238,43 @@ struct SavesView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private func keptDetail(for o: SaveStore.OrphanedStore) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(o.recordedName ?? o.slug).font(.title3).bold()
+                Label("This game was removed from the library and its saves were kept. Nothing here has been lost.",
+                      systemImage: "checkmark.shield")
+                    .font(.caption).foregroundStyle(Palette.running)
+                    .fixedSize(horizontal: false, vertical: true)
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 4) {
+                        LabeledContent("Save files", value: "\(o.savedFiles)")
+                        LabeledContent("Snapshots", value: "\(o.snapshotCount)")
+                        LabeledContent("Size on disk", value: fmt(o.bytes))
+                        if let d = o.lastModified {
+                            LabeledContent("Last changed", value: d.formatted(date: .abbreviated, time: .shortened))
+                        }
+                    }
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // Honest about the gap rather than pointing at it. Adding the
+                // game back does not reconnect these yet, and saying it did
+                // would send somebody into a fresh environment without them.
+                Text("Decanter does not put these back into a game by itself yet. They are ordinary files: open the folder to copy them wherever you need them.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([o.url]) }
+                    Spacer()
+                    Button("Delete These Saves…", role: .destructive) { confirmDeleteKept = o }
+                        .disabled(model.busy != nil)
                 }
             }
             .padding(20)
