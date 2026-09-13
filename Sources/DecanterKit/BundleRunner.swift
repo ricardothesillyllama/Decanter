@@ -140,9 +140,21 @@ public struct BundleRunner: Sendable {
         } else {
             progress("building a Windows environment with \(spec.id) — about a minute, and only the first time")
             try e.buildTemplate(runtimeID: spec.id, progress: progress)
-            let backend = spec.backends.contains(manifest.setup.backend)
+            var backend = spec.backends.contains(manifest.setup.backend)
                 ? manifest.setup.backend : (spec.backends.first ?? .wined3d)
-            bottle = try e.prefixes.derive(bottleID: bottleID, runtime: spec, backend: backend)
+            var derived = try e.prefixes.derive(bottleID: bottleID, runtime: spec, backend: backend)
+            // A setup the environment cannot satisfy is one the launcher will
+            // refuse. Vulkan graphics needs DXVK's DLLs in the environment, and
+            // the template only has them when a DXVK came with the bundle — so
+            // when it did not, the game goes on the graphics this Wine provides
+            // by itself, and says so, rather than failing at Play.
+            if backend == .dxvk && !DXVKInstaller(paths: paths).isInstalled(in: derived.prefixPath) {
+                let fallback: GraphicsBackend = spec.backends.contains(.d3dmetal) ? .d3dmetal : .wined3d
+                progress("no DXVK came with this bundle, so it uses \(fallback.plainName) graphics instead of Vulkan")
+                backend = fallback
+                derived.backend = fallback
+            }
+            bottle = derived
         }
 
         var game = Game(name: manifest.gameName, exePath: exe, bottleID: bottleID,
