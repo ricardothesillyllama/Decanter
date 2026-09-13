@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.9.0 — 2026-09-13
+
+**Take a game with you.** **Export…** on a game's page, or Game → Export…
+(⇧⌘E), offers two things.
+
+A **setup file** is how the game is set up — Wine build, graphics, launch
+switches, environment settings, DLL overrides — in a few hundred bytes. It is
+named after the setup, never the game, and holds no paths. Game → Apply Setup
+File… puts another game on it after a confirmation that says what will be
+replaced; a file made for a different engine is refused until that is
+acknowledged in so many words. Nothing is launched. From the command line:
+`decanter export <game>` and `decanter import <file> <game>`.
+
+A **Mac app** holds the whole game: the game folder, the Wine build, its
+Windows environment and its graphics layer, signed ad hoc on this Mac. Opening
+it starts the game on a Mac with no Decanter. The launcher inside is Decanter's
+own command line, so an app cannot drift from the Decanter that built it. The
+first open copies the contents into `~/Library/Application Support/Decanter
+Bundles` and runs from there: writing inside a signed app breaks its signature,
+which was measured rather than assumed, and a second open reuses that copy and
+never overwrites its saves. Saves are left out unless asked for — off for
+giving it to someone, on for keeping a copy — and go in as a snapshot. The
+sheet shows what goes in and how big each part is before anything is built, and
+says plainly that a game is not Decanter's to let anybody share.
+
+Two things never go in, and the sheet asks rather than deciding:
+
+- **The Game Porting Toolkit**, whose licence does not allow passing it on, and
+  any Windows environment it built. A game on it can be exported anyway; the
+  app then asks the Mac that opens it for its own copy — the disk image or the
+  app, chosen once, never downloaded — and builds a fresh environment from it.
+  When a Wine setup has worked for games built the same way, the sheet names it.
+- **Libraries borrowed from the Game Porting Toolkit** into a Wine build. The
+  sheet lists them and asks whether to leave the game unbundled or build
+  without them, where video or audio may not play.
+
+Verified on real trees, not fixtures: a Wine 11 app of 1.1 GB built in 14
+seconds, verified strictly, prepared its copy in 8 seconds with no link left
+pointing outside it, still verified after opening, and started its game in a
+window. A bring-your-own-GPTK app of 205 MB asked for the toolkit, took it, and
+carried DXVK across. Not yet verified: opening one on a second Mac.
+
+**An app asked to run Vulkan graphics with no DXVK inside would have been
+refused at Play.** A bring-your-own-GPTK app whose game was on DXVK built its
+environment without DXVK, because the DXVK it would have installed lives in the
+exporter's library. It now carries the staged DXVK, and falls back to graphics
+the environment can provide — saying so — when there is none.
+
+**Every Windows environment had a folder linked to your real `~/Templates`.**
+The check that replaces a Windows user folder pointing outside the environment
+looked one level down, and Wine's `Templates` link sits deeper. It now walks
+the whole user tree, resolving each link from where it sits, and keeps the
+links that point at protected saves — a deeper check that did not know about
+those would have cut every game off from its saves. Existing environments are
+cleaned the next time their game launches. The folder was empty on the Mac
+this was found on, but any game could have written into it.
+
+The Mac app carries the command line in `Contents/Helpers`, where exporting
+finds it. Not beside the app's own executable: the disk is case-insensitive, so
+`MacOS/decanter` is `MacOS/Decanter`, the app itself. The release script now
+fails a build that is missing it.
+
 ## v0.8.5 — 2026-09-13
 
 **A library Decanter could not read was replaced with an empty one.** When the

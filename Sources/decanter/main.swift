@@ -593,7 +593,7 @@ case "export":
             out("    game \(size(plan.sizes.game)) · Wine \(size(plan.sizes.runtime)) · Windows environment \(size(plan.sizes.prefix))"
                 + (plan.sizes.components > 0 ? " · graphics layer \(size(plan.sizes.components))" : ""))
         }
-        out("    about \(size(plan.sizes.total + (rest.contains("--with-saves") ? plan.sizes.saves : 0))) in all"
+        out("    about \(size(plan.sizes.total - (rest.contains("--with-saves") ? 0 : plan.sizes.saves))) in all"
             + (rest.contains("--with-saves") ? ", saves included" : ", saves left out"))
         if plan.registryKeysInEnvironment > 0 {
             out("    \(plan.registryKeysInEnvironment) registry keys the game wrote stay in its Windows environment, saves or not")

@@ -569,3 +569,25 @@ public extension Engine {
         return app
     }
 }
+
+public extension Export {
+    /// The program an exported app is built around, found from the program
+    /// doing the exporting.
+    ///
+    /// In Decanter.app it is `Contents/Helpers/decanter`. Not `MacOS/decanter`:
+    /// the disk is case-insensitive, so that name is the app's own
+    /// `MacOS/Decanter`, and a copy put there would replace the app. Which is
+    /// also why an app without the helper answers nil rather than looking
+    /// beside itself — beside itself is the app. Anywhere else, the command
+    /// line or a build folder, it is the `decanter` beside the running program.
+    static func launcher(nextTo executable: URL) -> URL? {
+        let fm = FileManager.default
+        let dir = executable.deletingLastPathComponent()
+        if dir.lastPathComponent == "MacOS", dir.deletingLastPathComponent().lastPathComponent == "Contents" {
+            let helper = dir.deletingLastPathComponent().appending(path: "Helpers/decanter")
+            return fm.isExecutableFile(atPath: helper.path) ? helper : nil
+        }
+        let sibling = dir.appending(path: "decanter")
+        return fm.isExecutableFile(atPath: sibling.path) ? sibling : nil
+    }
+}

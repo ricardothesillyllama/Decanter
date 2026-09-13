@@ -1274,6 +1274,21 @@ struct GameDetail: View {
         } message: {
             Text("Decanter never repairs a broken Windows environment — it replaces it with a clean one, which takes about half a second.\n\nAnything the game stored inside is erased, including saves that are not protected yet. Protect them first from the Saves page.")
         }
+        .sheet(isPresented: Binding(get: { model.exportingGame == game.id },
+                                    set: { if !$0 { model.exportingGame = nil } })) {
+            ExportSheet(game: game).environmentObject(model)
+        }
+        .confirmationDialog("Apply this setup to \(game.name)?",
+                            isPresented: Binding(get: { model.pendingSetup?.gameID == game.id },
+                                                 set: { if !$0 { model.pendingSetup = nil } }),
+                            titleVisibility: .visible, presenting: model.pendingSetup) { p in
+            Button(p.file.engine == game.detection.engine ? "Apply" : "Apply Anyway") { model.applySetupFile(p) }
+            Button("Cancel", role: .cancel) {}
+        } message: { p in
+            Text("\(p.file.title).\n\nIts Wine build, graphics, launch switches and settings replace this game's own. Nothing is launched."
+                 + (p.file.engine == game.detection.engine ? ""
+                    : "\n\nIt was made for a \(p.file.engine.label) game, and this one is \(game.detection.engine.label). Settings rarely carry across engines."))
+        }
     }
 
     /// The single most urgent thing about this game, or nothing.
@@ -1422,6 +1437,13 @@ struct GameDetail: View {
                     .disabled(model.busy != nil)
                     .help(Help.stop)
                 }
+
+                Button { model.exportingGame = game.id } label: {
+                    Label("Export…", systemImage: "square.and.arrow.up")
+                }
+                .controlSize(.large)
+                .disabled(model.busy != nil)
+                .help(Help.export)
             }
 
             // Three chips, and two of them were already on screen: the engine

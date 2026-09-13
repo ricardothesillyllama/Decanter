@@ -284,3 +284,35 @@ func runBundleGPTKTests(_ t: Harness) {
         _ = try runner.acceptGPTK(from: Fixture.dir("gptk-ask-not-a-toolkit"))
     }
 }
+
+/// Decanter.app carries the command line in Contents/Helpers, and an app is
+/// only ever built around that copy.
+func runBundleLauncherTests(_ t: Harness) {
+    t.suite("export: the launcher an app is built around")
+    let fm = FileManager.default
+    let root = Fixture.dir("export-launcher")
+    func tool(_ url: URL, mode: Int = 0o755) {
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("#!/bin/sh\n".utf8).write(to: url)
+        try? fm.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+    }
+    let app = root.appending(path: "Decanter.app/Contents/MacOS/Decanter")
+    tool(app)
+    t.expect(Export.launcher(nextTo: app) == nil,
+             "an app without the helper has no launcher — its own binary, which a case-insensitive disk also calls decanter, is never taken for one")
+
+    let helper = root.appending(path: "Decanter.app/Contents/Helpers/decanter")
+    tool(helper)
+    t.equal(Export.launcher(nextTo: app)?.pathKey, helper.pathKey, "the app's launcher is the helper inside it")
+
+    tool(helper, mode: 0o644)
+    t.expect(Export.launcher(nextTo: app) == nil, "a helper that cannot be run is not a launcher")
+
+    let build = root.appending(path: "build/debug")
+    tool(build.appending(path: "DecanterApp"))
+    tool(build.appending(path: "decanter"))
+    t.equal(Export.launcher(nextTo: build.appending(path: "DecanterApp"))?.pathKey,
+            build.appending(path: "decanter").pathKey, "outside an app, the decanter beside the running program")
+    t.equal(Export.launcher(nextTo: build.appending(path: "decanter"))?.pathKey,
+            build.appending(path: "decanter").pathKey, "the command line is its own launcher")
+}

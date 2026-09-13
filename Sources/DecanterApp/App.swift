@@ -74,6 +74,14 @@ struct DecanterApp: App {
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(model.selectedGame == nil || model.busy != nil)
                 Divider()
+                Button("Export…") { model.exportingGame = model.selectedGame?.id }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(model.selectedGame == nil || model.busy != nil)
+                Button("Apply Setup File…") {
+                    if let g = model.selectedGame { model.chooseSetupFileToApply(g) }
+                }
+                .disabled(model.selectedGame == nil || model.busy != nil)
+                Divider()
                 Button("Show Windows Files in Finder") {
                     if let g = model.selectedGame { model.revealPrefix(g) }
                 }

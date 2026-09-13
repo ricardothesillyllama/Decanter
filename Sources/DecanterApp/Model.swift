@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import DecanterKit
 
 @MainActor
@@ -747,6 +748,95 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.message = "Choose a game folder or its .exe"
         if panel.runModal() == .OK, let url = panel.url { add(path: url) }
+    }
+
+    // MARK: - Taking a game somewhere else
+
+    /// The game whose export sheet is open. On the model so the Game menu can
+    /// open it as well as the button on the page.
+    @Published var exportingGame: UUID?
+
+    /// A setup file somebody chose, waiting for them to confirm applying it.
+    struct PendingSetup: Identifiable {
+        let id = UUID()
+        let gameID: UUID
+        let file: SetupFile
+    }
+    @Published var pendingSetup: PendingSetup?
+
+    /// The program an exported app is built around, or nil when this copy of
+    /// Decanter was put together without it.
+    var bundleLauncher: URL? {
+        Bundle.main.executableURL.flatMap { Export.launcher(nextTo: $0.resolvingSymlinksInPath()) }
+    }
+
+    func setupFile(for game: Game) -> SetupFile? { try? engine?.setupFile(for: game) }
+
+    /// Measured before anything is built. It walks the game, the Wine build
+    /// and the environment, which takes a moment on a large game, so it runs
+    /// off the main thread.
+    func planBundle(_ game: Game) async -> Result<BundlePlan, any Error> {
+        guard let e = engine else { return .failure(DecanterError.notReady("The library has not loaded.")) }
+        return await Task.detached(priority: .userInitiated) { Result { try e.planBundle(for: game) } }.value
+    }
+
+    private func chooseFolder(prompt: String, message: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = prompt
+        panel.message = message
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    func exportSetupFile(_ game: Game) {
+        guard let folder = chooseFolder(prompt: "Export Here",
+                                        message: "The setup file names the setup, never the game, and holds no paths")
+        else { return }
+        perform("Writing a setup file for \(game.name)…", key: "setupExport", scope: game.id) { e in
+            let url = try e.writeSetupFile(for: game, into: folder)
+            Task { @MainActor in NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            return "Wrote \(url.lastPathComponent). No game name and no paths are in it."
+        }
+    }
+
+    func buildBundle(_ plan: BundlePlan, options: BundleOptions) {
+        guard let launcher = bundleLauncher else { lastError = Help.noLauncher; return }
+        guard let folder = chooseFolder(prompt: "Build Here",
+                                        message: "Where to put \(plan.suggestedName).app — the whole game is copied into it")
+        else { return }
+        perform("Building \(plan.game.name) as a Mac app…", key: "bundle", scope: plan.game.id) { e in
+            let app = try e.buildBundle(plan, options: options, into: folder, launcher: launcher)
+            Task { @MainActor in NSWorkspace.shared.activateFileViewerSelecting([app]) }
+            return "Built \(app.lastPathComponent). Signed on this Mac only, not notarised: on another Mac, run xattr -dr com.apple.quarantine on it once before opening it."
+        }
+    }
+
+    func chooseSetupFileToApply(_ game: Game) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if let t = UTType(filenameExtension: Export.setupExtension) { panel.allowedContentTypes = [t] }
+        panel.message = "Choose a setup file someone shared with you"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { pendingSetup = PendingSetup(gameID: game.id, file: try Engine.readSetupFile(at: url)) }
+        catch { lastError = error.localizedDescription }
+    }
+
+    func applySetupFile(_ pending: PendingSetup) {
+        pendingSetup = nil
+        guard let game = games.first(where: { $0.id == pending.gameID }) else { return }
+        let file = pending.file
+        // A different engine is refused unless asked for, and the dialog that
+        // led here said so in words and was answered.
+        let differs = file.engine != game.detection.engine
+        perform("Applying a setup file to \(game.name)…", key: "setupImport", scope: game.id) { e in
+            let notes = try e.applySetupFile(file, to: game, allowDifferentEngine: differs)
+            return (["Now on \(file.title). Nothing was launched."] + notes.map { "Note: \($0)." })
+                .joined(separator: " ")
+        }
     }
 
     /// How many snapshots per game a prune keeps. Read from the engine rather

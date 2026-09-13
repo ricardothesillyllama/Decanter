@@ -47,6 +47,13 @@ cp Resources/Info.plist   "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp .build/release/DecanterApp "$APP/Contents/MacOS/Decanter"
 
+# The command line rides inside the app as well, because it is the launcher
+# every exported game is built around. Helpers/, never MacOS/: the disk is
+# case-insensitive, so MacOS/decanter is MacOS/Decanter — the app itself.
+mkdir -p "$APP/Contents/Helpers"
+cp .build/release/decanter "$APP/Contents/Helpers/decanter"
+strip -S "$APP/Contents/Helpers/decanter" 2>/dev/null || true
+
 # Belt and braces: strip local and debug symbols regardless of how it was
 # built. Must happen before signing, since stripping invalidates a signature.
 strip -S "$APP/Contents/MacOS/Decanter" 2>/dev/null || true

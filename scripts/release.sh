@@ -110,6 +110,12 @@ fi
 step "package"
 ./install.sh > .build/install.log 2>&1 || { tail -20 .build/install.log; fail "install.sh failed"; }
 ok "app and CLI built"
+# Without the helper the app still opens and still plays; only exporting a game
+# as a Mac app is quietly unavailable, which is exactly the kind of thing that
+# ships unnoticed.
+[ -x .build/Decanter.app/Contents/Helpers/decanter ] || fail "the app has no launcher inside it, so it cannot export a game as an app"
+codesign --verify --deep --strict .build/Decanter.app || fail "the assembled app does not verify"
+ok "the launcher is inside the app, and the app verifies"
 ./scripts/make-dmg.sh > .build/dmg.log 2>&1 || { tail -20 .build/dmg.log; fail "make-dmg.sh failed"; }
 ok "dist/Decanter-$VERSION.dmg"
 

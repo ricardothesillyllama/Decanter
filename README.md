@@ -12,7 +12,7 @@ There are five plausible combinations and no way to tell them apart by looking.
 Working that out is the job Decanter exists to do.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1217%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1222%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -91,6 +91,8 @@ The CLI and the app are one engine with two faces; either is enough on its own.
   the log lines it came from.
 - **BepInEx mods work.** Decanter spots them, wires them up, and tells you which
   plugin failed when one does.
+- **Take a game with you.** Export how a game is set up as a small file that
+  names nothing, or the whole game as a Mac app that runs without Decanter.
 - **Nothing ever leaves your Mac.** Decanter makes no network requests, and the
   build refuses to compile if anybody adds one.
 
@@ -141,6 +143,44 @@ with no window at all. In those cases Decanter describes what it saw and asks
 you once whether the game played. When a launch plainly worked it records that
 and says nothing. Being asked to confirm the obvious is how a prompt turns into
 something you dismiss without reading it.
+
+### Take a game with you
+
+**Export…** on a game's page offers two things.
+
+A **setup file** is how the game is set up — Wine build, graphics, launch
+switches, settings — in a few hundred bytes. It is named after the setup
+("Unity (IL2CPP) on Wine 11.0 with Vulkan graphics"), never the game, and holds
+no paths. Someone with the same game chooses **Game → Apply Setup File…** and
+gets the same setup; nothing is launched.
+
+A **Mac app** holds the whole game: the game folder, the Wine build it runs on,
+its Windows environment and its graphics layer, signed on your Mac. Double-click
+it and the game starts, on a Mac with no Decanter. The first open copies it into
+`~/Library/Application Support/Decanter Bundles`, so the app itself is never
+written to and its signature keeps verifying. Saves are left out unless you turn
+them on — off to give it to someone, on to keep a copy for yourself.
+
+Two things never go in, and the sheet asks rather than deciding:
+
+- **The Game Porting Toolkit.** Apple's licence does not allow passing it on. A
+  game that runs on it can still be exported, and the app asks the Mac that
+  opens it for its own copy — the disk image or the app, chosen once. If a Wine
+  setup has worked for games like it, the sheet says which.
+- **Libraries borrowed from the Game Porting Toolkit.** A Wine build Decanter
+  patched with them can be exported without them, and video or audio may not
+  play.
+
+A game is somebody's work. Only share one you have the right to share: something
+free, freely redistributable, or your own. Decanter checks none of this. The app
+is not notarised, so another Mac has to let it through once:
+
+```bash
+xattr -dr com.apple.quarantine "Game.app"
+```
+
+From the command line: `decanter export <game>` and
+`decanter export <game> --app` — see [docs/CLI.md](docs/CLI.md).
 
 ## How this compares
 
@@ -385,6 +425,9 @@ Screen Recording permission.
   `macdrv_functions`, and Unity 6 runs on it. `decanter doctor` reports which of
   the two gates each pinned runtime fails.
 - Nothing is notarised — see [Install](#install) for the one-time "Open Anyway".
+- **An exported app has been opened on the Mac that built it, and not yet on a
+  Mac without Decanter.** Everything it needs is inside it and nothing it runs
+  lives outside, but that is a reading of the bundle, not a second machine.
 
 ## Status
 
@@ -398,7 +441,7 @@ goes wrong. No game can see your files.
 
 Decanter is a CLI and a SwiftUI app over a single engine, written in Swift with
 no external dependencies at all, on the view that every dependency is a future
-404. **1217 checks** run in a hand-rolled harness.
+404. **1222 checks** run in a hand-rolled harness.
 
 ## Documentation
 

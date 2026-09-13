@@ -272,6 +272,8 @@ enum Help {
 
     static let play = "Start the game in its own private copy of Windows."
     static let running = "This game is running. The dot in the sidebar pulses while it lives."
+    static let export = "Take this game somewhere else: a small setup file someone with the same game can apply, or a Mac app that holds the whole game."
+    static let noLauncher = "This copy of Decanter was put together without the launcher a Mac app is built around. Install it from the release disk image, or run install.sh from a source checkout."
 
     static let importSaves = """
     Restore save data into this game's prefix.
