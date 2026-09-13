@@ -9,8 +9,29 @@ public final class Engine: @unchecked Sendable {
     public let prefixes: PrefixBuilder
     public let launcher: Launcher
     public let detector = Detector()
-    public lazy var saves = SaveStore(paths: paths)
-    public lazy var knowledge = Knowledge.load(at: paths.knowledgePath)
+    public let saves: SaveStore
+
+    /// Read and replaced under a lock.
+    ///
+    /// A `lazy var` on a class shared across threads: the app's main thread
+    /// replaces it on every activation, and detached actions read it through
+    /// `recommend`, `advice` and `askAbout`. Lazy initialisation from two
+    /// threads, and a replacement racing a read, are both unsafe in Swift.
+    private let knowledgeLock = NSRecursiveLock()
+    private var loadedKnowledge: Knowledge?
+    public var knowledge: Knowledge {
+        get {
+            knowledgeLock.lock(); defer { knowledgeLock.unlock() }
+            if let k = loadedKnowledge { return k }
+            let k = Knowledge.load(at: paths.knowledgePath)
+            loadedKnowledge = k
+            return k
+        }
+        set {
+            knowledgeLock.lock(); defer { knowledgeLock.unlock() }
+            loadedKnowledge = newValue
+        }
+    }
 
     public init(paths: Paths = Paths()) throws {
         self.paths = paths
@@ -18,6 +39,7 @@ public final class Engine: @unchecked Sendable {
         self.runtimes = RuntimeManager(paths: paths)
         self.prefixes = PrefixBuilder(paths: paths)
         self.launcher = Launcher(paths: paths)
+        self.saves = SaveStore(paths: paths)
         refreshRuntimeCapabilities()
     }
 
@@ -294,6 +316,35 @@ public final class Engine: @unchecked Sendable {
         let gname = name ?? derived
         let game = Game(name: gname, exePath: exe, bottleID: bottleID, detection: det,
                         scopes: launcher.defaultScopes(for: exe))
+        // Two things can already be waiting under this name.
+        //
+        // A game still in the library is replaced below, and its Windows
+        // environment deleted — which happened with no snapshot at all, so a
+        // game added twice under one name lost every save the first copy had
+        // not been told to protect. The snapshot is taken first now.
+        //
+        // Or saves kept from a game removed earlier sit in the store under this
+        // name. The new game used to walk straight into them: the Saves page
+        // called it protected while its fresh environment could see none of
+        // them, and pressing Protect deleted its new saves in favour of the old
+        // copy. They are set aside instead, and offered back — a matching name
+        // is a reason to ask, not a reason to assume.
+        let replacing = store.state.games.first(where: { $0.name.lowercased() == gname.lowercased() })
+        let mySlug = saves.slug(for: game)
+        do {
+            if let prior = replacing, let pb = store.bottle(prior.bottleID) {
+                progress("snapshotting \(prior.name)'s saves before replacing it")
+                _ = try saves.snapshot(game: prior, prefix: pb.prefixPath, template: template(for: prior),
+                                       note: "taken automatically before replacing this game")
+            } else if replacing == nil,
+                      !store.state.games.contains(where: { saves.slug(for: $0) == mySlug }),
+                      try saves.setAsideKeptStore(for: game) != nil {
+                progress("set aside saves kept from an earlier game of the same name")
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: bottle.prefixPath)
+            throw error
+        }
         try store.mutate { s in
             // Replacing a game by name must not leave its old prefix behind.
             if let prior = s.games.first(where: { $0.name.lowercased() == gname.lowercased() }) {
@@ -305,6 +356,12 @@ public final class Engine: @unchecked Sendable {
             s.bottles.append(bottle)
             s.games.removeAll { $0.name.lowercased() == gname.lowercased() }
             s.games.append(game)
+        }
+        // A replacement is the same game from a new place, so protected saves
+        // follow it into the new environment.
+        if replacing != nil, saves.isExternalised(game: game) {
+            _ = try? saves.relink(game: game, prefix: bottle.prefixPath, template: template(for: game),
+                                  progress: progress)
         }
         return game
     }
@@ -754,7 +811,10 @@ public final class Engine: @unchecked Sendable {
         // nothing, so a game somebody tried on another setup for a minute
         // stayed "overridden" permanently — and an overridden game is one
         // Decanter never offers its recommendation to again.
-        if lockRuntime, let g = store.state.games.first(where: { $0.id == game.id }),
+        // Regardless of `lockRuntime`: Decanter applying its own suggestion
+        // lands a game on it too, and a mark left from an earlier hand choice
+        // would then outlive the choice it was recording.
+        if let g = store.state.games.first(where: { $0.id == game.id }),
            let b = store.bottle(g.bottleID), let r = store.runtime(b.runtimeID) {
             let rec = recommend(for: g)
             if rec.runtimeKind == r.kind && rec.backend == b.backend {
@@ -1354,16 +1414,20 @@ public final class Engine: @unchecked Sendable {
     /// wanting, and the two must not become the same row.
     @discardableResult
     public func settleVerdict(worked: Bool, failure: Knowledge.Failure = .unspecified,
-                              switchReason: Verdict.SwitchReason? = nil) throws -> String {
+                              switchReason: Verdict.SwitchReason? = nil,
+                              gameID: UUID? = nil) throws -> String {
         let v = Verdict(paths: paths)
-        guard let p = v.pending() else {
+        // A named game answers that game's question. Without one — the command
+        // line — the most recent question is the one being answered.
+        let found: Verdict.Pending? = gameID.map { v.pending(for: $0) } ?? v.pending()
+        guard let p = found else {
             throw DecanterError.notFound("there is no launch waiting to be judged")
         }
         guard let game = store.state.games.first(where: { $0.id == p.gameID }) else {
-            v.clear()
+            v.clear(gameID: p.gameID)
             throw DecanterError.notFound("that game is no longer in the library")
         }
-        defer { v.clear() }
+        defer { v.clear(gameID: p.gameID) }
         if worked {
             try rememberWorking(game)
             return "recorded: \(p.backend.plainName) graphics works for \(game.name), and for games like it"
@@ -1542,6 +1606,9 @@ public final class Engine: @unchecked Sendable {
             case tryThis
             /// Nothing here is known to run it, and there is nothing to press.
             case stuck
+            /// Somebody chose this setup by hand, and Decanter would pick
+            /// another. Said once, small, and dismissible — never argued.
+            case chosenByHand
         }
         public var kind: Kind = .settled
         public var headline = ""
@@ -1566,8 +1633,7 @@ public final class Engine: @unchecked Sendable {
 
         let bottle = store.bottle(game.bottleID)
         let runtime = bottle.flatMap { store.runtime($0.runtimeID) }
-        let onRecommended = rec.overriddenByUser
-            || (runtime?.kind == rec.runtimeKind && bottle?.backend == rec.backend)
+        let matches = runtime?.kind == rec.runtimeKind && bottle?.backend == rec.backend
 
         // Going back outranks trying something. A setup this game was actually
         // seen working on is a stronger claim than any recommendation, and
@@ -1596,7 +1662,20 @@ public final class Engine: @unchecked Sendable {
             return a
         }
 
-        guard !onRecommended else { return a }
+        guard !matches else { return a }
+
+        // A choice made by hand used to end the conversation completely: the
+        // game was treated as being on its recommendation, so there was no
+        // card at all and no sign Decanter had an opinion. It still does not
+        // argue — the setup stays exactly as chosen — but it says, once and
+        // small, what it would have picked.
+        if rec.overriddenByUser, let b = bottle {
+            a.kind = .chosenByHand
+            a.headline = "Decanter would use \(rec.backend.plainName) graphics"
+            a.explanation = "You chose \(b.backend.plainName) graphics for \(game.name). Nothing changes unless you ask."
+            a.actionLabel = "Use \(rec.backend.plainName)"
+            return a
+        }
 
         a.kind = .tryThis
         a.headline = rec.provenance == .onlyOption
@@ -1860,6 +1939,9 @@ public final class Engine: @unchecked Sendable {
             s.bottles.removeAll { $0.id == game.bottleID }
             s.games.removeAll { $0.id == game.id }
         }
+        // The launch log goes with the game. It is named after the game, so
+        // left behind it would be picked up by the next game of that name.
+        try? FileManager.default.removeItem(at: launcher.logFile(for: game))
         return rep
     }
 
@@ -1873,6 +1955,35 @@ public final class Engine: @unchecked Sendable {
     public func deleteOrphanedSaves(slug: String) throws {
         try saves.deleteOrphanedStore(slug: slug,
                                       knownSlugs: Set(store.state.games.map { saves.slug(for: $0) }))
+    }
+
+    /// Saves kept from a removed game whose name matches this one, if any.
+    public func keptSaves(matching game: Game) -> SaveStore.OrphanedStore? {
+        saves.keptStores(matching: game,
+                         knownSlugs: Set(store.state.games.map { saves.slug(for: $0) })).first
+    }
+
+    /// Brings kept saves into a game, after snapshotting what it has now.
+    @discardableResult
+    public func reconnectKeptSaves(_ game: Game, slug: String,
+                                   progress: (String) -> Void = { _ in }) throws -> Int {
+        guard let b = store.bottle(game.bottleID) else { throw DecanterError.notFound("bottle for \(game.name)") }
+        _ = try saves.snapshot(game: game, prefix: b.prefixPath, template: template(for: game),
+                               note: "taken automatically before bringing back kept saves", progress: progress)
+        let n = try saves.adopt(keptSlug: slug, into: game, prefix: b.prefixPath,
+                                runtime: store.runtime(b.runtimeID),
+                                knownSlugs: Set(store.state.games.map { saves.slug(for: $0) }),
+                                progress: progress)
+        if saves.isExternalised(game: game) {
+            _ = try? saves.relink(game: game, prefix: b.prefixPath, template: template(for: game),
+                                  progress: progress)
+        }
+        return n
+    }
+
+    /// Starts an empty library on purpose, when the old one cannot be read.
+    public func startNewLibrary() throws {
+        try store.abandonUnreadable()
     }
 
     @discardableResult

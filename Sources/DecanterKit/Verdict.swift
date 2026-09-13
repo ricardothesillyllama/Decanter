@@ -88,33 +88,86 @@ public struct Verdict: Sendable {
         }
     }
 
-    public var path: URL { paths.root.appending(path: "pending-verdict.json") }
+    public var path: URL { paths.root.appending(path: "pending-verdicts.json") }
+    /// Where Decanter kept its single question before 0.8.5.
+    var legacyPath: URL { paths.root.appending(path: "pending-verdict.json") }
 
-    /// Only the most recent unjudged launch is kept.
+    /// Parks this game's question, replacing only this game's.
     ///
-    /// A queue of them would be a queue of questions about launches nobody
-    /// remembers, and a stale answer is worse than no answer: it records a
-    /// guess as an observation.
+    /// There used to be one slot for the whole app, on the reasoning that a
+    /// queue of questions is a queue about launches nobody remembers. The cost
+    /// was that one game's ambiguous launch silently threw away another game's
+    /// question. One per game is still not a queue — nobody is asked about two
+    /// launches of the same game — and every question expires exactly as before.
     public func park(_ p: Pending) throws {
-        try FileManager.default.createDirectory(at: paths.root, withIntermediateDirectories: true)
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try enc.encode(p).write(to: path, options: .atomic)
+        var all = load()
+        all[p.gameID.uuidString] = p
+        try write(all)
     }
 
-    /// The launch waiting to be judged, if it is still worth asking about.
+    /// The most recent launch waiting to be judged, across every game — the
+    /// one the command line asks about.
+    public func pending(within: TimeInterval = 60 * 60 * 24 * 2) -> Pending? {
+        allPending(within: within).values.max { $0.launchedAt < $1.launchedAt }
+    }
+
+    public func pending(for gameID: UUID, within: TimeInterval = 60 * 60 * 24 * 2) -> Pending? {
+        allPending(within: within)[gameID]
+    }
+
+    /// Every question still worth asking.
     ///
     /// Expires. Being asked on Friday how Tuesday's launch went produces an
     /// answer nobody should record, so an old question is dropped rather than
     /// asked.
-    public func pending(within: TimeInterval = 60 * 60 * 24 * 2) -> Pending? {
-        guard let d = try? Data(contentsOf: path),
-              let p = try? JSONDecoder().decode(Pending.self, from: d) else { return nil }
-        guard Date().timeIntervalSince(p.launchedAt) < within else { clear(); return nil }
-        return p
+    public func allPending(within: TimeInterval = 60 * 60 * 24 * 2) -> [UUID: Pending] {
+        let all = load()
+        let live = all.filter { Date().timeIntervalSince($0.value.launchedAt) < within }
+        if live.count != all.count { try? write(live) }
+        var out: [UUID: Pending] = [:]
+        for p in live.values { out[p.gameID] = p }
+        return out
     }
 
-    public func clear() { try? FileManager.default.removeItem(at: path) }
+    public func clear(gameID: UUID) {
+        var all = load()
+        all[gameID.uuidString] = nil
+        try? write(all)
+    }
+
+    /// Clears the most recent question — what skipping means at the prompt.
+    public func clear() {
+        if let p = pending() { clear(gameID: p.gameID) }
+    }
+
+    public func clearAll() { try? write([:]) }
+
+    private func load() -> [String: Pending] {
+        var all: [String: Pending] = [:]
+        if let d = try? Data(contentsOf: path),
+           let decoded = try? JSONDecoder().decode([String: Pending].self, from: d) { all = decoded }
+        // A question an older Decanter parked is carried over, not dropped.
+        if let d = try? Data(contentsOf: legacyPath),
+           let old = try? JSONDecoder().decode(Pending.self, from: d) {
+            if all[old.gameID.uuidString] == nil { all[old.gameID.uuidString] = old }
+            try? write(all)
+        }
+        return all
+    }
+
+    private func write(_ all: [String: Pending]) throws {
+        let fm = FileManager.default
+        if all.isEmpty {
+            try? fm.removeItem(at: path)
+        } else {
+            try fm.createDirectory(at: paths.root, withIntermediateDirectories: true)
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try enc.encode(all).write(to: path, options: .atomic)
+        }
+        // Only once the new file holds everything.
+        try? fm.removeItem(at: legacyPath)
+    }
 }
 
 /// The things that can be wrong with one game at once, in the order they have
@@ -152,6 +205,9 @@ public enum Concern: Int, Sendable, CaseIterable, Comparable {
     case unsoundEnvironment
     /// What Decanter would change about this game's setup.
     case setupAdvice
+    /// Saves kept from a removed game whose name matches this one. An offer
+    /// rather than a problem, so it waits behind everything that is one.
+    case keptSaves
     /// Left-behind Wine processes. Last: a nuisance, never a cause.
     case strayProcesses
 
@@ -166,5 +222,5 @@ public enum Concern: Int, Sendable, CaseIterable, Comparable {
     /// Whether anything here should open the repair tools by itself. Stray
     /// processes do not: they are dealt with by their own card, and opening a
     /// section of repairs for them points somebody at the wrong five buttons.
-    public var callsForRepairTools: Bool { self != .strayProcesses }
+    public var callsForRepairTools: Bool { self != .strayProcesses && self != .keptSaves }
 }

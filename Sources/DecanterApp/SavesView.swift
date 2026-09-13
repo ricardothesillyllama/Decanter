@@ -264,10 +264,7 @@ struct SavesView: View {
                     .font(.callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // Honest about the gap rather than pointing at it. Adding the
-                // game back does not reconnect these yet, and saying it did
-                // would send somebody into a fresh environment without them.
-                Text("Decanter does not put these back into a game by itself yet. They are ordinary files: open the folder to copy them wherever you need them.")
+                Text("Add the game back and Decanter will offer to bring these saves into it — it asks, because a matching name is all it has to go on. They are also ordinary files: open the folder to copy them wherever you like.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {

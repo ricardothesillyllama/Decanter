@@ -100,7 +100,10 @@ public struct WineReaper {
             guard cols.count == 4, let pid = Int32(cols[0]) else { continue }
             let command = String(cols[3])
             let fromUs = command.contains(runtimeRoot)
-            let windowsy = command.hasPrefix("C:\\") || command.hasPrefix("Z:\\")
+            // Any drive letter. Games run from the drives Decanter maps for
+            // them, and C: and Z: alone missed every one of those.
+            let windowsy = command.count > 2 && command.first!.isLetter
+                && command.dropFirst().hasPrefix(":\\")
             // `winedbg --auto` is argv[0] with no path and no drive letter, so
             // neither test above sees it — which is why a storm of 773 of them
             // was invisible to `doctor` and to the reaper while it wedged the
@@ -108,8 +111,16 @@ public struct WineReaper {
             // separate Wine install on the same Mac is never touched.
             let helper = Self.bareHelpers.contains(t.split(separator: " ").first.map(String.init)?
                 .split(separator: "/").last.map(String.init)?.lowercased() ?? "")
-            let ours = helper && prefix(of: pid)?.path.hasPrefix(paths.bottles.path) == true
-            guard fromUs || windowsy || ours else { continue }
+            // Only a process run from this install's runtimes is ours by
+            // construction. A Windows path or a bare helper could just as well
+            // be CrossOver's, Whisky's or a Homebrew Wine's, and a Windows path
+            // used to be claimed with no check at all — so End Them could reach
+            // another app's games. Those are claimed only when their
+            // WINEPREFIX lives inside this install.
+            let pfx = (fromUs || windowsy || helper) ? prefix(of: pid) : nil
+            let rootKey = paths.root.pathKey
+            let underRoot = pfx.map { $0.pathKey == rootKey || $0.pathKey.hasPrefix(rootKey + "/") } ?? false
+            guard fromUs || ((windowsy || helper) && underRoot) else { continue }
             // Never target ourselves or the process doing the scanning.
             guard pid != ProcessInfo.processInfo.processIdentifier else { continue }
             let exe = command.split(separator: "\\").last.map(String.init)?
@@ -118,7 +129,7 @@ public struct WineReaper {
                              cpu: Double(cols[1]) ?? 0,
                              elapsed: String(cols[2]),
                              command: command,
-                             prefix: prefix(of: pid),
+                             prefix: pfx,
                              isService: Self.services.contains(exe.lowercased())))
         }
         return out.sorted { $0.cpu > $1.cpu }
@@ -188,7 +199,7 @@ public struct WineReaper {
     /// The value routinely contains spaces ("Application Support"), so it is
     /// read up to the next `NAME=` token rather than to the next space — which
     /// is the bug that made an earlier version report a truncated path.
-    func prefix(of pid: Int32) -> URL? {
+    public func prefix(of pid: Int32) -> URL? {
         guard let r = try? Shell.run(URL(filePath: "/bin/ps"),
                                      ["eww", "-o", "command=", "-p", String(pid)], timeout: 15)
         else { return nil }

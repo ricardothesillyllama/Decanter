@@ -587,6 +587,106 @@ public struct SaveStore {
         try fm.removeItem(at: u)
     }
 
+    /// Moves a kept store out of the way of a new game with the same name.
+    ///
+    /// Stores are named after games, so a removed game's kept saves and a new
+    /// game of that name would otherwise share one folder — and everything
+    /// that reads the folder would take the old saves for the new game's own.
+    /// Returns the name it was moved to, or nil when there was nothing there.
+    @discardableResult
+    public func setAsideKeptStore(for game: Game) throws -> String? {
+        let root = gameRoot(game)
+        guard fm.fileExists(atPath: root.path) else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        let base = "\(slug(for: game))--kept-\(f.string(from: Date()))"
+        var name = base, n = 2
+        while fm.fileExists(atPath: paths.saves.appending(path: name).path) { name = "\(base)-\(n)"; n += 1 }
+        try fm.moveItem(at: root, to: paths.saves.appending(path: name))
+        return name
+    }
+
+    /// Kept stores that match this game by name: set aside from a game of the
+    /// same name, or recorded under that name by their last snapshot.
+    ///
+    /// A matching name is all Decanter has, which is why this finds and the
+    /// person decides — two different games can share one.
+    public func keptStores(matching game: Game, knownSlugs: Set<String>) -> [OrphanedStore] {
+        let mine = slug(for: game)
+        return orphanedStores(knownSlugs: knownSlugs).filter { o in
+            if o.slug.hasPrefix(mine + "--kept-") { return true }
+            if let n = o.recordedName { return n.caseInsensitiveCompare(game.name) == .orderedSame }
+            return false
+        }
+    }
+
+    /// Brings a kept store's saves into a game and folds its snapshots into
+    /// the game's own history, then removes the kept store.
+    ///
+    /// The files come from the live folder when the game had been protected —
+    /// that is the newest copy there is — and otherwise from the newest
+    /// snapshot that holds any. Paths are carried across Windows users, since
+    /// the environment they were saved in may have named its user differently.
+    /// The caller snapshots the game's current saves first.
+    @discardableResult
+    public func adopt(keptSlug: String, into game: Game, prefix: URL, runtime: RuntimeSpec?,
+                      knownSlugs: Set<String>, progress: (String) -> Void = { _ in }) throws -> Int {
+        guard !keptSlug.isEmpty, !keptSlug.hasPrefix("."), !keptSlug.contains("/"),
+              !keptSlug.contains("\\"), !knownSlugs.contains(keptSlug) else {
+            throw DecanterError.usage("\(keptSlug) is not a store of kept saves")
+        }
+        let kept = paths.saves.appending(path: keptSlug)
+        guard kept.deletingLastPathComponent().pathKey == paths.saves.pathKey,
+              fm.fileExists(atPath: kept.path) else {
+            throw DecanterError.notFound("kept saves called \(keptSlug)")
+        }
+        let live = kept.appending(path: "live")
+        let snapRoot = kept.appending(path: "snapshots")
+        let snaps = ((try? fm.contentsOfDirectory(atPath: snapRoot.path)) ?? [])
+            .filter { fm.fileExists(atPath: snapRoot.appending(path: "\($0)/manifest.json").path) }
+            .sorted(by: >)
+
+        var source: URL?
+        if !Self.regularFiles(under: live).isEmpty {
+            source = live
+        } else if let s = snaps.first(where: { !Self.regularFiles(under: snapRoot.appending(path: "\($0)/files")).isEmpty }) {
+            source = snapRoot.appending(path: "\(s)/files")
+        }
+
+        let externalised = fm.fileExists(atPath: liveRoot(game).path)
+        var copied = 0
+        if let source {
+            for f in Self.regularFiles(under: source) {
+                guard let rel = Self.relativePath(of: f, under: source) else { continue }
+                let canonical = Self.canonicalise(rel)
+                let dst = externalised
+                    ? liveRoot(game).appending(path: canonical)
+                    : prefix.appending(path: concretise(canonical, prefix: prefix))
+                try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+                try fm.copyItem(at: f, to: dst)
+                copied += 1
+            }
+        }
+        if let rt = runtime,
+           let s = snaps.first(where: { fm.fileExists(atPath: snapRoot.appending(path: "\($0)/registry.reg").path) }) {
+            progress("merging registry keys from the kept saves")
+            _ = try? SaveImporter().mergeRegistry(snapRoot.appending(path: "\(s)/registry.reg"),
+                                                  into: prefix, runtime: rt)
+        }
+        let history = snapshotsRoot(game)
+        try fm.createDirectory(at: history, withIntermediateDirectories: true)
+        for s in snaps {
+            var name = s, n = 2
+            while fm.fileExists(atPath: history.appending(path: name).path) { name = "\(s)-\(n)"; n += 1 }
+            try? fm.moveItem(at: snapRoot.appending(path: s), to: history.appending(path: name))
+        }
+        try fm.removeItem(at: kept)
+        progress("brought back \(copied) save file\(copied == 1 ? "" : "s")")
+        return copied
+    }
+
     static func regularFiles(under url: URL) -> [URL] {
         guard let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey],
                                                       options: [.skipsHiddenFiles]) else { return [] }

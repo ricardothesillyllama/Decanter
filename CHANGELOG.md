@@ -1,5 +1,72 @@
 # Changelog
 
+## v0.8.5 — 2026-09-13
+
+**A library Decanter could not read was replaced with an empty one.** When the
+state file failed to decode, Decanter kept a copy of it — and then carried on
+with an empty library, which the next change of any kind saved over the file.
+Nothing on screen said so; only `decanter doctor` did. Decanter now refuses to
+write while the file cannot be read, and says so in a banner with the copy one
+click away and a deliberate way to start a new library, which moves the old
+file aside rather than deleting it. The same applies to a file that stops
+decoding while Decanter is already open — a newer version wrote something this
+one does not understand — which used to be skipped, with the stale copy in
+memory saved over it. Once the file reads again, read-only mode ends by itself.
+
+**Two crashes, found with the thread sanitizer.** Every action in the app runs
+on a background thread while the window re-reads the library on the main one.
+A stress test shaped like that aborted the process twice: once on the knowledge
+base, which was a `lazy var` first touched from two threads at once, and once
+on the library itself, where two writes overlapped inside `Store.mutate` — the
+file lock serialises Decanter against the command line, but not one thread of
+the app against another. Both now sit behind in-process locks, and the same
+test under the sanitizer reports nothing. The test ships as `selftest race`,
+outside the default run, because without the sanitizer a pass proves nothing.
+
+**Adding a game with the name of one you removed walked into its old saves.**
+Saves are filed by name, so the new game shared a folder with the saves kept
+from the old one: the Saves page called it protected while its fresh Windows
+environment could see none of them, and pressing Protect deleted the new game's
+saves in favour of the old copy. Those saves are now set aside when the game is
+added, and the game offers to bring them back — only on a press, after a
+confirmation, with what the game has now snapshotted first. A matching name is
+all Decanter has to go on, so it asks, and "Not This Game" is as easy as yes.
+
+Adding a game under a name already in the library replaced the old one and
+deleted its Windows environment without taking a snapshot. It takes one first.
+
+**A setup chosen by hand gets a small note instead of silence.** Choosing
+graphics by hand used to end the conversation completely, with no sign Decanter
+had an opinion. Now one line says what Decanter would pick, offers it by name,
+and can be dismissed; it comes back only if the setup or the suggestion
+changes.
+
+**"Did that work?" is kept per game.** There was one slot for the whole app, so
+one game's ambiguous launch threw away another game's question. Each game keeps
+its own, and they expire exactly as before. A question an older version left
+waiting is carried over.
+
+**The app records a clean run as working.** Only the command line ever did, so
+every clean session played from the window taught the knowledge base nothing.
+The bar is the command line's: a window big enough to be a game, from this
+game's environment, still there eighteen seconds after it appeared, and nothing
+wrong in Wine's log or the engine's.
+
+**The leftover-processes scan could reach other apps' Wine.** Any process whose
+command started with `C:\` or `Z:\` was claimed as Decanter's with no further
+check — so one belonging to CrossOver, Whisky or a Homebrew Wine was a candidate
+for End Them. A Windows path or a bare Wine helper is now claimed only when its
+environment points inside Decanter's own folder, and every drive letter counts,
+since games run from the drives Decanter maps for them.
+
+Rebuilding a template deleted the old one before building the new one, so a
+build that failed left no template, and with no template nothing can be added
+or rebuilt. It is built alongside and swapped in when it is finished.
+
+Removing a game removes its launch log, which is named after the game and would
+otherwise be read as the next same-named game's.
+
+
 ## v0.8.4 — 2026-09-13
 
 **Decanter never saw a running game.** The app decided whether a game was

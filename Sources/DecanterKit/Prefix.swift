@@ -14,20 +14,28 @@ public struct PrefixBuilder {
 
     public func buildGoldenTemplate(runtime: RuntimeSpec, store: Store,
                                     progress: Progress = { _ in }) throws {
-        let dst = paths.template(for: runtime.id)
-        if fm.fileExists(atPath: dst.path) {
-            progress("removing previous template")
-            try fm.removeItem(at: dst)
-        }
+        // Built beside the template and swapped in at the end. The old one
+        // used to be deleted first, so a build that failed — a wineboot that
+        // timed out, a disk that filled — left no template at all, and with no
+        // template no game can be added and no environment rebuilt. Prefixes
+        // are relocatable by design (every bottle is a copy of this), so the
+        // folder can be built under one name and renamed.
+        let final = paths.template(for: runtime.id)
+        let dst = final.deletingLastPathComponent()
+            .appending(path: ".\(final.lastPathComponent).building-\(UUID().uuidString.prefix(8))")
         try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var finished = false
 
         // Wine's services outlive whatever spawned them, so the shutdown has
         // to happen even when the bootstrap throws. Skipping it on the error
         // path is how a failed template build left a rundll32 running for days.
         defer {
-            if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
-                _ = try? Shell.run(ws, ["-k"],
-                                   env: ["WINEPREFIX": dst.path], timeout: 60)
+            if !finished {
+                if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
+                    _ = try? Shell.run(ws, ["-k"],
+                                       env: ["WINEPREFIX": dst.path], timeout: 60)
+                }
+                try? fm.removeItem(at: dst)
             }
         }
         progress("bootstrapping prefix with \(runtime.id) (this takes a minute)")
@@ -103,6 +111,26 @@ public struct PrefixBuilder {
         if let ws = runtime.wineserverPath, fm.isExecutableFile(atPath: ws.path) {
             _ = try? Shell.run(ws, ["-k"], env: env, timeout: 60)
         }
+
+        // The swap. The old template is renamed out of the way rather than
+        // deleted, so a failure between the two moves puts it straight back.
+        if fm.fileExists(atPath: final.path) {
+            progress("replacing the previous template")
+            let old = final.deletingLastPathComponent()
+                .appending(path: ".\(final.lastPathComponent).old-\(UUID().uuidString.prefix(8))")
+            try fm.moveItem(at: final, to: old)
+            do {
+                try fm.moveItem(at: dst, to: final)
+            } catch {
+                try? fm.moveItem(at: old, to: final)
+                throw error
+            }
+            try? fm.removeItem(at: old)
+        } else {
+            try fm.moveItem(at: dst, to: final)
+        }
+        finished = true
+
         try store.mutate { s in
             s.templateBuiltAt = Date()
             s.templateRuntimeID = runtime.id

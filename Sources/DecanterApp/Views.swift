@@ -30,6 +30,7 @@ struct RootView: View {
         // noticing things.
         VStack(spacing: 0) {
             StaleBuildBanner()
+            LibraryUnreadableBanner()
             splitView
         }
         .onAppear { if model.setupNeeded && model.selection == nil { model.selection = .setup } }
@@ -1294,14 +1295,16 @@ struct GameDetail: View {
         // Only the certainties. The engine rule keeps the status line it has
         // always had; it is advice, and advice already has a card of its own.
         if model.blocker(for: game)?.certain == true { out.insert(.cannotStart) }
-        if model.pendingVerdict?.gameID == game.id { out.insert(.unansweredVerdict) }
+        if model.pendingVerdicts[game.id] != nil { out.insert(.unansweredVerdict) }
         if !(model.diagnosis[game.id]?.isEmpty ?? true) { out.insert(.diagnosis) }
         if let id = bottle?.runtimeID, let h = model.runtimeSoundness[id], !h.isSound {
             out.insert(.unsoundEnvironment)
         }
-        if model.advice(for: game)?.kind != .settled, model.advice(for: game) != nil {
+        if let a = model.advice(for: game), a.kind != .settled,
+           !(a.kind == .chosenByHand && model.isHandChoiceDismissed(game)) {
             out.insert(.setupAdvice)
         }
+        if model.keptSavesOffer(for: game) != nil { out.insert(.keptSaves) }
         if !model.leakedWine.isEmpty { out.insert(.strayProcesses) }
         return out
     }
@@ -1311,7 +1314,7 @@ struct GameDetail: View {
         case .cannotStart:
             if let b = model.blocker(for: game) { CannotStartCard(game: game, blocker: b) }
         case .unansweredVerdict:
-            if let p = model.pendingVerdict { VerdictCard(pending: p) }
+            if let p = model.pendingVerdicts[game.id] { VerdictCard(pending: p) }
         case .diagnosis:
             if let rep = model.diagnosis[game.id] { DiagnosisCard(report: rep) }
         case .unsoundEnvironment:
@@ -1319,7 +1322,12 @@ struct GameDetail: View {
                 EnvironmentHealthCard(runtimeID: id, report: health, game: game)
             }
         case .setupAdvice:
-            if let a = model.advice(for: game) { SetupCard(game: game, advice: a) }
+            if let a = model.advice(for: game) {
+                if a.kind == .chosenByHand { ChosenByHandCard(game: game, advice: a) }
+                else { SetupCard(game: game, advice: a) }
+            }
+        case .keptSaves:
+            if let o = model.keptSavesOffer(for: game) { KeptSavesCard(game: game, kept: o) }
         case .strayProcesses:
             StrayWineCard()
         case nil:
@@ -1827,7 +1835,7 @@ struct VerdictCard: View {
                 }
                 HStack {
                     Button("Record This") {
-                        model.answerVerdict(worked: false, failure: why,
+                        model.answerVerdict(pending, worked: false, failure: why,
                                             reason: pending.switchQuestion == nil ? nil : instead)
                     }
                     .buttonStyle(.borderedProminent).controlSize(.small)
@@ -1835,13 +1843,13 @@ struct VerdictCard: View {
                 }
             } else {
                 HStack {
-                    Button("It Worked") { model.answerVerdict(worked: true) }
+                    Button("It Worked") { model.answerVerdict(pending, worked: true) }
                         .buttonStyle(.borderedProminent).controlSize(.small)
                     Button("It Did Not") { saying = true }.controlSize(.small)
                     Spacer()
                     // Not answering has to be as easy as answering, or the
                     // answers stop being worth anything.
-                    Button("Skip") { model.skipVerdict() }
+                    Button("Skip") { model.skipVerdict(pending) }
                         .buttonStyle(.plain).controlSize(.small)
                         .foregroundStyle(.tertiary)
                 }
@@ -1900,6 +1908,139 @@ struct CannotStartCard: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Palette.danger.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 10)
             .strokeBorder(Palette.danger.opacity(0.30), lineWidth: 0.5))
+    }
+}
+
+/// Decanter would pick something else, and the person has already chosen.
+///
+/// A hand choice used to silence the recommendation entirely: no card, and no
+/// sign Decanter had a view at all. This says it once, in one line, offers the
+/// suggestion by name, and goes away when dismissed — until the setup or the
+/// suggestion changes, which makes it a different situation.
+struct ChosenByHandCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    let advice: Engine.SetupAdvice
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "hand.point.up.left").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(advice.headline).font(.callout.weight(.medium))
+                Text(advice.explanation).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if let label = advice.actionLabel {
+                Button(label) { model.applyRecommendation(game) }
+                    .controlSize(.small)
+                    .disabled(model.busy != nil)
+                    .help("Switches this game to Decanter's suggestion. Nothing is launched.")
+            }
+            Button { model.dismissHandChoice(game) } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).controlSize(.small)
+                .help("Hide this. It comes back only if this game's setup or Decanter's suggestion changes.")
+                .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The system's own tint rather than a hand-mixed neutral, so it moves
+        // with Increase Contrast and Reduce Transparency like everything else.
+        .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.5)))
+    }
+}
+
+/// Saves kept from a removed game whose name matches this one.
+///
+/// A matching name is all Decanter knows, so it offers and the person decides.
+/// Nothing is moved until they say so, and what the game has now goes into a
+/// snapshot first.
+struct KeptSavesCard: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.colorScheme) private var scheme
+    let game: Game
+    let kept: SaveStore.OrphanedStore
+    @State private var confirming = false
+
+    private var name: String { kept.recordedName ?? game.name }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Saves kept from an earlier \(name)", systemImage: "externaldrive.badge.plus")
+                .font(.headline)
+            Text("When a game called \(name) was removed, its saves were kept — \(kept.savedFiles) file\(kept.savedFiles == 1 ? "" : "s")\(kept.lastModified.map { ", last changed \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""). Decanter found them because the names match, and that is all it knows. Bring them back only if this is the same game.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Bring Them Back…") { confirming = true }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(model.busy != nil)
+                Button("Not This Game") { model.declineKeptSaves(game, kept) }
+                    .controlSize(.small)
+                Spacer()
+                Button { NSWorkspace.shared.activateFileViewerSelecting([kept.url]) } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Show the kept saves in Finder.")
+                .accessibilityLabel("Show kept saves in Finder")
+            }
+            ReactionNote(key: "reconnect")
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.accent(scheme).opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.accent(scheme).opacity(0.25), lineWidth: 0.5))
+        .confirmationDialog("Bring back the kept saves?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Bring Them Back") { model.reconnectKeptSaves(game, kept) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("What this game has now is snapshotted first, so nothing is lost. The kept files then replace any of the same name, and the kept snapshots join this game's own.")
+        }
+    }
+}
+
+/// The library file could not be read, so Decanter is changing nothing.
+///
+/// On 27 August the store could not decode the library, carried on with an
+/// empty one, and saved it over the file on the next change. A copy was kept,
+/// and nothing on screen said so. This is the saying so.
+struct LibraryUnreadableBanner: View {
+    @EnvironmentObject var model: AppModel
+    @State private var confirming = false
+
+    var body: some View {
+        if let message = model.libraryUnreadable {
+            HStack(spacing: 9) {
+                Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(Palette.danger)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Decanter could not read your library, so it is not changing anything.")
+                        .font(.callout.weight(.medium))
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                }
+                Spacer(minLength: 0)
+                if let url = model.unreadableLibraryCopy {
+                    Button("Show Copy") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                        .controlSize(.small)
+                }
+                Button("Start a New Library…") { confirming = true }
+                    .controlSize(.small)
+                    .disabled(model.busy != nil)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.danger.opacity(0.12))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Palette.danger.opacity(0.35)).frame(height: 0.5)
+            }
+            .confirmationDialog("Start a new, empty library?", isPresented: $confirming, titleVisibility: .visible) {
+                Button("Start New Library", role: .destructive) { model.startNewLibrary() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The file Decanter could not read is moved aside, not deleted, and a copy was already kept. Games, Windows environments and saves on disk are not touched, but they will not be listed until you add the games again.")
+            }
+        }
     }
 }
 
