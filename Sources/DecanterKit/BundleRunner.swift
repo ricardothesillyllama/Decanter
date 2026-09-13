@@ -42,6 +42,22 @@ public struct BundleRunner: Sendable {
             .appending(path: "Library/Application Support/Decanter Bundles/\(m.bundleID)")
     }
 
+    /// Takes a Game Porting Toolkit somebody hands over — a disk image, the
+    /// app, or a Wine folder — into this bundle's own folder, exactly the way
+    /// Setup takes one. Refuses anything that turns out not to be the toolkit,
+    /// rather than pinning an ordinary Wine where GPTK was asked for.
+    @discardableResult
+    public func acceptGPTK(from url: URL, progress: (String) -> Void = { _ in }) throws -> String {
+        let paths = Paths(root: home)
+        try paths.ensure()
+        let e = try Engine(paths: paths)
+        let said = try e.accept(droppedPath: url, progress: progress)
+        guard e.store.state.runtimes.contains(where: { $0.kind == .gptk }) else {
+            throw DecanterError.badFile("\(url.lastPathComponent) is not the Game Porting Toolkit.")
+        }
+        return said
+    }
+
     public enum Preparation {
         case ready(Engine, Game)
         /// The bundle runs on GPTK and this Mac has none. The words say what to do.
@@ -77,13 +93,16 @@ public struct BundleRunner: Sendable {
                 st.runtimes.removeAll { $0.id == s.id }
                 st.runtimes.append(s)
             }
+        } else if let taken = e.store.state.runtimes.first(where: { $0.kind == .gptk }) {
+            // Handed over earlier, and already this bundle's own copy.
+            spec = taken
         } else {
             let manager = RuntimeManager(paths: paths)
             guard let gptk = manager.discover().first(where: { $0.kind == .gptk }) else {
                 return .needsGPTK(
                     "This bundle runs on Apple's Game Porting Toolkit, which cannot be included in it. "
-                    + "Install the Game Porting Toolkit on this Mac — it goes in Applications as “Game Porting Toolkit” — "
-                    + "then open this bundle again.")
+                    + "Choose the Game Porting Toolkit — its disk image, or the app — and the bundle takes its own copy. "
+                    + "Nothing is downloaded.")
             }
             progress("taking a copy of the Game Porting Toolkit on this Mac")
             spec = try manager.pin(gptk, store: e.store)

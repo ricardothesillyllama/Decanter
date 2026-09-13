@@ -7,6 +7,7 @@ let t = Harness()
 let wantAll = args.isEmpty || args.contains("all")
 if wantAll || args.contains("unit")    { runUnitTests(t); runVideoDetectionTests(t); runExecutablePickerTests(t) }
 if wantAll || args.contains("abuse")   { runAbuseTests(t) }
+if wantAll || args.contains("abuse")   { runUserFolderSandboxTests(t) }
 if wantAll || args.contains("stress")  { runStressTests(t) }
 if wantAll || args.contains("saves")   { runSavesTests(t) }
 if wantAll || args.contains("saves")   { runOrphanedSavesTests(t) }
@@ -54,7 +55,7 @@ if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("exes")    { runExecutableStateTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
 if wantAll || args.contains("pack")    { runPackTests(t) }
-if wantAll || args.contains("export")  { runSetupFileTests(t); runBundlePlanTests(t); runBundleBuildTests(t) }
+if wantAll || args.contains("export")  { runSetupFileTests(t); runBundlePlanTests(t); runBundleBuildTests(t); runBundleGPTKTests(t) }
 if wantAll || args.contains("pack")    { runPackMediaTests(t) }
 if wantAll || args.contains("setup")   { runAcquisitionTests(t) }
 if wantAll || args.contains("setup")   { runDiskImageParseTests(t) }

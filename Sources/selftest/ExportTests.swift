@@ -254,3 +254,33 @@ func runBundleBuildTests(_ t: Harness) {
 private extension JSONDecoder {
     static var iso: JSONDecoder { let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601; return d }
 }
+
+/// A bundle that needs GPTK on a Mac without one asks for it, in words that
+/// say how to hand it over.
+func runBundleGPTKTests(_ t: Harness) {
+    t.suite("A bring-your-own-GPTK bundle asks for the toolkit it cannot carry")
+    let fm = FileManager.default
+    guard let gp = makeExportFixture("gptk-ask", kind: .gptk, backends: [.d3dmetal, .wined3d]),
+          let plan = try? gp.e.planBundle(for: gp.game) else { t.expect(false, "a GPTK fixture"); return }
+    let out = Fixture.dir("gptk-ask-out")
+    let launcher = Fixture.dir("gptk-ask-launcher").appending(path: "Launch")
+    try? fm.copyItem(at: URL(filePath: "/usr/bin/true"), to: launcher)
+    guard let app = try? gp.e.buildBundle(plan, options: BundleOptions(bringYourOwnGPTK: true),
+                                          into: out, launcher: launcher),
+          let runner = BundleRunner.current(executable: app.appending(path: "Contents/MacOS/\(Export.launcherName)"),
+                                            home: Fixture.dir("gptk-ask-home")) else {
+        t.expect(false, "the bundle builds and its launcher recognises it"); return
+    }
+    if RuntimeManager(paths: Paths(root: runner.home)).discover().contains(where: { $0.kind == .gptk }) {
+        t.skip("asking for GPTK", "this Mac has the Game Porting Toolkit in Applications, so the bundle takes that instead")
+        return
+    }
+    guard case .needsGPTK(let why)? = try? runner.prepare() else {
+        t.expect(false, "with no toolkit anywhere, the bundle stops and asks"); return
+    }
+    t.expect(why.contains("disk image"), "saying the toolkit can be handed over as its disk image")
+    t.expect(why.contains("Nothing is downloaded"), "and that nothing is fetched to get it")
+    t.throwsError("something that is not the toolkit is refused rather than pinned in its place") {
+        _ = try runner.acceptGPTK(from: Fixture.dir("gptk-ask-not-a-toolkit"))
+    }
+}

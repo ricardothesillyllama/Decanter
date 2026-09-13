@@ -221,7 +221,7 @@ func unknownCommand(_ cmd: String) -> Never {
 // An exported bundle's launcher is this very binary. Opened from inside a
 // bundle it runs that bundle's game and nothing else.
 if let exe = Bundle.main.executableURL, let runner = BundleRunner.current(executable: exe) {
-    runPortable(runner, prepareOnly: args.contains("--prepare-only"))
+    runPortable(runner, arguments: args)
 }
 
 guard let cmd = args.first else { usage(exitCode: 1) }

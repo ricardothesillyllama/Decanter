@@ -211,31 +211,50 @@ public struct PrefixBuilder {
         return closed
     }
 
-    /// Removing `z:` is NOT sufficient. Wine also points each Windows user
-    /// folder at the corresponding real one in the host home directory —
-    /// Documents, Downloads, Desktop, Music, Pictures, Videos — so a game can
-    /// still read and write them through C:\users\<user>\Documents.
-    /// Replace any symlink that escapes the prefix with a real folder inside it.
+    /// Removing `z:` is NOT sufficient. Wine also points Windows user folders
+    /// at the corresponding real ones in the host home directory — Documents,
+    /// Downloads, Desktop, Music, Pictures, Videos — so a game can still read
+    /// and write them through C:\users\<user>\Documents.
+    ///
+    /// Walked all the way down rather than one level. Wine also links
+    /// `Templates`, at AppData/Roaming/Microsoft/Windows/Templates — four levels
+    /// below the folders this used to check — and every template and every
+    /// game's environment Decanter had built still reached ~/Templates through
+    /// it. Relative links are resolved from their own folder, not from the
+    /// user's, which the one-level version could get away with and a deep walk
+    /// cannot.
+    ///
+    /// One kind of outside link is Decanter's own and is kept: a protected save
+    /// folder, which points into the saves store on purpose. Replacing that with
+    /// an empty folder would quietly cut the game off from its saves.
     @discardableResult
     public func sandboxUserFolders(prefix: URL) throws -> [String] {
         var fixed: [String] = []
         let users = prefix.appending(path: "drive_c/users")
-        guard let names = try? fm.contentsOfDirectory(atPath: users.path) else { return fixed }
-        let prefixReal = prefix.resolvingSymlinksInPath().path
-        for user in names where !user.hasPrefix(".") {
-            let home = users.appending(path: user)
-            guard let entries = try? fm.contentsOfDirectory(atPath: home.path) else { continue }
-            for entry in entries where !entry.hasPrefix(".") {
-                let item = home.appending(path: entry)
-                guard let dest = try? fm.destinationOfSymbolicLink(atPath: item.path) else { continue }
-                let target = dest.hasPrefix("/") ? dest
-                    : home.appending(path: dest).standardizedFileURL.path
-                // A link that stays inside the prefix is ours and is fine.
-                if URL(filePath: target).resolvingSymlinksInPath().path.hasPrefix(prefixReal) { continue }
-                try? fm.removeItem(at: item)
-                try? fm.createDirectory(at: item, withIntermediateDirectories: true)
-                fixed.append("\(user)/\(entry) -> was \(target)")
-            }
+        guard fm.fileExists(atPath: users.path),
+              let en = fm.enumerator(at: users, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return fixed }
+        let prefixReal = prefix.resolvingSymlinksInPath().standardizedFileURL.path
+        let storeReal = paths.saves.resolvingSymlinksInPath().standardizedFileURL.path
+        // Collected first: replacing a link while the enumerator is inside the
+        // same directory would change what it walks.
+        var links: [URL] = []
+        for case let u as URL in en where (try? u.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            links.append(u)
+        }
+        let usersReal = users.resolvingSymlinksInPath().standardizedFileURL.path
+        for item in links {
+            guard let dest = try? fm.destinationOfSymbolicLink(atPath: item.path) else { continue }
+            let parent = item.deletingLastPathComponent().resolvingSymlinksInPath()
+            let target = dest.hasPrefix("/") ? URL(filePath: dest) : parent.appending(path: dest)
+            let t = target.resolvingSymlinksInPath().standardizedFileURL.path
+            // Inside the prefix is ours and is fine; so is Decanter's own store.
+            if t == prefixReal || t.hasPrefix(prefixReal + "/") { continue }
+            if t == storeReal || t.hasPrefix(storeReal + "/") { continue }
+            try? fm.removeItem(at: item)
+            try? fm.createDirectory(at: item, withIntermediateDirectories: true)
+            let here = parent.appending(path: item.lastPathComponent).standardizedFileURL.path
+            let rel = here.hasPrefix(usersReal + "/") ? String(here.dropFirst(usersReal.count + 1)) : item.lastPathComponent
+            fixed.append("\(rel) -> was \(t)")
         }
         return fixed
     }
