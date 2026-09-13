@@ -54,6 +54,7 @@ if wantAll || args.contains("exes")    { runExecutableClassifyTests(t) }
 if wantAll || args.contains("exes")    { runExecutableStateTests(t) }
 if wantAll || args.contains("launch")  { runLaunchTests(t) }
 if wantAll || args.contains("pack")    { runPackTests(t) }
+if wantAll || args.contains("export")  { runSetupFileTests(t); runBundlePlanTests(t); runBundleBuildTests(t) }
 if wantAll || args.contains("pack")    { runPackMediaTests(t) }
 if wantAll || args.contains("setup")   { runAcquisitionTests(t) }
 if wantAll || args.contains("setup")   { runDiskImageParseTests(t) }

@@ -100,6 +100,9 @@ does — plus a few diagnostics that only exist here.
 | `decanter saves externalise <game>` | Move saves out of the environment so a rebuild cannot touch them |
 | `decanter saves gc` | Prune old snapshots |
 | `decanter import <game> <dir>` | Restore saves from elsewhere — files and registry both |
+| `decanter export <game>` | Write how a game is set up to a `.decantersetup` file. It names no game and holds no path. `--to DIR` chooses where. |
+| `decanter export <game> --app` | Build a Mac app holding the game, a Wine to run it and its Windows environment. Asks before building, and says what cannot go in. `--with-saves`, `--bring-your-own-gptk`, `--without-borrowed`, `--yes`. |
+| `decanter import <file> <game>` | Given a `.decantersetup` file, put the game on that setup. Nothing is launched. `--any-engine` applies a setup made for a different engine. |
 
 ## Windows environments
 

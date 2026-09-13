@@ -70,7 +70,7 @@ func printBenchRow(_ row: Bench.RuntimeRow, stale: Bool) {
 /// new command is added to both or to neither.
 let commandNames = [
     "add", "args", "audit", "autoconfig", "backend", "bench", "bottles", "check",
-    "diagnose", "dll", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "fonts", "gc",
+    "diagnose", "dll", "doctor", "dxmt", "dxvk", "endorse", "env", "exe", "export", "fonts", "gc",
     "help", "import", "info", "install", "knowledge", "list", "mods", "pin",
     "recipes", "recommend", "redetect", "rederive", "remove", "reap", "repair",
     "pack", "report", "restore", "run", "runtime", "saves", "setup", "template", "use",
@@ -123,6 +123,9 @@ func usage(to stderr: Bool = false, exitCode: Int32 = 0) -> Never {
       decanter exe <game>             list executables; pick one, or run one once
       decanter list                   list games
       decanter info <game>            show detection evidence and settings
+      decanter export <game>          write how a game is set up to a file — no name, no paths
+      decanter export <game> --app    build a Mac app holding the game [--with-saves] [--to DIR]
+      decanter import <file> <game>   put a game on the setup a .decantersetup file describes
       decanter run <game>             launch it
       decanter check <game>           dry-run: verify it WOULD launch, without starting it
       decanter redetect [game]        re-inspect with the current rules (all games if omitted)
@@ -213,6 +216,12 @@ func unknownCommand(_ cmd: String) -> Never {
     msg += "       `decanter help` lists everything.\n"
     FileHandle.standardError.write(Data(msg.utf8))
     exit(2)
+}
+
+// An exported bundle's launcher is this very binary. Opened from inside a
+// bundle it runs that bundle's game and nothing else.
+if let exe = Bundle.main.executableURL, let runner = BundleRunner.current(executable: exe) {
+    runPortable(runner, prepareOnly: args.contains("--prepare-only"))
 }
 
 guard let cmd = args.first else { usage(exitCode: 1) }
@@ -548,7 +557,100 @@ case "diagnose":
         for l in rep.tail { out("    \(l)") }
     }
 
+case "export":
+    let (e, g) = requireGame(rest.first)
+    let folder: URL = {
+        if let i = rest.firstIndex(of: "--to"), i + 1 < rest.count {
+            return URL(filePath: (rest[i + 1] as NSString).expandingTildeInPath)
+        }
+        return URL(filePath: FileManager.default.currentDirectoryPath)
+    }()
+    guard rest.contains("--app") else {
+        // The default, and the small one: how the game is set up, with nothing
+        // in it that says which game.
+        do {
+            let url = try e.writeSetupFile(for: g, into: folder)
+            let file = try Engine.readSetupFile(at: url)
+            ok("wrote \(url.lastPathComponent)")
+            out("    \(file.title)")
+            out("    no game name and no paths are in it")
+            if !file.launchArguments.isEmpty || !file.environment.isEmpty {
+                warn("it carries launch switches and environment settings — read them before sharing, in case one names the game:")
+                if !file.launchArguments.isEmpty { out("      switches: \(file.launchArguments.joined(separator: " "))") }
+                for (k, v) in file.environment.sorted(by: { $0.key < $1.key }) { out("      \(k)=\(v)") }
+            }
+        } catch { die(error) }
+        break
+    }
+    do {
+        let plan = try e.planBundle(for: g)
+        func size(_ b: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(b), countStyle: .file) }
+        out("\(g.name) as a Mac app")
+        if plan.needsGPTK {
+            out("    game \(size(plan.sizes.game)) · no Wine and no Windows environment — those come from the GPTK on the Mac that opens it"
+                + (plan.sizes.components > 0 ? " · graphics layer \(size(plan.sizes.components))" : ""))
+        } else {
+            out("    game \(size(plan.sizes.game)) · Wine \(size(plan.sizes.runtime)) · Windows environment \(size(plan.sizes.prefix))"
+                + (plan.sizes.components > 0 ? " · graphics layer \(size(plan.sizes.components))" : ""))
+        }
+        out("    about \(size(plan.sizes.total + (rest.contains("--with-saves") ? plan.sizes.saves : 0))) in all"
+            + (rest.contains("--with-saves") ? ", saves included" : ", saves left out"))
+        if plan.registryKeysInEnvironment > 0 {
+            out("    \(plan.registryKeysInEnvironment) registry keys the game wrote stay in its Windows environment, saves or not")
+        }
+        out("")
+        for line in Export.disclaimer.split(separator: "\n") { out("  \(line)") }
+        out("")
+        if plan.needsGPTK && !rest.contains("--bring-your-own-gptk") {
+            warn("\(g.name) is on the Game Porting Toolkit, which cannot go in a bundle — nor can a Windows environment it built.")
+            if let alt = plan.wineAlternative {
+                out("    1. switch it to \(alt.label) first, which has worked for games like it, and check it still runs")
+            }
+            out("    \(plan.wineAlternative == nil ? "1" : "2"). bundle it anyway; whoever opens it needs their own GPTK: add --bring-your-own-gptk")
+            exit(2)
+        }
+        if !plan.borrowedLibraries.isEmpty && !rest.contains("--without-borrowed") {
+            warn("\(plan.runtime.id) holds \(plan.borrowedLibraries.count) libraries copied in from the Game Porting Toolkit, which cannot be shared:")
+            out("      \(plan.borrowedLibraries.joined(separator: ", "))")
+            out("    1. leave this game unbundled")
+            out("    2. bundle it without them — video or audio may not play: add --without-borrowed")
+            exit(2)
+        }
+        if isatty(STDIN_FILENO) != 0 && !rest.contains("--yes") {
+            print("  build it? [y/N] ", terminator: "")
+            guard let answer = readLine(), ["y", "yes"].contains(answer.lowercased()) else {
+                out("  nothing was built"); exit(0)
+            }
+        } else if !rest.contains("--yes") {
+            die(DecanterError.usage("building a bundle needs --yes when nobody is at the terminal to confirm it"))
+        }
+        guard let launcher = Bundle.main.executableURL?.resolvingSymlinksInPath() else {
+            die(DecanterError.notFound("this program's own executable"))
+        }
+        let app = try e.buildBundle(plan, options: BundleOptions(
+                                        includeSaves: rest.contains("--with-saves"),
+                                        bringYourOwnGPTK: rest.contains("--bring-your-own-gptk"),
+                                        shipWithoutBorrowedLibraries: rest.contains("--without-borrowed")),
+                                    into: folder, launcher: launcher, progress: step)
+        ok("built \(app.path)")
+        out("    it is signed ad hoc, not notarised. On another Mac, run this once before opening it:")
+        out("      xattr -dr com.apple.quarantine \"\(app.lastPathComponent)\"")
+    } catch { die(error) }
+
 case "import":
+    // A setup file is applied to a game; a folder is saves, as it always was.
+    if let f = rest.first, f.lowercased().hasSuffix(".\(Export.setupExtension)") {
+        guard rest.count >= 2 else { die(DecanterError.usage("usage: decanter import <file.\(Export.setupExtension)> <game>")) }
+        let (e, g) = requireGame(rest[1])
+        do {
+            let file = try Engine.readSetupFile(at: URL(filePath: (f as NSString).expandingTildeInPath))
+            step("applying \(file.title) to \(g.name) — nothing is launched")
+            let notes = try e.applySetupFile(file, to: g, allowDifferentEngine: rest.contains("--any-engine"), progress: step)
+            ok("\(g.name) is now on that setup")
+            for n in notes { out("    note: \(n)") }
+        } catch { die(error) }
+        break
+    }
     guard rest.count >= 2 else { die(DecanterError.usage("usage: decanter import <game> <dir>")) }
     let (e, g) = requireGame(rest[0])
     do {
