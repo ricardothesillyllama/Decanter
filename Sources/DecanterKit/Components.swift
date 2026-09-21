@@ -345,7 +345,7 @@ public struct DXMTInstaller {
         let hosting = RuntimeManager.metalHosting(root: base.root)
         guard hosting.looksCapable else {
             throw DecanterError.noRuntime(
-                "\(base.id) cannot host DXMT — \(hosting.unavailableReason?.replacingOccurrences(of: "\n", with: " ") ?? "its Mac driver does not expose the Metal view API"). This needs a Wine build whose Mac driver is a dylib exporting macdrv_functions; Sikarugir's is one.")
+                "\(base.id) cannot run Metal graphics. \(hosting.unavailableSummary ?? "Its display driver does not offer the Metal layer a way in.") Sikarugir's Wine 10 is one that can.")
         }
 
         let id = base.id.hasSuffix(Self.hostSuffix) ? base.id : base.id + Self.hostSuffix

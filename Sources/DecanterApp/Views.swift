@@ -666,7 +666,9 @@ struct SetupCard: View {
                     .foregroundStyle(advice.kind == .goBack ? Color.secondary : Palette.caution)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ReactionNote(key: advice.isRestore ? "restore" : "recommend")
+            // Per game. The key was shared, so a failed press on one game's card
+            // turned up under the next game's card, still red, days later.
+            ReactionNote(key: "\(advice.isRestore ? "restore" : "recommend")-\(game.id)")
             if advice.kind == .stuck {
                 Text("You can still press Play — this is what Decanter knows, not a rule it enforces.")
                     .font(.caption).foregroundStyle(.tertiary)

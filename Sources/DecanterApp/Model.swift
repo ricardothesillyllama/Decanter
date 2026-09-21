@@ -1264,7 +1264,7 @@ final class AppModel: ObservableObject {
     @Published var benchRows: [String: Bench.RuntimeRow] = [:]
 
     func restoreKnownGood(_ game: Game) {
-        perform("Putting \(game.name) back on what worked…", key: "restore", scope: game.id) { e in
+        perform("Putting \(game.name) back on what worked…", key: "restore-\(game.id)", scope: game.id) { e in
             let good = try e.restoreKnownGood(game)
             return "Back on \(good.label)"
         }
@@ -1293,7 +1293,7 @@ final class AppModel: ObservableObject {
     }
 
     func applyRecommendation(_ game: Game) {
-        perform("Applying the recommended setup for \(game.name)…", key: "recommend", scope: game.id) { e in
+        perform("Applying the recommended setup for \(game.name)…", key: "recommend-\(game.id)", scope: game.id) { e in
             let r = try e.applyRecommendation(game)
             return "Now using \(Help.plainName(r.backend)) graphics"
         }

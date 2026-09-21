@@ -164,8 +164,8 @@ public struct WineReaper {
     /// The processes worth reading an environment for: anything run out of
     /// this install's runtimes, anything whose argv Wine relabelled with a
     /// Windows drive — any letter, since games run from mapped drives — and
-    /// Wine's bare helpers. Everything else on the Mac is skipped, because
-    /// reading an environment costs a `ps` call each.
+    /// Wine's bare helpers. Everything else on the Mac is skipped: there is
+    /// no reason to read the environment of anything that is not Wine.
     public static func wineCandidates(psOutput: String, runtimeRoot: String) -> [(pid: Int32, command: String)] {
         var out: [(pid: Int32, command: String)] = []
         for line in psOutput.split(whereSeparator: \.isNewline) {
@@ -196,21 +196,51 @@ public struct WineReaper {
 
     /// Reads WINEPREFIX out of a running process's environment.
     ///
-    /// The value routinely contains spaces ("Application Support"), so it is
-    /// read up to the next `NAME=` token rather than to the next space — which
-    /// is the bug that made an earlier version report a truncated path.
+    /// Asked of the kernel, not of `ps`. This was `ps eww`, until macOS 27
+    /// stopped printing the environment of any process — measured with a
+    /// child of the asking process, started with a variable set: `ps eww`
+    /// showed none of it, while `KERN_PROCARGS2` still returned all seventy
+    /// strings, WINEPREFIX among them. Every liveness check, every stray
+    /// Wine session's prefix, and the check that a window belongs to a game
+    /// went through here, so on 27 every launch looked like one that never
+    /// started. It is also one system call instead of one process per ask.
     public func prefix(of pid: Int32) -> URL? {
-        guard let r = try? Shell.run(URL(filePath: "/bin/ps"),
-                                     ["eww", "-o", "command=", "-p", String(pid)], timeout: 15)
+        guard let args = Self.processArguments(of: pid),
+              let path = Self.lastValue(of: "WINEPREFIX", inProcArgs: args), !path.isEmpty
         else { return nil }
-        guard let start = r.out.range(of: "WINEPREFIX=") else { return nil }
-        let tail = r.out[start.upperBound...]
-        let pattern = try? NSRegularExpression(pattern: #"\s+[A-Za-z_][A-Za-z0-9_]*="#)
-        let s = String(tail)
-        let end = pattern?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
-            .flatMap { Range($0.range, in: s)?.lowerBound } ?? s.endIndex
-        let path = String(s[s.startIndex..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : URL(filePath: path)
+        return URL(filePath: path)
+    }
+
+    /// The kernel's record of a process's arguments and environment:
+    /// `KERN_PROCARGS2`. Only readable for the caller's own processes, which
+    /// every Wine process Decanter starts is — and on macOS 27, not for
+    /// Apple's own platform binaries, whose environment comes back withheld.
+    /// Wine is not one.
+    public static func processArguments(of pid: Int32) -> [UInt8]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return nil }
+        var buf = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size > 4 else { return nil }
+        return Array(buf.prefix(size))
+    }
+
+    /// The last `NAME=value` string in a `KERN_PROCARGS2` record.
+    ///
+    /// The record is argc, the executable path, then the arguments and the
+    /// environment as NUL-terminated strings. It is not walked by argc: Wine
+    /// rewrites its argv in place, relabelling the process with a Windows
+    /// path, so the count no longer says where the arguments end. The
+    /// environment comes after them, so the last match is the environment's —
+    /// an argument that merely looks like the variable comes first and loses.
+    public static func lastValue(of name: String, inProcArgs buf: [UInt8]) -> String? {
+        guard buf.count > 4 else { return nil }
+        let key = Array((name + "=").utf8)
+        var found: String?
+        for part in buf.dropFirst(4).split(separator: 0) where part.starts(with: key) {
+            found = String(decoding: part.dropFirst(key.count), as: UTF8.self)
+        }
+        return found
     }
 
     /// Every wineserver binary this install has staged.

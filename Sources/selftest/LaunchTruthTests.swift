@@ -165,3 +165,80 @@ func runRecommendationLockTests(_ t: Harness) {
     t.equal(e.store.state.games.first?.runtimeLocked, false,
             "and Decanter changing a setup on its own behalf never sets it")
 }
+
+/// macOS 27 stopped `ps eww` printing any process's environment, and every
+/// liveness check read WINEPREFIX that way.
+func runProcessEnvironmentTests(_ t: Harness) {
+    t.suite("A process's WINEPREFIX is read from the kernel")
+
+    // A real child with the variable set, the way the launcher sets it —
+    // including the space every real prefix path has.
+    //
+    // Not /bin/sleep itself: macOS 27 withholds the environment of Apple's
+    // own platform binaries (three strings back instead of seventy). Wine is
+    // not one, and neither is a signed copy of sleep, which is what this is.
+    let sleeper = Fixture.dir("procenv").appending(path: "sleeper")
+    try? FileManager.default.removeItem(at: sleeper)
+    try? FileManager.default.copyItem(at: URL(filePath: "/bin/sleep"), to: sleeper)
+    let sign = Process()
+    sign.executableURL = URL(filePath: "/usr/bin/codesign")
+    sign.arguments = ["--force", "--sign", "-", sleeper.path]
+    sign.standardError = FileHandle.nullDevice
+    try? sign.run(); sign.waitUntilExit()
+    let p = Process()
+    p.executableURL = sleeper
+    p.arguments = ["5"]
+    var env = ProcessInfo.processInfo.environment
+    env["WINEPREFIX"] = "/tmp/decanter probe/Application Support/pfx"
+    p.environment = env
+    do {
+        try p.run()
+        defer { p.terminate() }
+        let reaper = WineReaper(paths: Paths(root: Fixture.dir("procenv")))
+        t.equal(reaper.prefix(of: p.processIdentifier)?.path, "/tmp/decanter probe/Application Support/pfx",
+                "a live process's WINEPREFIX, spaces and all")
+    } catch {
+        t.expect(false, "could not start a child to read: \(error)")
+    }
+    t.expect(WineReaper(paths: Paths(root: Fixture.dir("procenv"))).prefix(of: Int32.max) == nil,
+             "no process, no prefix")
+
+    // argc says 1, but Wine has rewritten argv, and an argument that looks
+    // like the variable comes before the environment's own.
+    var buf: [UInt8] = [1, 0, 0, 0]
+    for s in ["/path/to/wine", "", "WINEPREFIX=/impostor", "C:\\windows\\cmd.exe", "HOME=/x", "WINEPREFIX=/real prefix", ""] {
+        buf += Array(s.utf8) + [0]
+    }
+    t.equal(WineReaper.lastValue(of: "WINEPREFIX", inProcArgs: buf), "/real prefix",
+            "the environment's value wins over an argument that looks like it")
+    t.equal(WineReaper.lastValue(of: "WINEPREFIXX", inProcArgs: buf), nil,
+            "a longer name is a different variable")
+}
+
+/// Use This landed "Metal graphics on Wine" on the first Wine build pinned.
+func runRecommendationRuntimeTests(_ t: Harness) {
+    t.suite("A recommendation lands on a runtime that can provide its graphics")
+    guard let e = try? Engine(paths: Paths(root: Fixture.dir("rec-runtime"))) else {
+        t.expect(false, "could not make an engine"); return
+    }
+    func spec(_ id: String, _ kind: RuntimeKind, _ backends: [GraphicsBackend]) -> RuntimeSpec {
+        let root = e.paths.runtimes.appending(path: id)
+        return RuntimeSpec(id: id, kind: kind, version: "1.0", root: root,
+                           winePath: root.appending(path: "bin/wine"), wineserverPath: nil,
+                           supports32Bit: true, backends: backends)
+    }
+    try? e.store.mutate { s in
+        s.runtimes = [spec("wine-11.0", .wine, [.dxvk, .wined3d]),
+                      spec("wine-10.0-dxmt", .wine, [.dxmt, .wined3d]),
+                      spec("gptk-7.7", .gptk, [.d3dmetal, .dxvk, .wined3d])]
+    }
+    t.equal(e.runtime(for: .init(runtimeKind: .wine, backend: .dxmt))?.id, "wine-10.0-dxmt",
+            "Metal graphics on Wine goes to the Wine build that has it, not the first Wine pinned")
+    t.equal(e.runtime(for: .init(runtimeKind: .wine, backend: .dxvk))?.id, "wine-11.0",
+            "Vulkan graphics on Wine goes to the first Wine that has it")
+    t.equal(e.runtime(for: .init(runtimeKind: .gptk, backend: .d3dmetal))?.id, "gptk-7.7",
+            "Apple graphics goes to the toolkit")
+    try? e.store.mutate { s in s.runtimes.removeAll { $0.kind == .gptk } }
+    t.equal(e.runtime(for: .init(runtimeKind: .gptk, backend: .d3dmetal))?.id, nil,
+            "and with no toolkit pinned there is nowhere for it to go")
+}

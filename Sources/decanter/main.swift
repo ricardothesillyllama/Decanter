@@ -446,7 +446,9 @@ case "add":
         ok("added \(g.name)")
         out("    engine:     \(g.detection.engine.label)  \(g.detection.bitness.label)")
         out("    graphics:   \(g.detection.graphicsAPIs.isEmpty ? "none detected" : g.detection.graphicsAPIs.joined(separator: ", "))")
-        out("    backend:    \(g.detection.recommendedBackend.label)")
+        // What it was given, not the detector's first guess: the two differ
+        // whenever what has worked here overrules the rule about files.
+        out("    backend:    \((e.store.bottle(g.bottleID)?.backend ?? g.detection.recommendedBackend).label)")
         out("    confidence: \(String(format: "%.2f", g.detection.confidence))")
         if g.detection.modded { out("    modded:     yes (BepInEx/Doorstop)") }
     } catch { die(error) }

@@ -7,6 +7,7 @@
 # .build/ is disposable and reproducible from source.
 set -e
 cd "$(dirname "$0")"
+. ./scripts/toolchain.sh
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 APP=.build/Decanter.app

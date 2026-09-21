@@ -11,6 +11,7 @@
 # screenshots are of a working library rather than a mock-up.
 set -e
 cd "$(dirname "$0")/.."
+. ./scripts/toolchain.sh >&2
 
 DEMO_ROOT="${DEMO_ROOT:-/tmp/decanter-demo}"
 GAMES="$DEMO_ROOT/games"

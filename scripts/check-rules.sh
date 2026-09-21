@@ -5,6 +5,7 @@
 # only in a document is a rule enforced by memory, which is not enforcement.
 set -e
 cd "$(dirname "$0")/.."
+. ./scripts/toolchain.sh >&2
 fail=0
 note() { echo "  ✗ $1"; fail=1; }
 

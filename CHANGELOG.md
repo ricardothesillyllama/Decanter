@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.9.1 — 2026-09-22
+
+**On macOS 27, every game looked like it never started.** Decanter tells
+which game a Wine process belongs to by reading WINEPREFIX from the process's
+environment, and read it with `ps eww` — which on macOS 27 prints no
+environment at all, for any process. So the watcher never saw a game appear,
+gave up after 45 seconds, said "did not start, and its log says nothing" over
+a game that was being played, and recorded nothing when it went well. Stray
+Wine sessions lost their prefix too. It is now read straight from the kernel
+(`KERN_PROCARGS2`), which 27 still answers for your own processes: measured
+against a real Wine session, the new build sees all seven processes and their
+prefix, where 0.9.0 saw one.
+
+**Use This on "Try Metal graphics" failed with an error about Wine 11.** The
+recommendation landed on the first Wine build pinned, not on one that can
+provide Metal graphics, so on a Mac with both Wine 11 and the Wine 10 build made
+for DXMT it chose the one that cannot. A recommendation now lands on a runtime
+that has its graphics.
+
+**A game removed and added again started on graphics its engine cannot run.**
+Adding a game used the detector's rule about files even when this Mac had seen
+something else work for games built the same way — Unity 6 went onto Apple
+graphics while the card above it said Metal had worked here. When the evidence
+is from this Mac, or only one setup can work at all, a new game now starts
+there.
+
+**A failed press stayed on the card, for the next game too.** The result of
+Use This was filed under one key for every game, so a failure on one game's
+card appeared under another's, days later. Results are per game now, and the
+refusal names the problem in one sentence instead of quoting the reasoning
+about Mach-O driver files.
+
+Removing a game now also clears a question Decanter had parked about it, which
+otherwise stayed in the file asking about a game that was gone.
+
+**Building on macOS 27 with the Command Line Tools.** The 27 SDK made SwiftUI's
+`@State` a macro whose implementation ships only with Xcode, so the app stopped
+compiling. `install.sh` and `release.sh` now build against the 26 SDK the same
+tools install alongside, when the plugin is missing, and say so.
+
 ## v0.9.0 — 2026-09-13
 
 **Take a game with you.** **Export…** on a game's page, or Game → Export…

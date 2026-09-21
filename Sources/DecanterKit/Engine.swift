@@ -363,7 +363,27 @@ public final class Engine: @unchecked Sendable {
             _ = try? saves.relink(game: game, prefix: bottle.prefixPath, template: template(for: game),
                                   progress: progress)
         }
-        return game
+        // The detector's pick is a rule about files. When this Mac has seen
+        // something else work for games built the same way — or only one setup
+        // can work at all — that is where a new game starts. A game removed and
+        // added again went back onto Apple graphics, which its own engine
+        // cannot run, while the card above it said Metal had worked here.
+        let rec = recommend(for: game)
+        let trusted: Bool = switch rec.provenance {
+        case .seenHere, .verified, .onlyOption: true
+        default: false
+        }
+        if trusted, rec.backend != backend || rec.runtimeKind != rt.kind, let target = runtime(for: rec) {
+            progress("starting it on \(rec.backend.plainName) graphics, which has worked for games like it")
+            let version = rec.backend == .dxvk ? DXVKInstaller(paths: paths).defaultVersion : nil
+            do {
+                try apply(Candidate(runtimeID: target.id, backend: rec.backend, dxvkVersion: version),
+                          to: game, progress: progress)
+            } catch {
+                progress("kept \(backend.plainName) graphics — \(error.localizedDescription)")
+            }
+        }
+        return store.state.games.first { $0.id == game.id } ?? game
     }
 
     public func run(_ game: Game, verbose: Bool = false, showHUD: Bool = false) throws -> Launcher.Plan {
@@ -1353,12 +1373,26 @@ public final class Engine: @unchecked Sendable {
         return r
     }
 
+    /// The pinned runtime a recommendation lands on: one that can provide its
+    /// graphics, of the kind it names.
+    ///
+    /// This was the first runtime of the right kind, full stop. With two Wine
+    /// builds pinned, "Metal graphics on Wine" landed on Wine 11 — which
+    /// cannot host DXMT — rather than on the Wine 10 build that was made for
+    /// it, and Use This failed on the one card that had evidence behind it.
+    public func runtime(for rec: Recommendation) -> RuntimeSpec? {
+        let all = store.state.runtimes
+        if rec.backend == .dxmt, let host = hostFor(.dxmt) { return host }
+        return all.first { $0.kind == rec.runtimeKind && $0.backends.contains(rec.backend) }
+            ?? all.first { $0.kind == rec.runtimeKind }
+    }
+
     /// Applies the recommendation without launching anything.
     @discardableResult
     public func applyRecommendation(_ game: Game, progress: (String) -> Void = { _ in }) throws -> Recommendation {
         let rec = recommend(for: game)
-        guard let rt = store.state.runtimes.first(where: { $0.kind == rec.runtimeKind })
-                ?? store.state.runtimes.first else { throw DecanterError.noRuntime("none pinned") }
+        guard let rt = runtime(for: rec) ?? store.state.runtimes.first
+        else { throw DecanterError.noRuntime("none pinned") }
         // Passing nil recorded a setup with no layer version, while
         // Setup.layerVersion exists precisely because DXVK 1.10.3 and 2.x are
         // not the same answer. Name the version that will actually be staged.
@@ -1942,6 +1976,9 @@ public final class Engine: @unchecked Sendable {
         // The launch log goes with the game. It is named after the game, so
         // left behind it would be picked up by the next game of that name.
         try? FileManager.default.removeItem(at: launcher.logFile(for: game))
+        // So does a question nobody answered about it. It outlived the game
+        // and sat in the file, asking about something no longer there.
+        Verdict(paths: paths).clear(gameID: game.id)
         return rep
     }
 

@@ -14,6 +14,7 @@
 # a script.
 set -e
 cd "$(dirname "$0")/.."
+. ./scripts/toolchain.sh
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 QUICK=0

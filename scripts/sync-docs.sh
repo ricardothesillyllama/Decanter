@@ -6,6 +6,7 @@
 # is wrong. CI runs this and fails if it produces a diff.
 set -e
 cd "$(dirname "$0")/.."
+. ./scripts/toolchain.sh >&2
 
 # No arguments on purpose: a partial run would write a smaller number and the
 # docs would quietly understate the suite. Ran it with CI's subset once and it
