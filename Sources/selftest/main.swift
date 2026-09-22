@@ -17,6 +17,7 @@ if wantAll || args.contains("kb")      { runKnowledgeTests(t) }
 if wantAll || args.contains("fonts")   { runFontTests(t) }
 if wantAll || args.contains("reap")    { runReaperTests(t) }
 if wantAll || args.contains("reap")    { runLivenessTests(t); runProcessEnvironmentTests(t); runRecommendationRuntimeTests(t) }
+if wantAll || args.contains("pointer") { runPointerRepairTests(t) }
 if wantAll || args.contains("dxvk")    { runDXVKTests(t) }
 if wantAll || args.contains("mods")    { runModLogTests(t) }
 if wantAll || args.contains("stop")    { runStopScopeTests(t) }

@@ -1317,6 +1317,7 @@ struct GameDetail: View {
         if let id = bottle?.runtimeID, let h = model.runtimeSoundness[id], !h.isSound {
             out.insert(.unsoundEnvironment)
         }
+        if model.mouseRepairOffer(for: game) != nil { out.insert(.brokenMouse) }
         if let a = model.advice(for: game), a.kind != .settled,
            !(a.kind == .chosenByHand && model.isHandChoiceDismissed(game)) {
             out.insert(.setupAdvice)
@@ -1338,6 +1339,8 @@ struct GameDetail: View {
             if let id = bottle?.runtimeID, let health = model.runtimeSoundness[id] {
                 EnvironmentHealthCard(runtimeID: id, report: health, game: game)
             }
+        case .brokenMouse:
+            if let rt = model.mouseRepairOffer(for: game) { MouseRepairCard(game: game, runtime: rt) }
         case .setupAdvice:
             if let a = model.advice(for: game) {
                 if a.kind == .chosenByHand { ChosenByHandCard(game: game, advice: a) }
@@ -2029,6 +2032,49 @@ struct KeptSavesCard: View {
 /// On 27 August the store could not decode the library, carried on with an
 /// empty one, and saved it over the file on the next change. A copy was kept,
 /// and nothing on screen said so. This is the saying so.
+/// A Wine build that loses the mouse for this game, and the repair for it.
+///
+/// Offered only when all three are certain: the game is Unity 6, which reads
+/// the mouse as a pointer; the build is the exact file the repair was worked
+/// out on; and nobody has said not now. The confirmation says what changes
+/// and where, because it is a change to Wine itself rather than to the game.
+struct MouseRepairCard: View {
+    @EnvironmentObject var model: AppModel
+    let game: Game
+    let runtime: RuntimeSpec
+    @State private var confirming = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "cursorarrow.motionlines").foregroundStyle(Palette.caution)
+                Text(PointerRepair.headline).font(.headline)
+                Spacer(minLength: 8)
+                Button("Not Now") { model.declineMouseRepair(runtime.id) }
+                    .controlSize(.small)
+                    .help("Hides this for \(runtime.id). The repair stays available in Setup.")
+                Button("Repair Wine…") { confirming = true }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(model.busy != nil)
+            }
+            Text(PointerRepair.explanation)
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ReactionNote(key: "mouseRepair-\(runtime.id)")
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Palette.caution.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.caution.opacity(0.30), lineWidth: 0.5))
+        .confirmationDialog("Repair mouse input in \(runtime.id)?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Repair") { model.repairMouse(runtime, for: game) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(PointerRepair.change(in: runtime.root))
+        }
+    }
+}
+
 struct LibraryUnreadableBanner: View {
     @EnvironmentObject var model: AppModel
     @State private var confirming = false

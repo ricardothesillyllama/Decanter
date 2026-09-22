@@ -879,13 +879,41 @@ case "repair":
             + "       runtimes: " + e.store.state.runtimes.map(\.id).joined(separator: ", ")))
     }
     let repair = RuntimeRepair()
+    let pointer = PointerRepair()
     if rest.contains("--undo") {
         do {
             let removed = try repair.undo(target, progress: step)
             if removed.isEmpty { ok("nothing had been copied into \(target.id)") }
             else { ok("removed \(removed.count) file\(removed.count == 1 ? "" : "s") \u{2014} \(target.id) is back as it was") }
+            if case .repaired = pointer.state(of: target.root) {
+                try pointer.undo(root: target.root, progress: step)
+                ok("put the original win32u.so back \u{2014} the mouse repair is undone")
+            }
         } catch { die(error) }
     } else {
+        // The mouse repair is its own offer: a build can be sound in every way
+        // the audit measures and still lose the mouse for Unity 6.
+        switch pointer.state(of: target.root) {
+        case .flawed(let build, _):
+            out(target.id)
+            out("  \u{2717} \(PointerRepair.headline) \u{2014} in Unity 6 games, on \(build)")
+            out("      \u{2192} \(PointerRepair.explanation)")
+            out("  \(PointerRepair.change(in: target.root))")
+            out("  Undo: `decanter repair \(target.id) --undo`")
+            if rest.contains("--do") {
+                do {
+                    let changed = try pointer.apply(to: target.root, progress: step)
+                    ok("repaired mouse input: \(changed.joined(separator: "; "))")
+                } catch { die(error) }
+            } else {
+                out("  Nothing has been changed. Run `decanter repair \(target.id) --do` to go ahead.")
+            }
+            out("")
+        case .repaired:
+            ok("\(target.id): the mouse repair is applied (the original win32u.so is kept beside it)")
+        case .notApplicable:
+            break
+        }
         let report = RuntimeAudit().audit(root: target.root)
         if report.isSound { ok(report.headline); break }
         let offer = repair.plan(for: target, donors: e.store.state.runtimes, audit: report)

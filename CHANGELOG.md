@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.9.2 — 2026-09-22
+
+**Unity 6 games took clicks but ignored the mouse otherwise.** Holding the right
+button to look around, moving the hands, dragging — nothing, while every menu
+button worked. Unity 6 reads the mouse as a Windows *pointer*, and Sikarugir's
+Wine 10.0 (revision 6), the build Decanter uses for Metal graphics and so the
+only one Unity 6 runs on, turns mouse input into pointer messages with one flag
+missing: the mark that says the mouse is the primary pointer, left off every
+move with a button held. A lone click carries it, which is why menus worked.
+Read out of the build's own machine code, the same gap was on a second button
+pressed during a hold and on every release, and a double-click produced no
+pointer message at all.
+
+Decanter now offers to repair that build: four changes to one file, none of
+which changes its size, recognised by the file's SHA-256 so no other build is
+ever touched. The game page shows it on Unity 6 games that need it, with a
+confirmation that says what changes and where; Setup shows it on the build,
+with Undo; `decanter repair <runtime>` describes it and `--do` / `--undo` act.
+The original is kept beside the changed file, the result is re-signed and read
+back before it counts as done, and a hand-made fix with the original kept
+beside it is recognised and completed. Confirmed on a real Unity 6 game, where
+mouse-look came back.
+
 ## v0.9.1 — 2026-09-22
 
 **On macOS 27, every game looked like it never started.** Decanter tells
