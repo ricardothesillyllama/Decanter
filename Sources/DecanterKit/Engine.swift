@@ -301,8 +301,11 @@ public final class Engine: @unchecked Sendable {
 
         progress("deriving prefix from golden template")
         let bottleID = UUID()
-        var bottle = try prefixes.derive(bottleID: bottleID, runtime: rt, backend: backend)
-        bottle.appliedRecipes = det.recipes
+        let bottle = try prefixes.derive(bottleID: bottleID, runtime: rt, backend: backend)
+        // det.recipes is what detection suggests, not what was installed.
+        // Recording it as applied made the app show the Visual C++ runtime as
+        // added when it was not, and a rebuild then replayed it, downloading
+        // from the network unasked.
 
         // "Game.exe", "Start.exe", "Launcher.exe" tell you nothing in a list;
         // the folder the game lives in almost always does.
@@ -905,6 +908,11 @@ public final class Engine: @unchecked Sendable {
             try store.mutate { s in
                 if let i = s.bottles.firstIndex(where: { $0.id == bottle.id }) {
                     var applied = s.bottles[i].appliedRecipes
+                    // One Visual C++ family: a rebuild must not replay an older
+                    // member over a newer one.
+                    if r.succeeded.contains(where: RecipeRunner.vcrunFamily.contains) {
+                        applied.removeAll { RecipeRunner.vcrunFamily.contains($0) && !r.succeeded.contains($0) }
+                    }
                     for v in r.succeeded where !applied.contains(v) { applied.append(v) }
                     s.bottles[i].appliedRecipes = applied
                 }

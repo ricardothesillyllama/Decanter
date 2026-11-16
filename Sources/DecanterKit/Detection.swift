@@ -157,7 +157,7 @@ public struct Detector {
         } else if names.contains(where: { $0 == "Engine" }) || dir.path.contains("/Binaries/Win") {
             r.engine = .unreal
             r.signals.append(.init("Unreal Engine/ + Binaries layout", weight: 0.35))
-            r.recipes = ["vcrun2019"]
+            r.recipes = ["vcrun"]
         }
 
         r.engineVersion = engineVersion(dir: dir)

@@ -1606,9 +1606,10 @@ final class AppModel: ObservableObject {
             if !r.failed.isEmpty && r.succeeded.isEmpty {
                 throw DecanterError.notFound("\(label) failed to install")
             }
-            return r.failed.isEmpty
+            let note = r.checksumMismatch.isEmpty ? "" : " " + RecipeRunner.checksumNotice
+            return (r.failed.isEmpty
                 ? "\(label) installed"
-                : "\(label) partly installed — \(r.failed.joined(separator: ", ")) failed"
+                : "\(label) partly installed — \(r.failed.joined(separator: ", ")) failed") + note
         }
     }
 

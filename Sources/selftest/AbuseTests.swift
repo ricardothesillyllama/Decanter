@@ -635,8 +635,10 @@ func runSavesTests(_ t: Harness) {
                  "the fmv preset expands to DirectShow")
         t.expect(RecipeRunner.expand(["fmv"]).contains("lavfilters702"),
                  "…and the LAV codec pack")
-        t.equal(RecipeRunner.expand(["vcrun", "vcrun2019"]).count, 1,
-                "duplicate verbs collapse")
+        t.equal(RecipeRunner.expand(["vcrun", "vcrun2026"]).count, 1,
+                "a preset and the verb it expands to collapse to one")
+        t.expect(RecipeRunner.expand(["vcrun"]) == ["vcrun2026"],
+                 "the vcrun preset installs the newest Visual C++")
         t.expect(RecipeRunner.expand(["corefonts"]) == ["corefonts"],
                  "a raw winetricks verb passes through untouched")
     }
