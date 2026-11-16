@@ -174,20 +174,16 @@ func runProcessEnvironmentTests(_ t: Harness) {
     // A real child with the variable set, the way the launcher sets it —
     // including the space every real prefix path has.
     //
-    // Not /bin/sleep itself: macOS 27 withholds the environment of Apple's
-    // own platform binaries (three strings back instead of seventy). Wine is
-    // not one, and neither is a signed copy of sleep, which is what this is.
-    let sleeper = Fixture.dir("procenv").appending(path: "sleeper")
-    try? FileManager.default.removeItem(at: sleeper)
-    try? FileManager.default.copyItem(at: URL(filePath: "/bin/sleep"), to: sleeper)
-    let sign = Process()
-    sign.executableURL = URL(filePath: "/usr/bin/codesign")
-    sign.arguments = ["--force", "--sign", "-", sleeper.path]
-    sign.standardError = FileHandle.nullDevice
-    try? sign.run(); sign.waitUntilExit()
+    // The child is this program, asleep. Not /bin/sleep: macOS 27 withholds
+    // the environment of Apple's own binaries. And not a re-signed copy of
+    // it, which was the first attempt and turned main red for eight weeks:
+    // on the macOS 15 runner the copy gave no environment back. The likely
+    // reason is that /bin/sleep is arm64e, and before macOS 26 a re-signed
+    // arm64e binary is killed as it starts. This program runs everywhere it
+    // was built.
     let p = Process()
-    p.executableURL = sleeper
-    p.arguments = ["5"]
+    p.executableURL = Bundle.main.executableURL ?? URL(filePath: CommandLine.arguments[0])
+    p.arguments = ["--sleep", "5"]
     var env = ProcessInfo.processInfo.environment
     env["WINEPREFIX"] = "/tmp/decanter probe/Application Support/pfx"
     p.environment = env
