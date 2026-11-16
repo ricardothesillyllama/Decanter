@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.3 — 2026-11-16
+
+_Unreleased._
+
 ## v0.9.2 — 2026-11-16
 
 **Unity 6 games took clicks but ignored the mouse otherwise.** Holding the right
