@@ -726,7 +726,7 @@ struct EndorsementBadge: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Vouch for this setup").font(.headline)
                     // The signed subject, in the words the row itself carries.
-                    // This opened with the game's name — "Rebirth Pub is on
+                    // This opened with the game's name — "Lantern Hollow is on
                     // Metal graphics" — and then warned the signer not to name
                     // the game in their note, which cannot both be right. A
                     // reader shown a title reasonably concludes they are
@@ -1122,7 +1122,7 @@ struct ComponentsCard: View {
     /// nothing has changed.
     static func installedCount(for game: Game, model: AppModel) -> Int {
         let applied = Set(model.bottle(for: game)?.appliedRecipes ?? [])
-        return items.filter { $0.verbs.allSatisfy(applied.contains) }.count
+        return items.filter { RecipeRunner.isApplied($0.verbs, in: applied) }.count
     }
 
     var body: some View {
@@ -1159,7 +1159,7 @@ struct ComponentsCard: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(Self.items) { item in
-                    let done = item.verbs.allSatisfy { applied.contains($0) }
+                    let done = RecipeRunner.isApplied(item.verbs, in: applied)
                     ActionButton(title: done ? "\(item.title) ✓" : item.title,
                                  systemImage: done ? "checkmark.circle" : "shippingbox",
                                  // One key per card. All four shared

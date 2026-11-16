@@ -228,3 +228,25 @@ public enum Concern: Int, Sendable, CaseIterable, Comparable {
     /// section of repairs for them points somebody at the wrong five buttons.
     public var callsForRepairTools: Bool { self != .strayProcesses && self != .keptSaves }
 }
+
+/// What a finished launch means: record it, ask about it, or say nothing.
+///
+/// These rules lived inside the app's window code, where two wrong answers
+/// about a running game were fixed without a test able to hold either.
+public enum LaunchJudgement: Equatable, Sendable {
+    /// Record this setup as working, ask nothing.
+    case recordWorking
+    /// Decanter cannot tell; park this question.
+    case ask(String)
+    /// Neither: the log already explains it, or there is nothing to say.
+    case nothing
+
+    public static func judge(appeared: Bool, doomed: Bool, ranFor: TimeInterval,
+                             windowStayed: Bool, logClean: Bool) -> LaunchJudgement {
+        if !appeared { return doomed ? .nothing : .ask("it never opened a window") }
+        if windowStayed && logClean { return .recordWorking }
+        if ranFor < 12 { return .ask("it closed again after \(Int(ranFor)) seconds") }
+        if !logClean { return .ask("it ran, but its log reports problems") }
+        return .nothing
+    }
+}

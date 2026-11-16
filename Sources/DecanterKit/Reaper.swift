@@ -150,15 +150,38 @@ public struct WineReaper {
     /// program in a prefix by several seconds, so counting it would keep a game
     /// "running" after it quit. Wine's own services are not the game either.
     public func sessionIsLive(in bottlePrefix: URL) -> Bool {
+        !programPIDs(in: bottlePrefix).isEmpty
+    }
+
+    /// Every program running in this Windows environment, by pid. Scoped by the
+    /// environment each process was started with, never by its file name, so
+    /// two games that share a file name are two answers.
+    public func programPIDs(in bottlePrefix: URL) -> Set<Int32> {
         guard let r = try? Shell.run(URL(filePath: "/bin/ps"), ["-Ao", "pid=,command="], timeout: 20)
-        else { return false }
+        else { return [] }
         let target = bottlePrefix.pathKey
         let me = ProcessInfo.processInfo.processIdentifier
+        var found = Set<Int32>()
         for c in Self.wineCandidates(psOutput: r.out, runtimeRoot: paths.runtimes.path)
             where c.pid != me && Self.isProgram(command: c.command) {
-            if self.prefix(of: c.pid)?.pathKey == target { return true }
+            if self.prefix(of: c.pid)?.pathKey == target { found.insert(c.pid) }
         }
-        return false
+        return found
+    }
+
+    /// The largest window a program in this Windows environment has drawn.
+    ///
+    /// The size floor is there because Wine puts its own ~500x500 desktop and
+    /// chrome windows on screen under the same process, so a low threshold
+    /// reports success when the game has drawn nothing. Ownership is decided by
+    /// the Windows environment the window's process runs in, never by a process
+    /// or file name: matching names let one game's window answer for another's.
+    public func gameWindow(in bottlePrefix: URL) -> Reporter.WindowRef? {
+        let target = bottlePrefix.pathKey
+        return Reporter.wineWindows()
+            .filter { $0.width >= 640 && $0.height >= 480 && $0.pid > 0
+                && prefix(of: $0.pid)?.pathKey == target }
+            .max { $0.width * $0.height < $1.width * $1.height }
     }
 
     /// The processes worth reading an environment for: anything run out of

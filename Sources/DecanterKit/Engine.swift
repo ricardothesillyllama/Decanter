@@ -301,8 +301,11 @@ public final class Engine: @unchecked Sendable {
 
         progress("deriving prefix from golden template")
         let bottleID = UUID()
-        var bottle = try prefixes.derive(bottleID: bottleID, runtime: rt, backend: backend)
-        bottle.appliedRecipes = det.recipes
+        let bottle = try prefixes.derive(bottleID: bottleID, runtime: rt, backend: backend)
+        // det.recipes is what detection suggests, not what was installed.
+        // Recording it as applied made the app show the Visual C++ runtime as
+        // added when it was not, and a rebuild then replayed it, downloading
+        // from the network unasked.
 
         // "Game.exe", "Start.exe", "Launcher.exe" tell you nothing in a list;
         // the folder the game lives in almost always does.
@@ -905,6 +908,11 @@ public final class Engine: @unchecked Sendable {
             try store.mutate { s in
                 if let i = s.bottles.firstIndex(where: { $0.id == bottle.id }) {
                     var applied = s.bottles[i].appliedRecipes
+                    // One Visual C++ family: a rebuild must not replay an older
+                    // member over a newer one.
+                    if r.succeeded.contains(where: RecipeRunner.vcrunFamily.contains) {
+                        applied.removeAll { RecipeRunner.vcrunFamily.contains($0) && !r.succeeded.contains($0) }
+                    }
                     for v in r.succeeded where !applied.contains(v) { applied.append(v) }
                     s.bottles[i].appliedRecipes = applied
                 }
@@ -1534,8 +1542,8 @@ public final class Engine: @unchecked Sendable {
     /// Exactly what an endorsement for this game would describe, in the words
     /// the signed row itself carries.
     ///
-    /// The popover asking for one used to open with the game's name — "Rebirth
-    /// Pub is on Metal graphics, and this Mac has seen it work" — and then warn
+    /// The popover asking for one used to open with the game's name — "Lantern
+    /// Hollow is on Metal graphics, and this Mac has seen it work" — and then warn
     /// the signer not to name the game in their note. Both halves cannot be
     /// right. Nothing about the game travels: what is signed is
     /// `Signature(detection)` and `Setup`, both drawn from closed vocabularies.
@@ -1906,10 +1914,15 @@ public final class Engine: @unchecked Sendable {
                                               videoBroken: false, score: 0, notes: notes))
                 continue
             }
-            let r = monitor.observe(game: g, engineLog: engineLog(for: g), progress: progress)
-            if let b = store.bottle(g.bottleID), let rt = store.runtime(b.runtimeID) {
-                monitor.stop(game: g, runtime: rt, prefix: b.prefixPath)
+            guard let b = store.bottle(g.bottleID) else {
+                attempts.append(AttemptResult(candidate: c, outcome: .neverStarted,
+                                              videoBroken: false, score: 0, notes: notes))
+                continue
             }
+            let r = monitor.observe(game: g, prefix: b.prefixPath, engineLog: engineLog(for: g), progress: progress)
+            _ = try? stop(g)
+            // The pause lets wineserver finish going away before the next candidate starts.
+            Thread.sleep(forTimeInterval: 2)
             notes.append(contentsOf: r.findings.map(\.summary))
             attempts.append(AttemptResult(candidate: c, outcome: r.outcome,
                                           videoBroken: r.videoBroken, score: r.score, notes: notes))

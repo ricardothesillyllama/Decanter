@@ -51,12 +51,14 @@ func runLaunchTests(_ t: Harness) {
     /// Waits for a Wine-owned window to appear on screen.
     /// Only windows owned by processes bound to this prefix count — another
     /// game of the user's may be running at the same time.
-    func waitForWindow(ofExecutable exe: URL, timeout: TimeInterval) -> Reporter.WindowRef? {
+    func waitForWindow(of g: Game, timeout: TimeInterval) -> Reporter.WindowRef? {
+        guard let b = e.store.bottle(g.bottleID) else { return nil }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let mine = Reporter.pids(forExecutable: exe)
-            if !mine.isEmpty,
-               let w = Reporter.wineWindows().first(where: { mine.contains($0.pid) }) { return w }
+            // No size floor: the one in `gameWindow` tells a game from Wine's own
+            // chrome, and the programs this suite starts are smaller than it.
+            let pids = WineReaper(paths: paths).programPIDs(in: b.prefixPath)
+            if !pids.isEmpty, let w = Reporter.wineWindows().first(where: { pids.contains($0.pid) }) { return w }
             Thread.sleep(forTimeInterval: 0.5)
         }
         return nil
@@ -141,14 +143,14 @@ func runLaunchTests(_ t: Harness) {
                 t.expect(!pre.fullFilesystemExposed, "the launch is scoped, with no z: drive")
             }
             t.survives("launching a real 64-bit Windows GUI program") { _ = try e.run(g) }
-            if let w = waitForWindow(ofExecutable: g.exePath, timeout: 40) {
+            if let w = waitForWindow(of: g, timeout: 40) {
                 t.expect(true, "a window appeared: \(w.width)x\(w.height) owned by \(w.owner)")
                 t.expect(w.width > 100 && w.height > 100, "the window has real, rendered dimensions")
             } else {
                 t.expect(false, "a 64-bit Windows program rendered a visible window")
             }
             if let b = e.store.bottle(g.bottleID) { shutdown(b.prefixPath) }
-            t.expect(Reporter.pids(forExecutable: g.exePath).isEmpty,
+            t.expect(e.store.bottle(g.bottleID).map { WineReaper(paths: paths).programPIDs(in: $0.prefixPath).isEmpty } ?? true,
                      "the test's own processes exited after shutdown")
         }
     } else {
@@ -165,12 +167,12 @@ func runLaunchTests(_ t: Harness) {
             t.equal(g.detection.bitness, .x86, "detected as 32-bit from its real PE header")
             t.equal(g.detection.recommendedRuntimeKind, .wine, "32-bit routed to modern Wine")
             t.survives("launching a real 32-bit Windows GUI program") { _ = try e.run(g) }
-            if let w = waitForWindow(ofExecutable: g.exePath, timeout: 40) {
+            if let w = waitForWindow(of: g, timeout: 40) {
                 t.expect(true, "a 32-bit window appeared: \(w.width)x\(w.height) — WoW64 works")
             } else {
                 t.expect(false, "a 32-bit Windows program rendered a visible window (WoW64)")
                 // Say what was actually observed, rather than leaving a bare failure.
-                let pids = Reporter.pids(forExecutable: g.exePath)
+                let pids = e.store.bottle(g.bottleID).map { WineReaper(paths: paths).programPIDs(in: $0.prefixPath) } ?? []
                 print("      exe: \(g.exePath.lastPathComponent)")
                 print("      matching pids: \(pids.isEmpty ? "none" : pids.map(String.init).joined(separator: ", "))")
                 let wins = Reporter.wineWindows()

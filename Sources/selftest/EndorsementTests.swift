@@ -33,7 +33,7 @@ func runEndorsementTests(_ t: Harness) {
     // carries, so there is nothing to be inconsistent with.
     for (situation, setup) in [(sig(), dxmt), (sig(chip: .m4, engineMajor: nil), dxvk)] {
         let shown = "\(situation.label) \(setup.label)".lowercased()
-        for forbidden in ["rebirth", "ultrakill", ".exe", "/users/", "steamapps"] {
+        for forbidden in ["lantern", "turnip", ".exe", "/users/", "steamapps"] {
             t.expect(!shown.contains(forbidden),
                      "the endorsement subject carries nothing resembling \(forbidden)")
         }

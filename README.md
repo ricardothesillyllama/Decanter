@@ -12,7 +12,7 @@ There are five plausible combinations and no way to tell them apart by looking.
 Working that out is the job Decanter exists to do.
 
 [![Download](https://img.shields.io/github/v/release/ricardothesillyllama/Decanter?label=download&style=flat-square&color=c8862e)](https://github.com/ricardothesillyllama/Decanter/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1261%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ricardothesillyllama/Decanter/ci.yml?branch=main&style=flat-square&label=1295%20checks)](https://github.com/ricardothesillyllama/Decanter/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/macOS%2014%2B-Apple%20Silicon-lightgrey?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 
@@ -297,7 +297,9 @@ whole filesystem into every game.
 
 No. Decanter makes no network requests at all. The single exception is
 **Windows Components**, which runs winetricks to fetch a Visual C++ runtime or
-codec from its publisher — and only when you press it.
+codec from its publisher — and only when you press it. winetricks checks what
+it downloads against a checksum but does not stop when one fails while running
+unattended; Decanter tells you when that happened.
 
 </details>
 
@@ -376,7 +378,8 @@ Two things worth knowing before you go deeper:
 
 - **You do not need a Microsoft C++ runtime.** Wine ships `vcruntime140` and
   `msvcp140` as builtins. A game complaining about them under Wine usually has a
-  different problem.
+  different problem. Some Unreal Engine launchers check the registry for a
+  recent Visual C++ and refuse to start without it; that one is worth installing.
 - **Newer DXVK is not better here.** 2.x and 3.x need Vulkan 1.3 features
   MoltenVK does not fully implement. 1.10.3 is the one that works on macOS.
 
@@ -436,7 +439,7 @@ Screen Recording permission.
 
 ## Status
 
-Tested by one person, on an M2 MacBook Air running macOS 26.5, with Wine 11.0
+Tested by one person, on an M2 MacBook Air running macOS 27, with Wine 11.0
 and Apple's Game Porting Toolkit pinned side by side.
 
 Every runtime Decanter uses is copied into its own store and then measured, so
@@ -446,7 +449,7 @@ goes wrong. No game can see your files.
 
 Decanter is a CLI and a SwiftUI app over a single engine, written in Swift with
 no external dependencies at all, on the view that every dependency is a future
-404. **1261 checks** run in a hand-rolled harness.
+404. **1295 checks** run in a hand-rolled harness.
 
 ## Documentation
 

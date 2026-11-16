@@ -49,20 +49,6 @@ public struct Reporter {
         public var pid: pid_t
     }
 
-    /// PIDs running a given executable. Every Wine window is owned by a
-    /// process called "wine", so with two games open the only way to tell them
-    /// apart — for a screenshot, or for a test — is the executable name, which
-    /// does appear in the command line (as "H:\\Game.exe").
-    /// The prefix path does not: it lives in the environment, and macOS blocks
-    /// reading another process's environment.
-    public static func pids(forExecutable exe: URL) -> Set<pid_t> {
-        let r = try? Shell.run(URL(filePath: "/usr/bin/pgrep"),
-                               ["-f", exe.lastPathComponent], timeout: 20)
-        let out = r?.out ?? ""
-        return Set(out.split(whereSeparator: \.isNewline)
-            .compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) })
-    }
-
     /// Finds on-screen windows belonging to Wine. Wine windows are owned by
     /// processes named `wine`/`wine64`/`wine-preloader` or by the game exe.
     public static func wineWindows() -> [WindowRef] {

@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.9.3 — 2026-11-16
+
+**"Install Visual C++ runtime" installed one that current games refuse.** The
+button installed Visual C++ 14.29, the 2019 release, and reported success.
+Unreal Engine's launcher reads the version from the registry and will not start
+below 14.50, so the dialog asking for the runtime came back however many times
+it was installed. The button now installs the newest Visual C++ the pinned
+winetricks has — 2026, falling back to 2022 or 2019 on an older winetricks and
+saying so — and a newer one replaces an older one in a game's record, so a
+rebuild does not put the old one back on top.
+
+**A component never showed as installed.** The card compared the name of a
+preset with the pieces it expands to, which are never equal, so no tick ever
+appeared and the button never disabled. That is how the same runtime came to be
+installed three times running. It compares what was installed now.
+
+**Adding an Unreal game recorded Visual C++ as installed when nothing was.** The
+detector's suggestion was written straight into the list of what a Windows
+environment has, and a later rebuild replayed that list — running winetricks,
+which downloads, without anybody having pressed anything. A suggestion is no
+longer a record.
+
+**A download that fails its checksum is said out loud.** winetricks checks what
+it fetches, and when it runs unattended it runs the file anyway, with or without
+`--force`. Usually the publisher has updated the installer since that copy of
+winetricks was written. Decanter cannot stop it from inside winetricks, so it
+now tells you, in the app and at the prompt, which component it happened to.
+
+**The command line and Troubleshoot found, and stopped, games by file name.**
+`decanter run` and Troubleshoot Launch asked the whole Mac for processes whose
+command line contained the game's file name, and Troubleshoot stopped a game by
+killing every one of them. Two games both called `Game.exe` were one game:
+either's window answered for the other, and troubleshooting one ended both. Both
+now ask what the app has asked since 0.8.4 — which programs are running in this
+game's own Windows environment — and stop only those. The rules for what a
+finished launch means (record it, ask, or say nothing) moved out of the app's
+window code into one function with a test, since two wrong answers about a
+running game were fixed there without one.
+
+No real game title appears anywhere in the source, tests or documents; two did,
+and are now the invented titles the demo library uses.
+
 ## v0.9.2 — 2026-11-16
 
 **Unity 6 games took clicks but ignored the mouse otherwise.** Holding the right
@@ -411,7 +453,7 @@ Fourteen new tests, 1094 in total.
 ## v0.8.2 — 2026-08-31
 
 **The endorsement popover named the game, and then told you not to.** It opened
-with "*Rebirth Pub* is on Metal graphics, and this Mac has seen it work", and
+with "*Lantern Hollow* is on Metal graphics, and this Mac has seen it work", and
 four lines below warned "do not name the game in it". Both halves cannot be
 right, and a reader believes the first one: it teaches that you are vouching for
 *that game*, when nothing about the game travels. What gets signed is a
