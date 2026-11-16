@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.9.2 — 2026-09-22
+## v0.9.2 — 2026-11-16
 
 **Unity 6 games took clicks but ignored the mouse otherwise.** Holding the right
 button to look around, moving the hands, dragging — nothing, while every menu
@@ -22,6 +22,15 @@ The original is kept beside the changed file, the result is re-signed and read
 back before it counts as done, and a hand-made fix with the original kept
 beside it is recognised and completed. Confirmed on a real Unity 6 game, where
 mouse-look came back.
+
+**The build on GitHub had been failing since 0.9.1, and 0.9.1 was published
+anyway.** One check started a re-signed copy of `/bin/sleep` to read its
+environment, which gives nothing back on the macOS 15 machine the checks run
+on; the check now starts the test program itself. The workflow also named the
+suites to run, so seven written after that list never ran there — all of
+export, the knowledge base and first-run setup among them. It runs every suite
+now, and this release went through a pull request so the result could not be
+skipped.
 
 ## v0.9.1 — 2026-09-22
 
