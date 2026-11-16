@@ -1709,6 +1709,9 @@ case "install":
         let r = try e2.install(g, verbs: want, progress: step)
         if !r.succeeded.isEmpty { ok("installed: \(r.succeeded.joined(separator: ", "))") }
         if !r.failed.isEmpty { warn("failed: \(r.failed.joined(separator: ", "))") }
+        if !r.checksumMismatch.isEmpty {
+            warn("\(r.checksumMismatch.joined(separator: ", ")): \(RecipeRunner.checksumNotice)")
+        }
     } catch { die(error) }
 
 case "recipes":

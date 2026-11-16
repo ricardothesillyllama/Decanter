@@ -21,13 +21,13 @@ public struct RecipeRunner {
                 "Video playback for FMV games: DirectShow plus the LAV codec pack."),
         "media": (["quartz", "devenum", "lavfilters702", "xact"],
                   "Everything in fmv, plus XAudio for game sound."),
-        "vcrun": (["vcrun2019"],
-                  "Visual C++ 2015-2022 runtime — the usual answer when a game demands it by name."),
+        "vcrun": (["vcrun2026"],
+                  "Visual C++ 2015-2026 runtime — the usual answer when a game demands it by name."),
         "vcrun2013": (["vcrun2013"],
                       "Visual C++ 2013. For games from roughly 2013-2016."),
         "vcrun2010": (["vcrun2010"],
                       "Visual C++ 2010. Older titles and many RPG Maker VX games."),
-        "vcrun-all": (["vcrun2010", "vcrun2013", "vcrun2019"],
+        "vcrun-all": (["vcrun2010", "vcrun2013", "vcrun2026"],
                       "Every commonly-needed Visual C++ runtime. Slow, but ends the guessing."),
         "dotnet": (["dotnet48"],
                    ".NET Framework 4.8. Slow to install and often unnecessary."),
@@ -36,6 +36,11 @@ public struct RecipeRunner {
         "d3dcompiler": (["d3dcompiler_47"],
                         "Shader compiler some Unity and Unreal titles expect to find."),
     ]
+
+    /// Every verb that installs the one Visual C++ 14.x DLL family, newest
+    /// first. vcrun2019 stops at 14.29, and current Unreal Engine games check
+    /// the registry for 14.50 or later and refuse to start below it.
+    public static let vcrunFamily = ["vcrun2026", "vcrun2022", "vcrun2019", "vcrun2017", "vcrun2015"]
 
     public struct Tooling: Sendable {
         public var winetricks = false
@@ -71,7 +76,42 @@ public struct RecipeRunner {
         public var verbs: [String] = []
         public var succeeded: [String] = []
         public var failed: [String] = []
+        public var checksumMismatch: [String] = []
         public var logPath: URL?
+    }
+
+    public static let checksumNotice = "The file downloaded did not match the checksum winetricks expected. That usually means Microsoft has updated the installer since this copy of winetricks was written. It was run anyway: winetricks does not stop for this when it runs unattended."
+
+    /// The verbs a winetricks script declares, from its `w_metadata <verb> …` lines.
+    public static func knownVerbs(inScript text: String) -> Set<String> {
+        var out = Set<String>()
+        text.enumerateLines { line, _ in
+            guard line.hasPrefix("w_metadata ") else { return }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if parts.count > 1 { out.insert(String(parts[1])) }
+        }
+        return out
+    }
+
+    /// Swaps a Visual C++ verb the pinned winetricks does not have for the
+    /// newest family member it does. An unreadable script (empty `known`)
+    /// changes nothing.
+    public static func resolve(_ verbs: [String], known: Set<String>) -> [String] {
+        if known.isEmpty { return verbs }
+        let sub = vcrunFamily.first(where: known.contains)
+        var seen = Set<String>()
+        return verbs.map { v in
+            vcrunFamily.contains(v) && !known.contains(v) ? (sub ?? v) : v
+        }.filter { seen.insert($0).inserted }
+    }
+
+    /// winetricks is not reliable about exit codes; check its own words.
+    public static func classify(exitCode: Int32, output: String) -> (failed: Bool, checksumMismatch: Bool) {
+        let out = output.lowercased()
+        let failed = exitCode != 0 || out.contains("failed") && !out.contains("already installed")
+        let mismatch = out.contains("sha256sum mismatch") || out.contains("sha256 mismatch")
+            || (out.contains("checksum for") && out.contains("did not match"))
+        return (failed, mismatch)
     }
 
     /// winetricks verb names are lowercase alphanumerics with dots, dashes and
@@ -93,6 +133,15 @@ public struct RecipeRunner {
         return out.filter { seen.insert($0).inserted }
     }
 
+    /// Whether everything these presets or verbs stand for is among the verbs
+    /// applied. The Components card used to compare a preset's name with the
+    /// verbs it expands to, so nothing ever read as installed and the same
+    /// component could be installed three times running.
+    public static func isApplied(_ names: [String], in applied: Set<String>) -> Bool {
+        let verbs = expand(names)
+        return !verbs.isEmpty && verbs.allSatisfy(applied.contains)
+    }
+
     public func run(verbs raw: [String], prefix: URL, runtime: RuntimeSpec,
                     progress: (String) -> Void = { _ in }) throws -> Result {
         let t = tooling()
@@ -103,7 +152,14 @@ public struct RecipeRunner {
             throw DecanterError.notFound(
                 "cabextract is required by most winetricks verbs and was not found. Install it with `brew install cabextract`.")
         }
-        let verbs = Self.expand(raw)
+        var verbs = Self.expand(raw)
+        if let script = try? String(contentsOf: winetricks, encoding: .utf8) {
+            let resolved = Self.resolve(verbs, known: Self.knownVerbs(inScript: script))
+            for (asked, used) in zip(verbs, resolved) where asked != used {
+                progress("this winetricks has no \(asked); using \(used)")
+            }
+            verbs = resolved
+        }
         var result = Result(verbs: verbs)
 
         var env = PrefixBuilder(paths: paths).baseEnv(prefix: prefix, runtime: runtime)
@@ -133,11 +189,19 @@ public struct RecipeRunner {
             // ran whatever followed the semicolon. Passing an argv array cannot
             // be reinterpreted as syntax, and the redirect it needed is
             // unnecessary — Shell.run already captures stderr.
+            //
+            // -f is what lets a newer Visual C++ install over an older one
+            // winetricks calls a conflict. It is NOT what lets a mismatched
+            // download run: unattended mode (-q) continues past a checksum
+            // failure with or without it, which is why Decanter reports the
+            // mismatch itself.
             let r = try Shell.run(winetricks, ["-q", "-f", verb], env: env, timeout: 1800)
             transcript += "\n===== \(verb) (exit \(r.code)) =====\n\(r.out)\n\(r.err)\n"
-            // winetricks is not reliable about exit codes; check its own words.
-            let out = (r.out + r.err).lowercased()
-            let failed = r.code != 0 || out.contains("failed") && !out.contains("already installed")
+            let (failed, mismatch) = Self.classify(exitCode: r.code, output: r.out + r.err)
+            if mismatch {
+                result.checksumMismatch.append(verb)
+                progress("  \(verb): the downloaded file did not match the checksum winetricks expected — it was run anyway")
+            }
             if failed { result.failed.append(verb); progress("  \(verb) failed") }
             else { result.succeeded.append(verb); progress("  \(verb) ok") }
         }
