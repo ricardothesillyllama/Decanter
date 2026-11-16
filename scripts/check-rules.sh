@@ -201,7 +201,7 @@ fi
 # 14. The endorsement surface never says the game's name.
 #
 #    The popover asking somebody to vouch for a setup opened with the title —
-#    "Rebirth Pub is on Metal graphics, and this Mac has seen it work" — and
+#    "Lantern Hollow is on Metal graphics, and this Mac has seen it work" — and
 #    then warned them not to name the game in their note. Both halves cannot be
 #    true, and a reader believes the first: it teaches that the endorsement is
 #    about that game, when nothing about the game travels. Notes get written for

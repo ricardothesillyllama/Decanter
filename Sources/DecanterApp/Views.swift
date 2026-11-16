@@ -726,7 +726,7 @@ struct EndorsementBadge: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Vouch for this setup").font(.headline)
                     // The signed subject, in the words the row itself carries.
-                    // This opened with the game's name — "Rebirth Pub is on
+                    // This opened with the game's name — "Lantern Hollow is on
                     // Metal graphics" — and then warned the signer not to name
                     // the game in their note, which cannot both be right. A
                     // reader shown a title reasonably concludes they are

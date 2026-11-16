@@ -436,7 +436,7 @@ Screen Recording permission.
 
 ## Status
 
-Tested by one person, on an M2 MacBook Air running macOS 26.5, with Wine 11.0
+Tested by one person, on an M2 MacBook Air running macOS 27, with Wine 11.0
 and Apple's Game Porting Toolkit pinned side by side.
 
 Every runtime Decanter uses is copied into its own store and then measured, so

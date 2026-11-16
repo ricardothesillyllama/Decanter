@@ -189,13 +189,13 @@ func runSaveNoiseTests(_ t: Harness) {
 /// the one fact that explains what they are seeing.
 func runModTriageTests(_ t: Harness) {
     let realLog = [
-        "[Message: Preloader] BepInEx 6.0.0-be.785 - Rebirth Pub",
+        "[Message: Preloader] BepInEx 6.0.0-be.785 - Lantern Hollow",
         "[Info   : Preloader] Running under Unity 6000.0.58f2",
         "[Message: Preloader] Preloader finished",
         "[Error  :   BepInEx] Unable to start Unity log writer",
         "[Message:   BepInEx] Chainloader initialized",
-        "[Info   :   BepInEx] Loading [RebirthPub Cheat 1.0.0]",
-        "[Info   :RebirthPub Cheat] Plugin loaded!",
+        "[Info   :   BepInEx] Loading [LanternHollow Tweaks 1.0.0]",
+        "[Info   :LanternHollow Tweaks] Plugin loaded!",
         "[Message:   BepInEx] Chainloader startup complete",
     ]
     let text = realLog.joined(separator: "\r\n")

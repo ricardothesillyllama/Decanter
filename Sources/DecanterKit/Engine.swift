@@ -1534,8 +1534,8 @@ public final class Engine: @unchecked Sendable {
     /// Exactly what an endorsement for this game would describe, in the words
     /// the signed row itself carries.
     ///
-    /// The popover asking for one used to open with the game's name — "Rebirth
-    /// Pub is on Metal graphics, and this Mac has seen it work" — and then warn
+    /// The popover asking for one used to open with the game's name — "Lantern
+    /// Hollow is on Metal graphics, and this Mac has seen it work" — and then warn
     /// the signer not to name the game in their note. Both halves cannot be
     /// right. Nothing about the game travels: what is signed is
     /// `Signature(detection)` and `Setup`, both drawn from closed vocabularies.

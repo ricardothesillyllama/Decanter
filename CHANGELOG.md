@@ -415,7 +415,7 @@ Fourteen new tests, 1094 in total.
 ## v0.8.2 — 2026-08-31
 
 **The endorsement popover named the game, and then told you not to.** It opened
-with "*Rebirth Pub* is on Metal graphics, and this Mac has seen it work", and
+with "*Lantern Hollow* is on Metal graphics, and this Mac has seen it work", and
 four lines below warned "do not name the game in it". Both halves cannot be
 right, and a reader believes the first one: it teaches that you are vouching for
 *that game*, when nothing about the game travels. What gets signed is a
