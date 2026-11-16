@@ -52,34 +52,22 @@ public struct LaunchMonitor {
     /// A first launch compiles shaders, a large game loads slowly, and a game
     /// launched through a proxy loader draws its window from a process whose
     /// name is not the executable's.
-    public func observe(game: Game, engineLog: URL?, timeout: TimeInterval = 120,
+    public func observe(game: Game, prefix: URL, engineLog: URL?, timeout: TimeInterval = 120,
                         progress: (String) -> Void = { _ in }) -> Result {
         var r = Result()
+        let reaper = WineReaper(paths: paths)
         let started = Date()
         var sawProcess = false
 
         while Date().timeIntervalSince(started) < timeout {
-            let pids = Reporter.pids(forExecutable: game.exePath)
+            let pids = reaper.programPIDs(in: prefix)
             if !pids.isEmpty {
                 sawProcess = true
-                // Wine puts its own ~500x500 desktop/chrome windows on screen
-                // under the same process, so a low threshold reports success
-                // when the game has drawn nothing. Require something big
-                // enough to be an actual game window, and take the largest.
-                // Matching on pid alone missed the real window: a mod loader
-                // or launcher draws from a process pgrep did not attribute to
-                // this executable. Accept a window whose owner names the game
-                // as well, and keep the size floor so Wine's own chrome and
-                // splash surfaces still do not count as "it rendered".
-                let stem = game.exePath.deletingPathExtension().lastPathComponent.lowercased()
-                let mine = Reporter.wineWindows()
-                    .filter { w in
-                        guard w.width >= 640, w.height >= 480 else { return false }
-                        return pids.contains(w.pid)
-                            || (!stem.isEmpty && w.owner.lowercased().contains(stem))
-                    }
-                    .sorted { $0.width * $0.height > $1.width * $1.height }
-                if let w = mine.first {
+                // A launcher or mod loader drawing from another process is
+                // still covered, because any program in this Windows
+                // environment counts. Matching on the file name is what made
+                // one game's window answer for another's.
+                if let w = reaper.gameWindow(in: prefix) {
                     r.outcome = .rendering(width: w.width, height: w.height)
                     progress("window appeared: \(w.width)x\(w.height)")
                     // Watch a while longer: games that fail on video or a
@@ -88,13 +76,13 @@ public struct LaunchMonitor {
                     let settle = Date()
                     while Date().timeIntervalSince(settle) < 18 {
                         Thread.sleep(forTimeInterval: 1.5)
-                        if Reporter.pids(forExecutable: game.exePath).isEmpty {
+                        if reaper.programPIDs(in: prefix).isEmpty {
                             r.outcome = .exited(after: Date().timeIntervalSince(started))
                             progress("it rendered, then exited — not a working setup")
                             break
                         }
                     }
-                    r.survived = !Reporter.pids(forExecutable: game.exePath).isEmpty
+                    r.survived = !reaper.programPIDs(in: prefix).isEmpty
                     break
                 }
             } else if sawProcess {
@@ -117,16 +105,5 @@ public struct LaunchMonitor {
                 || text.lowercased().contains("windowsvideomedia error")
         }
         return r
-    }
-
-    public func stop(game: Game, runtime: RuntimeSpec, prefix: URL) {
-        if let ws = runtime.wineserverPath {
-            var env = PrefixBuilder(paths: paths).baseEnv(prefix: prefix, runtime: runtime)
-            env["WINEPREFIX"] = prefix.path
-            _ = try? Shell.run(ws, ["-k"], env: env, timeout: 45)
-        }
-        // Belt and braces: the server may not own a detached game process.
-        _ = try? Shell.run(URL(filePath: "/usr/bin/pkill"), ["-f", game.exePath.lastPathComponent], timeout: 20)
-        Thread.sleep(forTimeInterval: 2)
     }
 }

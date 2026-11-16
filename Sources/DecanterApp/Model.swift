@@ -524,7 +524,7 @@ final class AppModel: ObservableObject {
                             await MainActor.run { _ = self.starting.remove(game.id) }
                         }
                         if firstWindow == nil,
-                           Self.sawGameWindow(in: plan.bottle.prefixPath, paths: e.paths) {
+                           WineReaper(paths: e.paths).gameWindow(in: plan.bottle.prefixPath) != nil {
                             firstWindow = Date()
                         }
                         continue
@@ -549,14 +549,14 @@ final class AppModel: ObservableObject {
                         // it reaches the engine's knowledge base, which is
                         // created on first use, and first use from two threads
                         // at once is a race nobody would find twice.
+                        let judgement = LaunchJudgement.judge(appeared: false, doomed: doomed, ranFor: 0,
+                                                              windowStayed: false, logClean: rep.isEmpty)
                         await MainActor.run {
                             // Only asked when Decanter genuinely cannot tell.
                             // A log that says the executable was refused is
                             // not an ambiguous outcome, and putting "did that
                             // work?" under it is how a prompt becomes noise.
-                            if !doomed {
-                                e.askAbout(game, observed: "it never opened a window")
-                            }
+                            if case .ask(let what) = judgement { e.askAbout(game, observed: what) }
                             self.running.remove(game.id)
                             self.starting.remove(game.id)
                             self.diagnosis[game.id] = rep
@@ -569,7 +569,6 @@ final class AppModel: ObservableObject {
                     }
                     let rep = Diagnostics().analyse(logAt: plan.logFile)
                     let ran = Date().timeIntervalSince(started)
-                    let quick = ran < 12
                     // The engine's own log, when this run wrote it. Unity
                     // records failures there that Wine never mentions.
                     let engineFindings: [Diagnostics.Finding] = {
@@ -585,22 +584,22 @@ final class AppModel: ObservableObject {
                     // recorded anything on its own, so every clean session
                     // taught the knowledge base nothing.
                     let stayed = firstWindow.map { Date().timeIntervalSince($0) >= 18 } ?? false
-                    let clean = stayed && rep.isEmpty && engineFindings.isEmpty
+                    let judgement = LaunchJudgement.judge(appeared: true, doomed: false, ranFor: ran,
+                                                          windowStayed: stayed,
+                                                          logClean: rep.isEmpty && engineFindings.isEmpty)
                     // A game that quit almost immediately, or one that left
                     // complaints in its log, is the ambiguous case: it may have
                     // been played and closed, or it may have died. Decanter
                     // does not know, so it asks rather than recording a guess.
                     await MainActor.run {
-                        if clean {
-                            try? e.rememberWorking(game)
-                        } else if quick {
-                            e.askAbout(game, observed: "it closed again after \(Int(ran)) seconds")
-                        } else if !rep.isEmpty || !engineFindings.isEmpty {
-                            e.askAbout(game, observed: "it ran, but its log reports problems")
+                        switch judgement {
+                        case .recordWorking: try? e.rememberWorking(game)
+                        case .ask(let what): e.askAbout(game, observed: what)
+                        case .nothing: break
                         }
                         self.running.remove(game.id)
                         self.starting.remove(game.id)
-                        if quick && !rep.isEmpty { self.diagnosis[game.id] = rep }
+                        if ran < 12 && !rep.isEmpty { self.diagnosis[game.id] = rep }
                         self.refreshVerdict()
                     }
                     return
@@ -650,16 +649,6 @@ final class AppModel: ObservableObject {
     }
 
     var pinnedRuntimes: [RuntimeSpec] { health?.pinnedRuntimes ?? [] }
-
-    /// A window big enough to be a game, owned by a process in this prefix.
-    nonisolated static func sawGameWindow(in prefix: URL, paths: Paths) -> Bool {
-        let reaper = WineReaper(paths: paths)
-        let target = prefix.pathKey
-        for w in Reporter.wineWindows() where w.width >= 640 && w.height >= 480 && w.pid > 0 {
-            if reaper.prefix(of: w.pid)?.pathKey == target { return true }
-        }
-        return false
-    }
 
     // MARK: Hand choices
 
@@ -1648,7 +1637,7 @@ final class AppModel: ObservableObject {
     /// button looked broken. Saying "nothing to report" is a result too.
     func diagnose(_ game: Game) {
         perform("Reading the last run's log…", key: "diagnose", scope: game.id) { e in
-            let log = e.paths.logs.appending(path: "\(game.name.replacingOccurrences(of: "/", with: "_")).log")
+            let log = e.launcher.logFile(for: game)
             let exists = FileManager.default.fileExists(atPath: log.path)
             let rep = Diagnostics().analyse(logAt: log)
             Task { @MainActor in self.diagnosis[game.id] = rep }

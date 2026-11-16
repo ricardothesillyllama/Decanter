@@ -199,6 +199,40 @@ func runProcessEnvironmentTests(_ t: Harness) {
     t.expect(WineReaper(paths: Paths(root: Fixture.dir("procenv"))).prefix(of: Int32.max) == nil,
              "no process, no prefix")
 
+    // Two programs with the same file name in different Windows environments
+    // are two games. A name search cannot tell them apart; the environment can.
+    do {
+        let root = Fixture.dir("same-name")
+        let paths = Paths(root: root)
+        let fm = FileManager.default
+        let exe = paths.runtimes.appending(path: "fixture-wine/bin/Game.exe")
+        try? fm.createDirectory(at: exe.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.copyItem(at: Bundle.main.executableURL ?? URL(filePath: CommandLine.arguments[0]), to: exe)
+        let a = root.appending(path: "bottles/A"), b = root.appending(path: "bottles/B")
+        for d in [a, b] { try? fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        func start(_ prefix: URL) -> Process {
+            let c = Process()
+            c.executableURL = exe
+            c.arguments = ["--sleep", "8"]
+            var env = ProcessInfo.processInfo.environment
+            env["WINEPREFIX"] = prefix.path
+            c.environment = env
+            try? c.run()
+            return c
+        }
+        let first = start(a), second = start(b)
+        defer { first.terminate(); second.terminate() }
+        let reaper = WineReaper(paths: paths)
+        let deadline = Date().addingTimeInterval(3)
+        while reaper.programPIDs(in: a).isEmpty && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        t.equal(reaper.programPIDs(in: a), [first.processIdentifier], "the first environment holds only its own program")
+        t.equal(reaper.programPIDs(in: b), [second.processIdentifier], "the second holds only its own, though the file name is the same")
+        t.expect(reaper.sessionIsLive(in: a), "a session with a program in it is live")
+        let empty = root.appending(path: "bottles/C")
+        t.equal(reaper.programPIDs(in: empty), [], "an environment with nothing running has no programs")
+        t.expect(!reaper.sessionIsLive(in: empty), "and is not live")
+    }
+
     // argc says 1, but Wine has rewritten argv, and an argument that looks
     // like the variable comes before the environment's own.
     var buf: [UInt8] = [1, 0, 0, 0]
