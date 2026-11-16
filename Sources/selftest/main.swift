@@ -2,6 +2,11 @@ import Foundation
 import DecanterKit
 
 let args = Array(CommandLine.arguments.dropFirst())
+
+// A child for the checks that need a live process of somebody else's making:
+// this program, asleep. See runProcessEnvironmentTests.
+if args.first == "--sleep" { sleep(UInt32(args.dropFirst().first ?? "") ?? 5); exit(0) }
+
 let t = Harness()
 
 let wantAll = args.isEmpty || args.contains("all")
@@ -17,6 +22,7 @@ if wantAll || args.contains("kb")      { runKnowledgeTests(t) }
 if wantAll || args.contains("fonts")   { runFontTests(t) }
 if wantAll || args.contains("reap")    { runReaperTests(t) }
 if wantAll || args.contains("reap")    { runLivenessTests(t); runProcessEnvironmentTests(t); runRecommendationRuntimeTests(t) }
+if wantAll || args.contains("pointer") { runPointerRepairTests(t) }
 if wantAll || args.contains("dxvk")    { runDXVKTests(t) }
 if wantAll || args.contains("mods")    { runModLogTests(t) }
 if wantAll || args.contains("stop")    { runStopScopeTests(t) }

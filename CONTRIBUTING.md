@@ -46,6 +46,7 @@ broke:
     swift run selftest endorse             # signing knowledge, and what a tier is allowed to do
     swift run selftest race                # read-while-write stress; only meaningful under --sanitize=thread
     swift run selftest export              # setup files and bundles: what travels, and what cannot
+    swift run selftest pointer             # the mouse repair: one known file, read back, undoable
     swift run selftest pack                # a runtime pack: what it claims, and what the claim is worth
     swift run selftest verdict             # asking only what could not be seen, and going back
     swift run selftest reload              # adopting another process's writes, and what a shell is told
@@ -57,7 +58,7 @@ broke:
 
 XCTest ships with Xcode, not the Command Line Tools, and SwiftPM cannot see the
 CLT copy of Testing.framework — so the harness is hand-rolled, in keeping with
-the no-dependency rule. **1230 checks.**
+the no-dependency rule. **1261 checks.**
 
 The launch suite also proves the font mapping end to end: it writes the
 mapping into a real prefix, asks Wine to read it back through its own registry

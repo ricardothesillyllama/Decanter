@@ -203,6 +203,10 @@ public enum Concern: Int, Sendable, CaseIterable, Comparable {
     /// because a graphics recommendation is beside the point in an environment
     /// that cannot load what it has.
     case unsoundEnvironment
+    /// A Wine build that loses part of the mouse for this game, with a repair
+    /// on offer. Below an unsound environment, which may not start at all;
+    /// above advice, because no setup change helps while the build loses input.
+    case brokenMouse
     /// What Decanter would change about this game's setup.
     case setupAdvice
     /// Saves kept from a removed game whose name matches this one. An offer

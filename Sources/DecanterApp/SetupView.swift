@@ -268,6 +268,7 @@ struct SetupView: View {
                     } else {
                         ForEach(h.pinnedRuntimes) { rt in
                             Markdown(text: "**\(rt.id)** — \(rt.supports32Bit ? "32-bit capable" : "64-bit only")\n\(rt.backends.map(Help.rawTechnicalName).joined(separator: ", "))")
+                            MouseRepairRow(runtime: rt)
                         }
                     }
                     if !h.discovered.isEmpty {
@@ -473,6 +474,45 @@ struct PieceInfoButton: View {
                 }
             }
             .padding(15).frame(width: 330)
+        }
+    }
+}
+
+/// The mouse repair for one Wine build, where it can be undone. Nothing for
+/// the builds it does not apply to, which is nearly all of them.
+struct MouseRepairRow: View {
+    @EnvironmentObject var model: AppModel
+    let runtime: RuntimeSpec
+    @State private var confirming = false
+
+    var body: some View {
+        switch model.mouseRepair[runtime.id] {
+        case .repaired?:
+            HStack(spacing: 8) {
+                Label("Mouse repair applied", systemImage: "checkmark.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Undo") { model.undoMouseRepair(runtime) }
+                    .controlSize(.small).disabled(model.busy != nil)
+                    .help("Puts this build's original win32u.so back. Unity 6 games on it lose mouse-look again.")
+            }
+            ReactionNote(key: "mouseRepair-\(runtime.id)")
+        case .flawed?:
+            HStack(spacing: 8) {
+                Label("Unity 6 games lose mouse-look here", systemImage: "cursorarrow.motionlines")
+                    .font(.caption).foregroundStyle(Palette.caution)
+                Button("Repair…") { confirming = true }
+                    .controlSize(.small).disabled(model.busy != nil)
+            }
+            ReactionNote(key: "mouseRepair-\(runtime.id)")
+                .confirmationDialog("Repair mouse input in \(runtime.id)?", isPresented: $confirming,
+                                    titleVisibility: .visible) {
+                    Button("Repair") { model.repairMouse(runtime) }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(PointerRepair.explanation + "\n\n" + PointerRepair.change(in: runtime.root))
+                }
+        default:
+            EmptyView()
         }
     }
 }

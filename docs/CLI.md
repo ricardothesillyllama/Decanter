@@ -17,7 +17,7 @@ does — plus a few diagnostics that only exist here.
 | `decanter bench` | Measure what every pinned Wine build can actually provide, with the evidence, and correct the record where it disagrees |
 | `decanter bench show` | The last measurements, without re-running them |
 | `decanter audit [rt]` | Every library a build references but does not carry — the silent faults, like a font library that cannot load |
-| `decanter repair <rt>` | Offer to fill a build's gaps from builds already on this Mac. Describes by default; `--do` applies, `--undo` reverses it. Nothing is downloaded |
+| `decanter repair <rt>` | Offer to fill a build's gaps from builds already on this Mac, and the mouse repair for Unity 6 on the one Wine build that needs it. Describes by default; `--do` applies, `--undo` reverses it. Nothing is downloaded |
 | `decanter endorse <game>` | Vouch for a setup you have run yourself, signing it with your key. `--note` attaches a line others will see |
 | `decanter endorse list` | Endorsed rows, and whether each signature still checks out |
 | `decanter endorse revoke <game>` | Take an endorsement back. What was seen here stays recorded; the vouching and its note do not |

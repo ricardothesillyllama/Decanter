@@ -25,13 +25,12 @@ jobs:
       - name: Build
         run: swift build -c release -Xswiftc -warnings-as-errors -Xswiftc -gnone
 
-      # The launch suite needs a pinned Wine runtime and a built template, which
-      # a fresh runner does not have. Everything else is hermetic.
+      # Every suite, with no list of them here. There was a list, and seven
+      # suites added after it was written never ran on this runner — the whole
+      # of export, the knowledge base and first-run setup among them. The
+      # suites that need a pinned Wine runtime say so and skip themselves.
       - name: Test
-        run: |
-          ./.build/release/selftest unit abuse stress saves schema \
-            fonts dxvk mods reap stop noise explain verbs exes metal fwd docs \
-            bench repair endorse verdict
+        run: ./.build/release/selftest
 
       - name: Rules that exist because breaking them caused a real failure
         run: ./scripts/check-rules.sh

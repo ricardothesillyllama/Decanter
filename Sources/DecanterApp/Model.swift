@@ -208,6 +208,14 @@ final class AppModel: ObservableObject {
             // underneath still hold together. Both are cheap to ask for and
             // both are things somebody would want to see without going looking.
             pendingVerdicts = Verdict(paths: e.paths).allPending()
+            // One hash of one file per runtime, about a megabyte each.
+            var mr: [String: PointerRepair.State] = [:]
+            for rt in e.store.state.runtimes {
+                let s = PointerRepair().state(of: rt.root)
+                if case .notApplicable = s { continue }
+                mr[rt.id] = s
+            }
+            mouseRepair = mr
             // Reading a small JSON file. Nothing is measured here — `bench` is
             // the command that measures, and it starts every Wine build to do
             // it.
@@ -748,6 +756,44 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.message = "Choose a game folder or its .exe"
         if panel.runModal() == .OK, let url = panel.url { add(path: url) }
+    }
+
+    // MARK: - Mouse repair
+
+    /// Wine builds the mouse repair knows, by runtime id. Absent means not one
+    /// of them, which is nearly every build.
+    @Published var mouseRepair: [String: PointerRepair.State] = [:]
+    @Published private(set) var declinedMouseRepair: Set<String> =
+        Set((UserDefaults.standard.array(forKey: "declinedMouseRepair") as? [String]) ?? [])
+
+    /// The runtime to repair for this game — only when the game is one the
+    /// flaw reaches, its build is the flawed one, and nobody said not now.
+    func mouseRepairOffer(for game: Game) -> RuntimeSpec? {
+        guard PointerRepair.affects(game.detection), let b = bottle(for: game),
+              case .flawed? = mouseRepair[b.runtimeID], !declinedMouseRepair.contains(b.runtimeID)
+        else { return nil }
+        return health?.pinnedRuntimes.first { $0.id == b.runtimeID }
+    }
+
+    func declineMouseRepair(_ runtimeID: String) {
+        declinedMouseRepair.insert(runtimeID)
+        UserDefaults.standard.set(Array(declinedMouseRepair), forKey: "declinedMouseRepair")
+    }
+
+    func repairMouse(_ rt: RuntimeSpec, for game: Game? = nil) {
+        let root = rt.root
+        perform("Repairing mouse input in \(rt.id)…", key: "mouseRepair-\(rt.id)", scope: game?.id) { _ in
+            let changed = try PointerRepair().apply(to: root)
+            return "Repaired: \(changed.count) changes. The original is kept beside it — undo from Setup."
+        }
+    }
+
+    func undoMouseRepair(_ rt: RuntimeSpec) {
+        let root = rt.root
+        perform("Undoing the mouse repair in \(rt.id)…", key: "mouseRepair-\(rt.id)") { _ in
+            try PointerRepair().undo(root: root)
+            return "The original is back."
+        }
     }
 
     // MARK: - Taking a game somewhere else
