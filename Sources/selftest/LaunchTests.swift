@@ -55,7 +55,10 @@ func runLaunchTests(_ t: Harness) {
         guard let b = e.store.bottle(g.bottleID) else { return nil }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let w = WineReaper(paths: paths).gameWindow(in: b.prefixPath) { return w }
+            // No size floor: the one in `gameWindow` tells a game from Wine's own
+            // chrome, and the programs this suite starts are smaller than it.
+            let pids = WineReaper(paths: paths).programPIDs(in: b.prefixPath)
+            if !pids.isEmpty, let w = Reporter.wineWindows().first(where: { pids.contains($0.pid) }) { return w }
             Thread.sleep(forTimeInterval: 0.5)
         }
         return nil
