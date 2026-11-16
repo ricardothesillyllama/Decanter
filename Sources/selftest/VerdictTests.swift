@@ -173,4 +173,21 @@ func runConcernOrderTests(_ t: Harness) {
     // appears depend on Set iteration order, which is not stable between runs.
     let ranks = Concern.allCases.map(\.rawValue)
     t.equal(Set(ranks).count, Concern.allCases.count, "every concern has a distinct rank")
+
+    t.suite("what a finished launch means")
+    typealias J = LaunchJudgement
+    func judge(_ appeared: Bool, doomed: Bool = false, ran: TimeInterval = 60,
+               stayed: Bool = true, clean: Bool = true) -> J {
+        J.judge(appeared: appeared, doomed: doomed, ranFor: ran, windowStayed: stayed, logClean: clean)
+    }
+    t.equal(judge(false), .ask("it never opened a window"), "never appeared: ask")
+    t.equal(judge(false, doomed: true), .nothing, "never appeared and the log says why: say nothing")
+    t.equal(judge(true, doomed: true), .recordWorking, "doomed only matters when the game never appeared")
+    t.equal(judge(true), .recordWorking, "stayed and clean: record it")
+    t.equal(judge(true, ran: 5), .recordWorking, "a stayed window and a clean log outrank a short run")
+    t.equal(judge(true, ran: 11.9, stayed: false), .ask("it closed again after 11 seconds"), "just under twelve seconds: closed again")
+    t.equal(judge(true, ran: 12, stayed: false), .nothing, "twelve seconds, clean log: nothing to say")
+    t.equal(judge(true, ran: 12, stayed: false, clean: false), .ask("it ran, but its log reports problems"), "twelve seconds, log complains: ask")
+    t.equal(judge(true, ran: 60, clean: false), .ask("it ran, but its log reports problems"), "stayed but the log complains: ask")
+    t.equal(judge(true, ran: 3, clean: false), .ask("it closed again after 3 seconds"), "a quick exit is asked about as such")
 }

@@ -497,7 +497,7 @@ case "run":
             ok("launched (not waiting)")
         } else {
             // Fire-and-forget gave no clue whether it worked; watch and report.
-            let r = LaunchMonitor(paths: e.paths).observe(game: g, engineLog: e.engineLog(for: g))
+            let r = LaunchMonitor(paths: e.paths).observe(game: g, prefix: plan.bottle.prefixPath, engineLog: e.engineLog(for: g))
             switch r.outcome {
             case .rendering(let w, let h):
                 ok("\(g.name) is running — \(w)x\(h)")
@@ -513,7 +513,7 @@ case "run":
                     out("    remembered this setup for games like it")
                 }
             case .runningWithoutWindow:
-                warn("running, but no window appeared after 45s")
+                warn("running, but no window appeared after two minutes")
                 e.askAbout(g, observed: "it is running, but no window appeared")
             case .exited(let t):
                 warn("exited after \(Int(t))s — it did not stay running")

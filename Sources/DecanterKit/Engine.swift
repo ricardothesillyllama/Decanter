@@ -1914,10 +1914,15 @@ public final class Engine: @unchecked Sendable {
                                               videoBroken: false, score: 0, notes: notes))
                 continue
             }
-            let r = monitor.observe(game: g, engineLog: engineLog(for: g), progress: progress)
-            if let b = store.bottle(g.bottleID), let rt = store.runtime(b.runtimeID) {
-                monitor.stop(game: g, runtime: rt, prefix: b.prefixPath)
+            guard let b = store.bottle(g.bottleID) else {
+                attempts.append(AttemptResult(candidate: c, outcome: .neverStarted,
+                                              videoBroken: false, score: 0, notes: notes))
+                continue
             }
+            let r = monitor.observe(game: g, prefix: b.prefixPath, engineLog: engineLog(for: g), progress: progress)
+            _ = try? stop(g)
+            // The pause lets wineserver finish going away before the next candidate starts.
+            Thread.sleep(forTimeInterval: 2)
             notes.append(contentsOf: r.findings.map(\.summary))
             attempts.append(AttemptResult(candidate: c, outcome: r.outcome,
                                           videoBroken: r.videoBroken, score: r.score, notes: notes))
